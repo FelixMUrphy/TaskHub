@@ -57,7 +57,17 @@ sealed class Settings
         ["panel_topmost"] = true,
         ["toast_controls"] = true,
         ["progress_toasts"] = false,
+        ["language"] = "auto",
     };
+
+    string cfgPath;
+
+    /// <summary>Persist the current config (used when settings change from the UI).</summary>
+    public void SaveCfg()
+    {
+        try { File.WriteAllText(cfgPath, Cfg.ToJsonString(J.Pretty)); }
+        catch (Exception e) { Log.W("config save failed: " + e.Message); }
+    }
 
     public static JsonObject ReadExeSettings()
     {
@@ -92,7 +102,7 @@ sealed class Settings
         s.DataDir = data;
         Log.Path = System.IO.Path.Combine(data, "taskhub.log");
 
-        var cfgPath = System.IO.Path.Combine(data, "config.json");
+        var cfgPath = s.cfgPath = System.IO.Path.Combine(data, "config.json");
         var cfg = (JsonObject)Defaults.DeepClone();
         if (File.Exists(cfgPath))
         {

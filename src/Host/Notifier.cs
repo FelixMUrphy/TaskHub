@@ -102,7 +102,7 @@ sealed class Notifier : INotifier
                         }
                         else if (typ == "bool")
                         {
-                            b.AddComboBox(iid, lbl, J.Truthy(inp["default"]) ? "true" : "false", ("true", "так / yes"), ("false", "ні / no"));
+                            b.AddComboBox(iid, lbl, J.Truthy(inp["default"]) ? "true" : "false", ("true", L.T("yes")), ("false", L.T("no")));
                         }
                         else
                         {
@@ -129,7 +129,7 @@ sealed class Notifier : INotifier
                     actions++;
                 }
             }
-            b.AddButton(new ToastButton().SetContent("Відкрити панель").AddArgument("action", "open").AddArgument("task", tid ?? ""));
+            b.AddButton(new ToastButton().SetContent(L.T("open_panel")).AddArgument("action", "open").AddArgument("task", tid ?? ""));
             var tag = Tag(tid ?? "n") + Guid.NewGuid().ToString("N")[..6];
             b.Show(t => { t.Tag = tag; t.Group = Settings.AppId; });
             failures = 0;
@@ -208,7 +208,7 @@ sealed class Notifier : INotifier
                          .Where(c => J.Truthy(c["toast"]) && c["input"] == null).Take(2))
                 b.AddButton(new ToastButton().SetContent(J.Cut(J.Str(c["label"]), 40))
                     .AddArgument("action", "ctl").AddArgument("task", tid).AddArgument("cid", J.Str(c["id"])));
-            b.AddButton(new ToastButton().SetContent("Відкрити панель").AddArgument("action", "open").AddArgument("task", tid));
+            b.AddButton(new ToastButton().SetContent(L.T("open_panel")).AddArgument("action", "open").AddArgument("task", tid));
             progressSeq[tag] = 1;
             b.Show(n =>
             {

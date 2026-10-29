@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="uk">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -110,18 +110,20 @@ pre .warn{color:var(--amber)} pre .error{color:var(--red)} pre .cmd{color:var(--
 .dlg .t{margin-bottom:12px;word-break:break-word}
 .dlg .row{display:flex;gap:6px;justify-content:flex-end}
 .pywebview-drag-region{cursor:default}
+.lng{font:inherit;font-size:12px;background:var(--track);color:var(--fg);border:0;border-radius:6px;padding:2px 4px;cursor:pointer;max-width:110px}
 </style>
 </head>
 <body>
 <header>
   <h1 class="pywebview-drag-region">TaskHub</h1><span class="cnt pywebview-drag-region" id="cnt"></span>
   <span class="sp pywebview-drag-region" style="align-self:stretch"></span>
-  <div class="tabs"><button data-f="active" class="on">Активні</button><button data-f="all">Усі</button></div>
+  <div class="tabs"><button data-f="active" class="on" data-i="active"></button><button data-f="all" data-i="all"></button></div>
+  <select id="lang" class="lng"></select>
   <button class="ib" id="mute" title="Сповіщення">🔔</button>
-  <button class="ib" id="clear" title="Прибрати завершені">🧹</button>
+  <button class="ib" id="clear">🧹</button>
 </header>
-<div id="off">Немає з'єднання з TaskHub…</div>
-<main id="list"><div class="empty">Немає задач</div></main>
+<div id="off" data-i="offline"></div>
+<main id="list"></main>
 <div id="snack"></div>
 <div id="dlg" class="dlg"><div class="box"><div class="t"></div><div class="row"><button class="btn primary">OK</button><button class="btn">Скасувати</button></div></div></div>
 <script>
@@ -141,7 +143,47 @@ if (TOKEN) H.Authorization = "Bearer " + TOKEN;
 const $ = (s, r=document) => r.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const ACTIVE = new Set(["running","paused","stale"]);
-const ST_UA = {running:"працює",paused:"пауза",stale:"мовчить",done:"готово",failed:"помилка",cancelled:"скасовано",lost:"втрачено"};
+/* ---------------- i18n ---------------- */
+const LANGS = {en:"English",uk:"Українська",es:"Español",de:"Deutsch",fr:"Français",it:"Italiano",pt:"Português",pl:"Polski",zh:"中文",ja:"日本語"};
+const LOCALE = {en:"en-GB",uk:"uk-UA",es:"es-ES",de:"de-DE",fr:"fr-FR",it:"it-IT",pt:"pt-BR",pl:"pl-PL",zh:"zh-CN",ja:"ja-JP"};
+const I18N = {
+ en:{active:"Active",all:"All",notif_on:"Notifications on",notif_off:"Notifications off",clear_done:"Clear finished",offline:"No connection to TaskHub…",no_tasks:"No tasks",no_active:"No active tasks",ok:"OK",cancel:"Cancel",remove:"Remove",log:"Log",cmd_queued:"command queued",sent:"“{0}” sent",error:"Error",counts:"{0} active · {1} total",waiting:"waiting for data…",per_s:"u/s",eta:"ETA",silence:"silent",language:"Language",auto:"Auto",
+  st_running:"running",st_paused:"paused",st_stale:"no response",st_done:"done",st_failed:"failed",st_cancelled:"cancelled",st_lost:"lost",u:["s","m","h","d"]},
+ uk:{active:"Активні",all:"Усі",notif_on:"Сповіщення увімкнені",notif_off:"Сповіщення вимкнені",clear_done:"Прибрати завершені",offline:"Немає з'єднання з TaskHub…",no_tasks:"Немає задач",no_active:"Немає активних задач",ok:"OK",cancel:"Скасувати",remove:"Прибрати",log:"Лог",cmd_queued:"команда в черзі",sent:"«{0}» надіслано",error:"Помилка",counts:"{0} активн. · {1} всього",waiting:"очікування даних…",per_s:"од/с",eta:"ETA",silence:"тиша",language:"Мова",auto:"Авто",
+  st_running:"працює",st_paused:"пауза",st_stale:"мовчить",st_done:"готово",st_failed:"помилка",st_cancelled:"скасовано",st_lost:"втрачено",u:["с","хв","г","д"]},
+ es:{active:"Activas",all:"Todas",notif_on:"Notificaciones activadas",notif_off:"Notificaciones desactivadas",clear_done:"Quitar finalizadas",offline:"Sin conexión con TaskHub…",no_tasks:"No hay tareas",no_active:"No hay tareas activas",ok:"Aceptar",cancel:"Cancelar",remove:"Quitar",log:"Registro",cmd_queued:"comando en cola",sent:"«{0}» enviado",error:"Error",counts:"{0} activas · {1} en total",waiting:"esperando datos…",per_s:"u/s",eta:"ETA",silence:"sin señal",language:"Idioma",auto:"Automático",
+  st_running:"en curso",st_paused:"en pausa",st_stale:"sin respuesta",st_done:"completada",st_failed:"fallida",st_cancelled:"cancelada",st_lost:"perdida",u:["s","min","h","d"]},
+ de:{active:"Aktiv",all:"Alle",notif_on:"Benachrichtigungen an",notif_off:"Benachrichtigungen aus",clear_done:"Abgeschlossene entfernen",offline:"Keine Verbindung zu TaskHub…",no_tasks:"Keine Aufgaben",no_active:"Keine aktiven Aufgaben",ok:"OK",cancel:"Abbrechen",remove:"Entfernen",log:"Protokoll",cmd_queued:"Befehl in Warteschlange",sent:"„{0}“ gesendet",error:"Fehler",counts:"{0} aktiv · {1} gesamt",waiting:"warte auf Daten…",per_s:"E/s",eta:"ETA",silence:"still",language:"Sprache",auto:"Automatisch",
+  st_running:"läuft",st_paused:"pausiert",st_stale:"keine Rückmeldung",st_done:"fertig",st_failed:"fehlgeschlagen",st_cancelled:"abgebrochen",st_lost:"verloren",u:["s","min","h","T"]},
+ fr:{active:"Actives",all:"Toutes",notif_on:"Notifications activées",notif_off:"Notifications désactivées",clear_done:"Retirer les terminées",offline:"Pas de connexion à TaskHub…",no_tasks:"Aucune tâche",no_active:"Aucune tâche active",ok:"OK",cancel:"Annuler",remove:"Retirer",log:"Journal",cmd_queued:"commande en attente",sent:"« {0} » envoyé",error:"Erreur",counts:"{0} actives · {1} au total",waiting:"en attente de données…",per_s:"u/s",eta:"ETA",silence:"silence",language:"Langue",auto:"Auto",
+  st_running:"en cours",st_paused:"en pause",st_stale:"sans réponse",st_done:"terminée",st_failed:"échouée",st_cancelled:"annulée",st_lost:"perdue",u:["s","min","h","j"]},
+ it:{active:"Attive",all:"Tutte",notif_on:"Notifiche attive",notif_off:"Notifiche disattivate",clear_done:"Rimuovi completate",offline:"Nessuna connessione a TaskHub…",no_tasks:"Nessuna attività",no_active:"Nessuna attività attiva",ok:"OK",cancel:"Annulla",remove:"Rimuovi",log:"Log",cmd_queued:"comando in coda",sent:"«{0}» inviato",error:"Errore",counts:"{0} attive · {1} totali",waiting:"in attesa di dati…",per_s:"u/s",eta:"ETA",silence:"silenzio",language:"Lingua",auto:"Automatica",
+  st_running:"in corso",st_paused:"in pausa",st_stale:"nessuna risposta",st_done:"completata",st_failed:"fallita",st_cancelled:"annullata",st_lost:"persa",u:["s","min","h","g"]},
+ pt:{active:"Ativas",all:"Todas",notif_on:"Notificações ativadas",notif_off:"Notificações desativadas",clear_done:"Remover concluídas",offline:"Sem conexão com o TaskHub…",no_tasks:"Sem tarefas",no_active:"Sem tarefas ativas",ok:"OK",cancel:"Cancelar",remove:"Remover",log:"Log",cmd_queued:"comando na fila",sent:"“{0}” enviado",error:"Erro",counts:"{0} ativas · {1} no total",waiting:"aguardando dados…",per_s:"u/s",eta:"ETA",silence:"sem resposta",language:"Idioma",auto:"Automático",
+  st_running:"em execução",st_paused:"pausada",st_stale:"sem resposta",st_done:"concluída",st_failed:"falhou",st_cancelled:"cancelada",st_lost:"perdida",u:["s","min","h","d"]},
+ pl:{active:"Aktywne",all:"Wszystkie",notif_on:"Powiadomienia włączone",notif_off:"Powiadomienia wyłączone",clear_done:"Usuń zakończone",offline:"Brak połączenia z TaskHub…",no_tasks:"Brak zadań",no_active:"Brak aktywnych zadań",ok:"OK",cancel:"Anuluj",remove:"Usuń",log:"Log",cmd_queued:"polecenie w kolejce",sent:"„{0}” wysłano",error:"Błąd",counts:"{0} aktywne · {1} łącznie",waiting:"oczekiwanie na dane…",per_s:"j/s",eta:"ETA",silence:"cisza",language:"Język",auto:"Automatycznie",
+  st_running:"działa",st_paused:"wstrzymane",st_stale:"brak odpowiedzi",st_done:"gotowe",st_failed:"błąd",st_cancelled:"anulowane",st_lost:"utracone",u:["s","min","h","d"]},
+ zh:{active:"进行中",all:"全部",notif_on:"通知已开启",notif_off:"通知已关闭",clear_done:"清除已完成",offline:"无法连接 TaskHub…",no_tasks:"没有任务",no_active:"没有进行中的任务",ok:"确定",cancel:"取消",remove:"移除",log:"日志",cmd_queued:"命令排队中",sent:"已发送「{0}」",error:"错误",counts:"{0} 进行中 · 共 {1}",waiting:"等待数据…",per_s:"个/秒",eta:"剩余",silence:"无响应",language:"语言",auto:"自动",
+  st_running:"运行中",st_paused:"已暂停",st_stale:"无响应",st_done:"已完成",st_failed:"失败",st_cancelled:"已取消",st_lost:"丢失",u:["秒","分","时","天"]},
+ ja:{active:"実行中",all:"すべて",notif_on:"通知オン",notif_off:"通知オフ",clear_done:"完了を消去",offline:"TaskHub に接続できません…",no_tasks:"タスクなし",no_active:"実行中のタスクなし",ok:"OK",cancel:"キャンセル",remove:"削除",log:"ログ",cmd_queued:"コマンド待機中",sent:"「{0}」を送信しました",error:"エラー",counts:"{0} 実行中 · 全 {1}",waiting:"データ待ち…",per_s:"件/秒",eta:"残り",silence:"応答なし",language:"言語",auto:"自動",
+  st_running:"実行中",st_paused:"一時停止",st_stale:"応答なし",st_done:"完了",st_failed:"失敗",st_cancelled:"キャンセル",st_lost:"消失",u:["秒","分","時間","日"]},
+};
+let LANG = (()=>{ const n=(navigator.language||"en").slice(0,2).toLowerCase(); return I18N[n]?n:"en"; })();
+let LANG_SETTING = "auto";
+function T(k, ...a){ const d=I18N[LANG]||I18N.en; let s=d[k]; if (s==null) s=I18N.en[k]; if (s==null) return k; return a.length? String(s).replace(/\{(\d)\}/g,(_,i)=>a[+i]) : s; }
+const LOC = () => LOCALE[LANG]||"en-GB";
+function applyLang(){
+  document.documentElement.lang = LANG;
+  document.querySelectorAll("[data-i]").forEach(e=>e.textContent=T(e.dataset.i));
+  $("#clear").title = T("clear_done");
+  const [ok,no]=document.querySelectorAll("#dlg button"); ok.textContent=T("ok"); no.textContent=T("cancel");
+  const sel=$("#lang");
+  sel.innerHTML = `<option value="auto">🌐 ${esc(T("auto"))}</option>` + Object.entries(LANGS).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join("");
+  sel.value = LANG_SETTING; sel.title = T("language");
+  // rebuild cards so every translated string is refreshed
+  $("#list").innerHTML=""; for (const k in ui) delete ui[k];
+}
+
 let ver = 0, data = null, filt = "active", skew = 0, focusSeq = null;
 const ui = {};   // per-task UI state: {ctlSig, formFor}
 
@@ -152,8 +194,8 @@ async function api(method, path, body){
   if (!r.ok) throw new Error(j.error || r.status);
   return j;
 }
-function dur(s){ s=Math.max(0,Math.floor(s)); if(s<60) return s+"с"; if(s<3600) return Math.floor(s/60)+"хв "+String(s%60).padStart(2,"0")+"с";
-  if(s<86400) return Math.floor(s/3600)+"г "+String(Math.floor(s%3600/60)).padStart(2,"0")+"хв"; return Math.floor(s/86400)+"д "+Math.floor(s%86400/3600)+"г"; }
+function dur(s){ const u=T("u"); s=Math.max(0,Math.floor(s)); if(s<60) return s+u[0]; if(s<3600) return Math.floor(s/60)+u[1]+" "+String(s%60).padStart(2,"0")+u[0];
+  if(s<86400) return Math.floor(s/3600)+u[2]+" "+String(Math.floor(s%3600/60)).padStart(2,"0")+u[1]; return Math.floor(s/86400)+u[3]+" "+Math.floor(s%86400/3600)+u[2]; }
 function num(v, d){ if (typeof v!=="number"||!isFinite(v)) return esc(v ?? "—");
   if (d!=null) return v.toFixed(d); const a=Math.abs(v);
   if (a>=1e6) return (v/1e6).toFixed(2)+"M"; if (a>=1e4) return (v/1e3).toFixed(1)+"k";
@@ -216,7 +258,7 @@ const W = {
     const pts=w.points||[], S=w.series||[w.id], hgt=w.height||54, Wd=300;
     const last = pts.length? pts[pts.length-1] : null;
     const right = last ? S.map((s,i)=> last[i+1]==null?"":`${S.length>1?esc(s)+" ":""}${num(last[i+1],w.decimals)}`).filter(Boolean).join(" · ")+(w.unit?" "+esc(w.unit):"") : "";
-    if (pts.length<2) return lab(w,right)+`<div class="v" style="color:var(--mut);font-size:11px;padding:8px 0">очікування даних…</div>`;
+    if (pts.length<2) return lab(w,right)+`<div class="v" style="color:var(--mut);font-size:11px;padding:8px 0">${T("waiting")}</div>`;
     let lo=Infinity, hi=-Infinity;
     for (const p of pts) for (let i=1;i<p.length;i++) if (p[i]!=null){ lo=Math.min(lo,p[i]); hi=Math.max(hi,p[i]); }
     if (w.y_min!=null) lo=w.y_min; if (w.y_max!=null) hi=w.y_max;
@@ -262,7 +304,7 @@ function renderWidgets(t){
 function cardSkeleton(t){
   const el=document.createElement("div");
   el.className="card"; el.id="t-"+t.id;
-  el.innerHTML=`<div class="hd"><span class="name"></span><span class="chip src"></span><span class="st"></span><span class="sp"></span><span class="tm"></span><button class="x" title="Прибрати">×</button></div>
+  el.innerHTML=`<div class="hd"><span class="name"></span><span class="chip src"></span><span class="st"></span><span class="sp"></span><span class="tm"></span><button class="x" title="${T("remove")}">×</button></div>
    <div class="desc"></div><div class="bar"><i></i></div><div class="l1"></div><div class="status"></div><div class="stage"></div>
    <div class="wg"></div><div class="msg"></div><div class="ctl"></div><div class="form"></div>
    <details class="lgx"><summary></summary><pre></pre></details><div class="meta"></div>`;
@@ -274,21 +316,21 @@ function cardSkeleton(t){
 const findTask = id => data && data.tasks.find(x=>x.id===id);
 function fillLog(el, t, scroll){
   const pre=$("pre",el), atBottom = pre.scrollTop+pre.clientHeight >= pre.scrollHeight-8;
-  pre.innerHTML=(t.log||[]).slice(-300).map(l=>`<span class="${esc(l.level)}">${new Date(l.t*1000).toLocaleTimeString("uk-UA")}  ${esc(l.msg)}</span>`).join("\n");
+  pre.innerHTML=(t.log||[]).slice(-300).map(l=>`<span class="${esc(l.level)}">${new Date(l.t*1000).toLocaleTimeString(LOC())}  ${esc(l.msg)}</span>`).join("\n");
   if (scroll||atBottom) pre.scrollTop=pre.scrollHeight;
 }
 function times(t){
   const end = t.finished || now(), el = end - t.started;
   let s = dur(el);
-  if (ACTIVE.has(t.state) && t.progress>0.005 && t.progress<1) s += " · ETA " + dur(el/t.progress*(1-t.progress));
-  if (t.state==="stale") s += " · тиша " + dur(now()-t.last_seen);
+  if (ACTIVE.has(t.state) && t.progress>0.005 && t.progress<1) s += " · "+T("eta")+" " + dur(el/t.progress*(1-t.progress));
+  if (t.state==="stale") s += " · "+T("silence")+" " + dur(now()-t.last_seen);
   return s;
 }
 function updCard(el, t){
   el.dataset.s=t.state; if (ACTIVE.has(t.state)) el.dataset.active=1; else delete el.dataset.active;
   $(".name",el).textContent=t.name; $(".name",el).title=t.name+" ["+t.id+"]";
   const src=$(".src",el); src.textContent=t.source; src.style.display=t.source?"":"none";
-  $(".st",el).textContent=ST_UA[t.state]||t.state;
+  $(".st",el).textContent=T("st_"+t.state);
   $(".tm",el).textContent=times(t);
   const d=$(".desc",el); d.textContent=t.description||""; d.style.display=t.description?"":"none";
   const bar=$(".bar",el), hasP = t.progress!=null;
@@ -298,7 +340,7 @@ function updCard(el, t){
   let l1=[];
   if (hasP) l1.push(`<b>${(t.progress*100).toFixed(1)}%</b>`);
   if (t.current!=null) l1.push(`${num(t.current)}${t.total!=null?" / "+num(t.total):""} ${esc(t.unit)}`);
-  if (hasP && ACTIVE.has(t.state) && t.current!=null && t.progress>0){ const r=t.current/Math.max(1,now()-t.started); l1.push(`${num(r)} ${esc(t.unit)||"од"}/с`); }
+  if (hasP && ACTIVE.has(t.state) && t.current!=null && t.progress>0){ const r=t.current/Math.max(1,now()-t.started); l1.push(`${num(r)} ${t.unit?esc(t.unit)+"/s":T("per_s")}`); }
   $(".l1",el).innerHTML=l1.join("<span>·</span>"); $(".l1",el).style.display=l1.length?"":"none";
   $(".status",el).textContent=t.status||""; $(".status",el).style.display=t.status?"":"none";
   $(".stage",el).textContent=t.stage?("▸ "+t.stage):""; $(".stage",el).style.display=t.stage?"":"none";
@@ -318,7 +360,7 @@ function updCard(el, t){
     }
   }
   // log
-  $("summary",el).textContent=`Лог (${(t.log||[]).length})` + (t.commands&&t.commands.some(c=>c.status==="pending")?" · команда в черзі":"");
+  $("summary",el).textContent=`${T("log")} (${(t.log||[]).length})` + (t.commands&&t.commands.some(c=>c.status==="pending")?" · "+T("cmd_queued"):"");
   if ($("details",el).open) fillLog(el,t);
   // meta / links
   const links=(t.links||[]).map(l=>typeof l==="string"?{label:l,url:l}:l).filter(l=>l&&l.url);
@@ -354,18 +396,19 @@ async function onControl(el, tid, c, btn){
 }
 async function send(tid,c,value,btn){
   if (btn) btn.disabled=true;
-  try{ await api("POST",`/api/tasks/${tid}/controls/${c.id}`, value===undefined?{}:{value}); snack(`«${c.label}» надіслано`); }
-  catch(e){ snack("Помилка: "+e.message); }
+  try{ await api("POST",`/api/tasks/${tid}/controls/${c.id}`, value===undefined?{}:{value}); snack(T("sent",c.label)); }
+  catch(e){ snack(T("error")+": "+e.message); }
   finally{ if (btn) btn.disabled=false; }
 }
 
 function render(){
   if (!data) return;
+  if ((data.lang && data.lang!==LANG) || (data.language && data.language!==LANG_SETTING)){ LANG=data.lang||LANG; LANG_SETTING=data.language||"auto"; applyLang(); }
   const list=$("#list"), tasks=data.tasks.filter(t=> filt==="all" || ACTIVE.has(t.state) || (now()-(t.finished||0)<900));
   const nAct=data.tasks.filter(t=>ACTIVE.has(t.state)).length;
-  $("#cnt").textContent = `${nAct} активн. · ${data.tasks.length} всього`;
+  $("#cnt").textContent = T("counts",nAct,data.tasks.length);
   $("#mute").textContent = data.muted ? "🔕" : "🔔";
-  $("#mute").title = data.muted ? "Сповіщення вимкнені" : "Сповіщення увімкнені";
+  $("#mute").title = data.muted ? T("notif_off") : T("notif_on");
   const keep=new Set(tasks.map(t=>"t-"+t.id));
   [...list.children].forEach(c=>{ if(!keep.has(c.id)) c.remove(); });
   let prev=null;
@@ -377,7 +420,7 @@ function render(){
     if (want!==el) list.insertBefore(el, want);
     prev=el;
   }
-  if (!tasks.length){ list.innerHTML=`<div class="empty">${filt==="all"?"Немає задач":"Немає активних задач"}</div>`; }
+  if (!tasks.length){ list.innerHTML=`<div class="empty">${filt==="all"?T("no_tasks"):T("no_active")}</div>`; }
   // focus request (tray/toast click)
   const fc=data.focus||{};
   if (focusSeq===null) focusSeq = fc.seq;
@@ -398,7 +441,7 @@ async function loop(){
       if (!r.ok) throw new Error(r.status);
       const j=await r.json(); skew=j.now-Date.now()/1000; ver=j.version; data=j;
       $("#off").style.display="none"; fails=0; render();
-    }catch(e){ $("#off").textContent="Немає з'єднання з TaskHub… ("+(e&&e.message||e)+")"; $("#off").style.display="block"; await new Promise(r=>setTimeout(r, Math.min(5000, 800*++fails))); }
+    }catch(e){ $("#off").textContent=T("offline")+" ("+(e&&e.message||e)+")"; $("#off").style.display="block"; await new Promise(r=>setTimeout(r, Math.min(5000, 800*++fails))); }
   }
 }
 document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setFilt(b.dataset.f));
@@ -418,6 +461,8 @@ window.addEventListener("blur",()=>{
 });
 setInterval(()=>{ if(!data) return; for(const t of data.tasks){ const el=document.getElementById("t-"+t.id); if(el) $(".tm",el).textContent=times(t);} },1000);
 try{ if(localStorage.th_f) filt=localStorage.th_f; }catch(e){}
+applyLang();
+$("#lang").onchange=e=>api("POST","/api/settings",{language:e.target.value}).catch(err=>snack(err.message));
 setFilt(filt); seen(); loop();
 if (location.hash.length>1) setTimeout(()=>flash(location.hash.slice(1)),600);
 </script>

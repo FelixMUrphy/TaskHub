@@ -75,25 +75,45 @@ sealed class TrayApp : ApplicationContext
     ContextMenuStrip BuildMenu()
     {
         var m = new ContextMenuStrip();
-        m.Items.Add("Відкрити панель", null, (_, _) => Panel.ShowPanel(null)).Font = new Font(m.Font, FontStyle.Bold);
-        miMute = new ToolStripMenuItem("Без сповіщень", null, (_, _) => hub.SetMuted(!hub.Muted));
-        m.Items.Add(miMute);
-        m.Items.Add("Прибрати завершені", null, (_, _) => hub.ClearFinished());
+        var items = new List<(ToolStripItem item, string key)>();
+        ToolStripMenuItem Add(string key, Action a)
+        {
+            var it = new ToolStripMenuItem(key, null, (_, _) => a());
+            m.Items.Add(it);
+            items.Add((it, key));
+            return it;
+        }
+        Add("open_panel", () => Panel.ShowPanel(null)).Font = new Font(m.Font, FontStyle.Bold);
+        miMute = Add("mute", () => hub.SetMuted(!hub.Muted));
+        Add("clear_done", () => hub.ClearFinished());
         m.Items.Add(new ToolStripSeparator());
-        miAuto = new ToolStripMenuItem("Автозапуск", null, (_, _) =>
+        miAuto = Add("autostart", () =>
         {
             try { Install.SetAutostart(!Install.AutostartEnabled(S), S); }
             catch (Exception e) { MessageBox.Show(e.Message, "TaskHub"); }
         });
-        m.Items.Add(miAuto);
-        m.Items.Add("Тестове сповіщення", null, (_, _) =>
-            hub.Notify(new JsonObject { ["title"] = "TaskHub", ["message"] = "Тестове сповіщення ✓", ["force"] = true }));
-        m.Items.Add("Тека даних", null, (_, _) => Hub.OpenTarget(S.DataDir));
-        m.Items.Add("API (довідка)", null, (_, _) => Hub.OpenTarget(Path.Combine(S.ExeDir, "API.md")));
+        var miLang = Add("language", () => { });
+        var langItems = new List<(ToolStripMenuItem, string)>();
+        foreach (var code in new[] { "auto" }.Concat(L.Langs))
+        {
+            var c = code;
+            var li = new ToolStripMenuItem(c == "auto" ? "auto" : L.Names[c], null, (_, _) => hub.SetLanguage(c));
+            miLang.DropDownItems.Add(li);
+            langItems.Add((li, c));
+        }
+        Add("test_toast", () => hub.Notify(new JsonObject { ["title"] = "TaskHub", ["message"] = L.T("test_toast") + " ✓", ["force"] = true }));
+        Add("data_folder", () => Hub.OpenTarget(S.DataDir));
+        Add("api_help", () => Hub.OpenTarget(Path.Combine(S.ExeDir, "API.md")));
         m.Items.Add(new ToolStripSeparator());
-        m.Items.Add("Вийти", null, (_, _) => Quit());
+        Add("quit", Quit);
         m.Opening += (_, _) =>
         {
+            foreach (var (it, key) in items) it.Text = L.T(key);
+            foreach (var (li, c) in langItems)
+            {
+                if (c == "auto") li.Text = L.T("auto");
+                li.Checked = L.Setting == c;
+            }
             miMute.Checked = hub.Muted;
             miAuto.Checked = Install.AutostartEnabled(S);
         };
@@ -132,8 +152,8 @@ sealed class TrayApp : ApplicationContext
             var p = J.Num(t["progress"]) is double pr ? $" {Math.Round(pr * 100)}%" : "";
             parts.Add(J.Cut(J.Str(t["name"]), 28) + p + (J.Str(t["state"]) == "stale" ? " ⚠" : ""));
         }
-        if (s.Failed.Count > 0) parts.Add($"{s.Failed.Count} failed");
-        var head = $"TaskHub — {s.ActiveT.Count} active" + (hub.Muted ? " (muted)" : "");
+        if (s.Failed.Count > 0) parts.Add(L.T("failed_n", s.Failed.Count));
+        var head = "TaskHub — " + L.T("active_n", s.ActiveT.Count) + (hub.Muted ? " " + L.T("muted") : "");
         return J.Cut(head + (parts.Count > 0 ? "\n" + string.Join("\n", parts) : ""), 127);
     }
 

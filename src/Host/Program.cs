@@ -14,6 +14,7 @@ static class Program
     static int Main(string[] args)
     {
         var S = Settings.Load(args);
+        L.S = S;
         string Arg(string k) { int i = Array.IndexOf(args, k); return i >= 0 && i + 1 < args.Length && !args[i + 1].StartsWith("--") ? args[i + 1] : null; }
         bool Has(string k) => args.Contains(k);
 

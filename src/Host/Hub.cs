@@ -376,7 +376,7 @@ sealed class Hub
             controls.Add(NormControl(new JsonObject
             {
                 ["id"] = "kill", ["label"] = "Kill", ["kind"] = "kill", ["style"] = "danger",
-                ["confirm"] = $"Kill process {pid} and its children?",
+                ["confirm"] = L.T("kill_confirm", pid),
             }));
         var notify = new JsonObject
         {
@@ -440,7 +440,7 @@ sealed class Hub
         }
         Log.W($"register {tid} '{name}' pid={pid}");
         if (J.Truthy(notify["start"]))
-            ToastFor(t, "▶ " + name, J.Truthy(t["description"]) ? J.Str(t["description"]) : "started");
+            ToastFor(t, "▶ " + name, J.Truthy(t["description"]) ? J.Str(t["description"]) : L.T("started"));
         if (progressToast && !Muted && S.Bool("toasts", true)) lock (Lock) Notifier?.Progress((JsonObject)t.DeepClone());
         return new JsonObject { ["id"] = tid, ["panel"] = "/ui#" + tid, ["resumed"] = resumed };
     }
@@ -631,8 +631,8 @@ sealed class Hub
             var dur = FmtDur(now - (J.Num(t["started"]) ?? now));
             var name = J.Str(t["name"]);
             var msg = J.Str(t["message"]);
-            if (state == "done") ToastFor(t, "✅ " + name, (msg.Length > 0 ? msg : "done") + "  ·  " + dur, "info", "finish");
-            else if (state == "cancelled") ToastFor(t, "⏹ " + name, (msg.Length > 0 ? msg : "cancelled") + "  ·  " + dur, "warn", "finish");
+            if (state == "done") ToastFor(t, "✅ " + name, (msg.Length > 0 ? msg : L.T("done")) + "  ·  " + dur, "info", "finish");
+            else if (state == "cancelled") ToastFor(t, "⏹ " + name, (msg.Length > 0 ? msg : L.T("cancelled")) + "  ·  " + dur, "warn", "finish");
             else ToastFor(t, "❌ " + name, (msg.Length > 0 ? msg : state) + "  ·  " + dur, "error", "fail");
         }
         Log.W($"finish {tid} {state}");
@@ -697,6 +697,19 @@ sealed class Hub
     public void SetMuted(bool m)
     {
         lock (Lock) { Muted = m; Bump(); }
+    }
+
+    /// <summary>"auto" or one of L.Langs; persisted in config.json.</summary>
+    public void SetLanguage(string lang)
+    {
+        lang = (lang ?? "auto").Trim().ToLowerInvariant();
+        if (lang != "auto" && !L.Langs.Contains(lang)) throw new ApiError(400, "language must be auto or one of " + string.Join(", ", L.Langs));
+        lock (Lock)
+        {
+            S.Cfg["language"] = lang;
+            Bump();
+        }
+        S.SaveCfg();
     }
 
     // ------------------------------------------------------------ controls & commands
@@ -947,6 +960,7 @@ sealed class Hub
             return new JsonObject
             {
                 ["version"] = Version, ["now"] = J.Now(), ["muted"] = Muted,
+                ["lang"] = L.Lang, ["language"] = L.Setting,
                 ["focus"] = focus.DeepClone(),
                 ["server"] = new JsonObject { ["version"] = Settings.Version, ["pid"] = Environment.ProcessId, ["impl"] = "dotnet" },
                 ["tasks"] = new JsonArray(list),
@@ -1021,7 +1035,7 @@ sealed class Hub
                 foreach (var tid in lost)
                     try { Finish(tid, new JsonObject { ["state"] = "lost", ["message"] = "process exited without reporting" }); } catch { }
                 foreach (var t in stale)
-                    ToastFor(t, "⚠ " + J.Str(t["name"]), "no updates for " + FmtDur(J.Num(t["heartbeat_timeout"]) ?? 0), "warn", "stale");
+                    ToastFor(t, "⚠ " + J.Str(t["name"]), L.T("no_updates", FmtDur(J.Num(t["heartbeat_timeout"]) ?? 0)), "warn", "stale");
                 Save();
             }
             catch (Exception e) { Log.W("watchdog error " + e); }
