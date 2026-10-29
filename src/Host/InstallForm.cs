@@ -8,19 +8,19 @@ sealed class InstallForm : Form
     public string Folder => box.Text.Trim();
     public bool Autostart => cbAuto.Checked;
     public bool AddPath => cbPath.Checked;
-    public bool Claude => cbClaude.Checked;
-    public bool Codex => cbCodex.Checked;
+    public IEnumerable<(Integrations.Agent agent, Integrations.Kind kind, bool on)> Agents => agentBoxes.Select(x => (x.a, x.k, x.cb.Checked));
 
     readonly TextBox box;
-    readonly CheckBox cbAuto, cbPath, cbClaude, cbCodex;
+    readonly CheckBox cbAuto, cbPath;
+    readonly List<(Integrations.Agent a, Integrations.Kind k, CheckBox cb)> agentBoxes = new();
 
     /// <summary>Default for an agent checkbox: the earlier choice on update, else on if the agent is used on this PC.</summary>
-    static bool AgentDefault(Integrations.Agent a)
+    static bool AgentDefault(Integrations.Agent a, Integrations.Kind k)
     {
         try
         {
-            if (L.S?.Cfg[Integrations.CfgKey(a)] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<bool>(out var on)) return on;
-            return Integrations.Enabled(a) || Integrations.Detected(a);
+            if (L.S?.Cfg[Integrations.CfgKey(a, k)] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<bool>(out var on)) return on;
+            return Integrations.Enabled(a, k) || Integrations.Detected(a);
         }
         catch { return false; }
     }
@@ -68,10 +68,20 @@ sealed class InstallForm : Form
         cbPath = new CheckBox { Text = L.T("setup_path"), Checked = true, AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
         root.Controls.Add(cbAuto);
         root.Controls.Add(cbPath);
-        cbClaude = new CheckBox { Text = L.T("setup_agent", "Claude Code"), Checked = AgentDefault(Integrations.Agent.Claude), AutoSize = true, Margin = new Padding(0, 12, 0, 0) };
-        cbCodex = new CheckBox { Text = L.T("setup_agent", "Codex"), Checked = AgentDefault(Integrations.Agent.Codex), AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
-        root.Controls.Add(cbClaude);
-        root.Controls.Add(cbCodex);
+        foreach (var a in Integrations.All)
+        {
+            root.Controls.Add(new Label { Text = Integrations.Name(a) + ":", AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 12, 0, 2) });
+            foreach (var k in Integrations.Kinds)
+            {
+                var cb = new CheckBox
+                {
+                    Text = L.T(k == Integrations.Kind.Hooks ? "setup_agent" : "setup_mcp", Integrations.Name(a)),
+                    Checked = AgentDefault(a, k), AutoSize = true, Margin = new Padding(12, 2, 0, 0),
+                };
+                agentBoxes.Add((a, k, cb));
+                root.Controls.Add(cb);
+            }
+        }
 
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, Margin = new Padding(0, 16, 0, 0) };
         var bCancel = new Button { Text = L.T("setup_cancel"), AutoSize = true, DialogResult = DialogResult.Cancel };

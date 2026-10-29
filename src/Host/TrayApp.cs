@@ -100,20 +100,24 @@ sealed class TrayApp : ApplicationContext
             catch (Exception e) { MessageBox.Show(e.Message, "TaskHub"); }
         });
         var miInt = Add("integrations", () => { });
-        var intItems = new List<(ToolStripMenuItem, Integrations.Agent)>();
+        var intItems = new List<(ToolStripMenuItem, Integrations.Agent, Integrations.Kind)>();
         foreach (var ag in Integrations.All)
         {
-            var a = ag;
-            var it = new ToolStripMenuItem(Integrations.Name(a), null, (_, _) =>
+            if (miInt.DropDownItems.Count > 0) miInt.DropDownItems.Add(new ToolStripSeparator());
+            foreach (var kd in Integrations.Kinds)
             {
-                bool on = !Integrations.Enabled(a);
-                var err = Integrations.Set(a, on, S);
-                if (err != null) MessageBox.Show(err, "TaskHub", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                else if (on && a == Integrations.Agent.Codex)
-                    hub.Notify(new JsonObject { ["title"] = "TaskHub · Codex", ["message"] = L.T("codex_trust"), ["force"] = true, ["click"] = "dismiss" });
-            });
-            miInt.DropDownItems.Add(it);
-            intItems.Add((it, a));
+                var (a, k) = (ag, kd);
+                var it = new ToolStripMenuItem("", null, (_, _) =>
+                {
+                    bool on = !Integrations.Enabled(a, k);
+                    var err = Integrations.Set(a, k, on, S);
+                    if (err != null) MessageBox.Show(err, "TaskHub", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    else if (on)
+                        hub.Notify(new JsonObject { ["title"] = "TaskHub · " + Integrations.Name(a), ["message"] = Integrations.Hint(a, k), ["force"] = true, ["click"] = "dismiss" });
+                });
+                miInt.DropDownItems.Add(it);
+                intItems.Add((it, a, k));
+            }
         }
         var miLang = Add("language", () => { });
         var langItems = new List<(ToolStripMenuItem, string)>();
@@ -143,7 +147,11 @@ sealed class TrayApp : ApplicationContext
                 if (c == "auto") li.Text = L.T("auto");
                 li.Checked = L.Setting == c;
             }
-            foreach (var (it, a) in intItems) it.Checked = Integrations.Enabled(a);
+            foreach (var (it, a, k) in intItems)
+            {
+                it.Text = Integrations.Name(a) + " — " + L.T(k == Integrations.Kind.Hooks ? "menu_hooks" : "menu_mcp");
+                it.Checked = Integrations.Enabled(a, k);
+            }
             miMute.Checked = hub.Muted;
             miAuto.Checked = Install.AutostartEnabled(S);
         };

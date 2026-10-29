@@ -8,7 +8,7 @@ namespace TaskHub;
 
 static class Program
 {
-    const string Usage = "TaskHubHost [--port N] [--data DIR] [--install [--dir PATH] [--no-autostart] [--no-path] [--claude|--no-claude] [--codex|--no-codex] [--quiet] | --uninstall [--quiet] [--purge] | --status | --panel [ID] | --open-url taskhub://open/ID | --no-tray]";
+    const string Usage = "TaskHubHost [--port N] [--data DIR] [--install [--dir PATH] [--no-autostart] [--no-path] [--claude|--no-claude] [--codex|--no-codex] [--claude-mcp|--no-claude-mcp] [--codex-mcp|--no-codex-mcp] [--quiet] | --uninstall [--quiet] [--purge] | --status | --panel [ID] | --open-url taskhub://open/ID | --no-tray]";
 
     [STAThread]
     static int Main(string[] args)
@@ -31,8 +31,7 @@ static class Program
             bool wasInstalled = Install.IsInstalled;
             Install.StopOtherHubs();
             Install.Unregister(S);
-            foreach (var a in Integrations.All)
-                try { Integrations.Apply(a, false, S); } catch (Exception e) { Log.W($"integration {a}: {e.Message}"); }
+            Integrations.RemoveAll(S);
             try { ToastNotificationManagerCompat.Uninstall(); } catch { }
             if (Has("--purge")) try { Directory.Delete(S.DataDir, true); } catch { }
             if (wasInstalled) Install.ScheduleRemoveFiles(dir);
@@ -40,24 +39,25 @@ static class Program
             return 0;
         }
 
-        // scripted: TaskHubHost.exe --integrations claude=on codex=off   (prints the result, exit 1 on error)
+        // scripted: TaskHubHost.exe --integrations claude=on codex=off claude-mcp=on codex-mcp=on   (prints the state, exit 1 on error)
         if (Has("--integrations"))
         {
             int rc = 0;
             var outp = new List<string>();
             foreach (var a in Integrations.All)
-            {
-                var key = a.ToString().ToLowerInvariant();
-                var v = args.FirstOrDefault(x => x.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase))?[(key.Length + 1)..];
-                if (v is "on" or "off")
+                foreach (var k in Integrations.Kinds)
                 {
-                    bool changed = false;
-                    try { changed = Integrations.Apply(a, v == "on", S); S.Cfg[Integrations.CfgKey(a)] = v == "on"; S.SaveCfg(); }
-                    catch (Exception e) { rc = 1; outp.Add($"{key}: error {e.Message}"); continue; }
-                    outp.Add($"{key}: {v}{(changed ? " (changed)" : " (unchanged)")}");
+                    var key = Integrations.ArgName(a, k);
+                    var v = args.FirstOrDefault(x => x.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase))?[(key.Length + 1)..];
+                    if (v is "on" or "off")
+                    {
+                        bool changed = false;
+                        try { changed = Integrations.Apply(a, k, v == "on", S); S.Cfg[Integrations.CfgKey(a, k)] = v == "on"; S.SaveCfg(); }
+                        catch (Exception e) { rc = 1; outp.Add($"{key}: error {e.Message}"); continue; }
+                        outp.Add($"{key}: {v}{(changed ? " (changed)" : " (unchanged)")}");
+                    }
+                    else outp.Add($"{key}: {(Integrations.Enabled(a, k) ? "on" : "off")}");
                 }
-                else outp.Add($"{key}: {(Integrations.Enabled(a) ? "on" : "off")}");
-            }
             Msg(string.Join("\n", outp));
             return rc;
         }
@@ -71,15 +71,17 @@ static class Program
                 S.Cfg["autostart"] = auto;
                 S.SaveCfg();
                 Install.Register(S, auto, !Has("--no-path"));
-                // AI-agent notifications: explicit --claude/--no-claude, --codex/--no-codex; otherwise unchanged
+                // AI agents: explicit --claude/--no-claude, --codex[-mcp]/--no-codex[-mcp] ...; otherwise unchanged
                 var notes = new List<string>();
-                foreach (var (a, on, off) in new[] { (Integrations.Agent.Claude, "--claude", "--no-claude"), (Integrations.Agent.Codex, "--codex", "--no-codex") })
-                {
-                    if (!Has(on) && !Has(off)) continue;
-                    var err = Integrations.Set(a, Has(on), S);
-                    if (err != null) notes.Add(err);
-                    else if (Has(on) && a == Integrations.Agent.Codex) notes.Add(L.T("codex_trust"));
-                }
+                foreach (var a in Integrations.All)
+                    foreach (var k in Integrations.Kinds)
+                    {
+                        string on = "--" + Integrations.ArgName(a, k), off = "--no-" + Integrations.ArgName(a, k);
+                        if (!Has(on) && !Has(off)) continue;
+                        var err = Integrations.Set(a, k, Has(on), S);
+                        if (err != null) notes.Add(err);
+                        else if (Has(on)) notes.Add("• " + Integrations.Hint(a, k));
+                    }
                 if (!Running(S)) Process.Start(new ProcessStartInfo(Environment.ProcessPath, "--run") { UseShellExecute = true })?.Dispose();
                 if (!quiet) Msg(L.T("installed") + "\n\n" + Install.Describe(S) + (notes.Count > 0 ? "\n\n" + string.Join("\n", notes) : ""));
                 return 0;
@@ -96,7 +98,8 @@ static class Program
         bool install = Has("--install");
         string installDir = Arg("--dir");
         bool optAuto = !Has("--no-autostart"), optPath = !Has("--no-path");
-        string optAgents = string.Join("", new[] { "--claude", "--no-claude", "--codex", "--no-codex" }.Where(Has).Select(x => " " + x));
+        string optAgents = string.Join("", Integrations.All.SelectMany(a => Integrations.Kinds.Select(k => Integrations.ArgName(a, k)))
+            .SelectMany(n => new[] { "--" + n, "--no-" + n }).Where(Has).Select(x => " " + x));
         if (!install && args.Length == 0 && !Install.IsInstalledCopy && Settings.ReadExeSettings() == null
             && !ToastNotificationManagerCompat.WasCurrentProcessToastActivated())
         {
@@ -109,7 +112,7 @@ static class Program
                 installDir = f.Folder;
                 optAuto = f.Autostart;
                 optPath = f.AddPath;
-                optAgents = (f.Claude ? " --claude" : " --no-claude") + (f.Codex ? " --codex" : " --no-codex");
+                optAgents = string.Concat(f.Agents.Select(x => (x.on ? " --" : " --no-") + Integrations.ArgName(x.agent, x.kind)));
             }
         }
         if (install)

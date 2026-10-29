@@ -66,12 +66,24 @@ curl -s -X POST localhost:47800/api/notify -H "X-TaskHub: 1" -d '{"title":"Done"
 > For any job longer than a minute, report it to TaskHub (`taskhub api` prints the docs; wrap commands with
 > `taskhub run --name ... -- <cmd>`).
 
-**Claude Code and Codex notifications** — a toast when the agent finishes a response or needs your permission. Just tick
-*Notify me when Claude Code / Codex finishes…* in the setup dialog, or later in the tray menu → *AI agent notifications*.
-TaskHub adds (and on uninstall removes) only its own two hook entries in `~/.claude/settings.json` /
-`~/.codex/hooks.json`, keeping everything else (backup: `*.taskhub.bak`). Codex asks you once to approve new hooks:
-Codex → Settings → Hooks → *Trust all*. Works in local sessions (desktop app, CLI, IDE), not in cloud sessions.
-Manual setup and the Claude Code plugin: [API.md → Claude Code hooks](API.md#claude-code-hooks), [Codex hooks](API.md#codex-hooks).
+### Claude Code and Codex: one click
+The setup dialog (and later the tray menu → *AI agents*) has two independent options per agent:
+
+| Option | What you get | Where TaskHub writes |
+|---|---|---|
+| **Notifications (hooks)** | a toast when the agent finishes a response or needs your permission | Claude Code: `~/.claude/settings.json` · Codex: `~/.codex/hooks.json` |
+| **TaskHub tools (MCP)** | the agent gets tools `notify`, `task_start/update/finish`, `task_commands`, `task_list` and shows its long jobs in the panel by itself | Claude Code: `~/.claude.json` · Codex: `~/.codex/config.toml` |
+
+TaskHub adds — and on uninstall removes — only its own entries and keeps everything else (backup of the original:
+`*.taskhub.bak`). What to do in the agent afterwards:
+
+- **Claude Code** — start a new *local* session (desktop app → Code tab → environment *Local*, the CLI or VS Code).
+  `/mcp` should list `taskhub` as connected. Cloud sessions run on Anthropic's servers and can't reach TaskHub on your PC.
+- **Codex** — restart Codex. Hooks: Codex → Settings → Hooks → *Trust all* (Codex asks once for new hooks).
+  MCP: the `taskhub` server should appear among Codex's MCP servers.
+
+Scripted: `TaskHubHost.exe --integrations claude=on codex=on claude-mcp=on codex-mcp=off`. Manual setup:
+[API.md → Claude Code hooks](API.md#claude-code-hooks), [Codex hooks](API.md#codex-hooks), [MCP server](API.md#mcp-server).
 
 ## Install details
 The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or any folder you choose), unpacks the

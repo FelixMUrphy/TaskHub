@@ -58,6 +58,45 @@ check("disable both: exit 0", run("claude=off", "codex=off") == 0)
 check("claude: back to the original content", load(claude) == original, load(claude))
 check("codex: our hooks removed", "hooks" not in load(codex), load(codex))
 
+# ---- MCP: Claude Code (~/.claude.json) and Codex (~/.codex/config.toml)
+claude_json = os.path.join(home, ".claude.json")
+codex_toml = os.path.join(home, ".codex", "config.toml")
+cj = {"userID": "u1", "projects": {"D:/x": {"allowedTools": []}}, "mcpServers": {"other": {"type": "stdio", "command": "other.exe"}}}
+with open(claude_json, "w", encoding="utf-8") as f:
+    json.dump(cj, f)
+toml0 = 'model = "gpt"\r\nnotify = ["a.exe", "x"]\r\n\r\n[mcp_servers.node_repl]\r\ncommand = \'C:\\n\\node.exe\'\r\n\r\n[hooks.state.\'k\']\r\ntrusted_hash = "sha256:1"\r\n'
+with open(codex_toml, "w", encoding="utf-8", newline="") as f:
+    f.write(toml0)
+check("enable MCP: exit 0", run("claude-mcp=on", "codex-mcp=on") == 0)
+j = load(claude_json)
+ts = j["mcpServers"].get("taskhub", {})
+check("claude.json: other keys + servers kept, taskhub added", j["userID"] == "u1" and j["projects"] == cj["projects"]
+      and j["mcpServers"]["other"] == cj["mcpServers"]["other"] and ts.get("args") == ["mcp", "--source", "claude"]
+      and ts.get("command", "").lower().endswith("taskhub.exe") and ts.get("type") == "stdio", j)
+with open(codex_toml, encoding="utf-8", newline="") as f:
+    t1 = f.read()
+check("config.toml: original kept verbatim + table appended (CRLF)", t1.startswith(toml0.rstrip("\r\n")) and "[mcp_servers.taskhub]\r\n" in t1
+      and 'args = ["mcp", "--source", "codex"]' in t1 and "\n" not in t1.replace("\r\n", ""), t1)
+m1, m2 = os.path.getmtime(claude_json), os.path.getmtime(codex_toml)
+time.sleep(1.2)
+run("claude-mcp=on", "codex-mcp=on")
+check("MCP enable again: files untouched", os.path.getmtime(claude_json) == m1 and os.path.getmtime(codex_toml) == m2)
+# Codex may re-sort keys of the table: still recognised as ours, no duplicate table
+with open(codex_toml, "w", encoding="utf-8", newline="") as f:
+    f.write(t1.replace('args = ["mcp", "--source", "codex"]\r\n', "").replace("[mcp_servers.taskhub]\r\n", '[mcp_servers.taskhub]\r\nargs = ["mcp", "--source", "codex"]\r\n'))
+run("codex-mcp=on")
+with open(codex_toml, encoding="utf-8") as f:
+    check("config.toml: one taskhub table only", f.read().count("[mcp_servers.taskhub]") == 1)
+check("disable MCP: exit 0", run("claude-mcp=off", "codex-mcp=off") == 0)
+check("claude.json: back to original", load(claude_json) == cj, load(claude_json))
+with open(codex_toml, encoding="utf-8", newline="") as f:
+    t2 = f.read()
+check("config.toml: back to original", t2.rstrip("\r\n") == toml0.rstrip("\r\n"), repr(t2))
+# a foreign 'taskhub' server is never replaced
+with open(codex_toml, "a", encoding="utf-8", newline="") as f:
+    f.write("\r\n[mcp_servers.taskhub]\r\ncommand = 'someone-else.exe'\r\n")
+check("foreign [mcp_servers.taskhub]: error exit", run("codex-mcp=on") == 1)
+
 # broken JSON is never overwritten
 with open(claude, "w", encoding="utf-8") as f:
     f.write("{ this is not json")

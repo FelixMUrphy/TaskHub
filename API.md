@@ -189,6 +189,19 @@ Use the full path (`%LOCALAPPDATA%\Programs\TaskHub\taskhub.exe`) if `taskhub` i
 trusted once in Codex (`/hooks`). Do **not** replace an existing `notify = [...]` in `config.toml` (the Codex app uses it);
 `taskhub hook codex` also accepts the legacy `notify` payload as its last argument if you need it.
 
+## MCP server
+`taskhub mcp [--source NAME]` is a stdio [MCP](https://modelcontextprotocol.io) server for AI agents with the tools
+`notify`, `task_start`, `task_update`, `task_finish`, `task_commands` (button presses / input values, acknowledged on read)
+and `task_list`. It starts the hub on the first tool call. Enable it in the setup dialog / tray → *AI agents*, or by hand:
+- Claude Code (user scope, `~/.claude.json`): `"mcpServers": {"taskhub": {"type": "stdio", "command": "<install dir>\\taskhub.exe", "args": ["mcp", "--source", "claude"]}}`
+  (or `claude mcp add --scope user taskhub -- "<install dir>\taskhub.exe" mcp --source claude`)
+- Codex (`~/.codex/config.toml`):
+  ```toml
+  [mcp_servers.taskhub]
+  args = ["mcp", "--source", "codex"]
+  command = 'C:\Users\<you>\AppData\Local\Programs\TaskHub\taskhub.exe'
+  ```
+
 ## Agent notes (Claude / ChatGPT / Codex / any automation)
 Use TaskHub for anything that runs longer than ~1 minute, so the user sees progress and gets notified without watching the chat.
 0. Where: CLI `taskhub` (PATH) or `%LOCALAPPDATA%\Programs\TaskHub\taskhub.exe`; HTTP `http://127.0.0.1:47800`; this doc: `taskhub api` or `GET /api/help`.

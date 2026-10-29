@@ -80,7 +80,9 @@ static class Program
 {
     static readonly JsonSerializerOptions Pretty = new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    const string Help = @"TaskHub CLI 2.1 - talks to the TaskHub hub over HTTP (default http://127.0.0.1:47800, env TASKHUB_URL / TASKHUB_TOKEN)
+    public static string Version => typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "";
+
+    const string Help = @"TaskHub CLI - talks to the TaskHub hub over HTTP (default http://127.0.0.1:47800, env TASKHUB_URL / TASKHUB_TOKEN)
 
   taskhub health
   taskhub notify ""Title"" [""message""] [--level info|warn|error] [--task ID]
@@ -97,6 +99,8 @@ static class Program
   taskhub panel [ID]                               (open the panel, optionally focused on a task)
   taskhub delete ID [--force]
   taskhub api                                      (print API.md served by the hub)
+  taskhub mcp [--source NAME]                      (MCP server over stdio for AI agents: notify, task_start/update/finish,
+                                                    task_commands, task_list; starts the hub on first use)
   taskhub hook claude|codex                        (agent hook: event JSON on stdin or as the last argument -> toast;
                                                     prints nothing, always exits 0, never starts the hub)
   taskhub run [--name N] [--id ID] [--source S] [--description D] [--cwd DIR] [--heartbeat SEC]
@@ -121,6 +125,7 @@ Global option: --url URL";
         args.RemoveAt(0);
         var c = new Client(url);
         if (cmd == "hook") return Hook(c, args);
+        if (cmd == "mcp") return Mcp.Run(c, args, () => EnsureHub(c));
         EnsureHub(c);
         try
         {
