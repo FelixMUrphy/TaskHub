@@ -32,8 +32,9 @@ loopback only.
   panel is open.
 - **Claude Code and Codex in one click**: TaskHub tools for the agent (MCP) and "finished / needs your permission"
   notifications (hooks) — see [below](#claude-code-and-codex-one-click).
-- **Telegram**: the same notifications on your phone through your own bot, with the task's buttons; `/tasks`, `/mute`
-  (optionally only when you are away from the PC) — see [Telegram](#telegram).
+- **Telegram**: the same notifications on your phone through your own bot, with the task's buttons; a live progress
+  bar per task and its charts when it finishes; `/tasks`, `/mute` (optionally only when you are away from the PC) —
+  see [Telegram](#telegram).
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
   plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
@@ -93,9 +94,12 @@ Scripted: `TaskHubHost.exe --integrations claude=on codex=on claude-mcp=on codex
 
 ### Telegram
 Tray menu → *Telegram…*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
-*Connect*, open the link that appears and press *Start*. From then on every notification TaskHub shows also arrives in
+*Connect*, scan the QR code with your phone (or open the link on this PC) and press *Start*. To link another account
+later (e.g. the one on your phone), leave the token field empty and press *Connect* again. From then on every notification TaskHub shows also arrives in
 that chat (only that chat can talk to the bot); a task's notification buttons become inline buttons — including
-select / yes-no inputs — and presses go back to the task. Commands: `/tasks`, `/mute`, `/unmute`. Option: send only
+select / yes-no inputs — and presses go back to the task. A task with progress gets one silent message with a progress
+bar, ETA and status that is edited in place (no new message per update); when the task finishes, its charts arrive
+as one picture (option *Progress and charts*, `telegram_progress`). Commands: `/tasks`, `/mute`, `/unmute`. Option: send only
 when you are away from the PC (no keyboard / mouse for 5 min, `telegram_away_minutes` in `config.json`). The bot token
 is stored in `%APPDATA%\TaskHub\config.json`; messages go from your PC straight to Telegram's Bot API.
 

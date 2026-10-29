@@ -19,7 +19,7 @@ sealed class TelegramBridge
     readonly Settings S;
     readonly Hub hub;
     readonly HttpClient http = new(new HttpClientHandler()) { Timeout = TimeSpan.FromSeconds(75) };
-    readonly BlockingCollection<JsonObject> outbox = new(500);
+    readonly BlockingCollection<(string method, JsonObject body, byte[] png)> outbox = new(500);
     readonly Dictionary<string, (string tid, string cid, JsonNode value)> callbacks = new();
     int cbSeq;
     CancellationTokenSource cts;
@@ -31,6 +31,7 @@ sealed class TelegramBridge
     {
         S = s; hub = h;
         new Thread(SendWorker) { IsBackground = true, Name = "telegram-send" }.Start();
+        new Thread(ProgressWorker) { IsBackground = true, Name = "telegram-progress" }.Start();
     }
 
     string Token => J.Str(S.Cfg["telegram_token"]);
@@ -89,7 +90,7 @@ sealed class TelegramBridge
     public JsonObject State() => new()
     {
         ["configured"] = Token.Length > 0, ["linked"] = Linked, ["bot"] = BotName, ["status"] = Status,
-        ["away_only"] = AwayOnly,
+        ["away_only"] = AwayOnly, ["progress"] = ShowProgress,
         ["link"] = PairCode != null && BotName != null ? $"https://t.me/{BotName}?start={PairCode}" : null,
     };
 
@@ -104,6 +105,21 @@ sealed class TelegramBridge
         var icon = level == "error" ? "❌ " : level == "warn" ? "⚠️ " : "";
         var text = icon + "<b>" + Esc(title) + "</b>" + (string.IsNullOrEmpty(msg) ? "" : "\n" + Esc(msg));
         Enqueue(Chat, text, controls ? Keyboard(tid, task) : null);
+        // charts: only once, when the task has finished (not on every change)
+        if (task == null || !ShowProgress || !Hub.IsFinal(J.Str(task["state"]))) return;
+        var charts = ChartImage.Pick(task);
+        if (charts.Count == 0) return;
+        lock (chartsSent)
+        {
+            if (chartsSent.Count > 200) chartsSent.Clear();
+            if (!chartsSent.Add(tid + "@" + J.Str(task["finished"]))) return;
+        }
+        try
+        {
+            var png = ChartImage.Render(J.Str(task["name"]), charts);
+            outbox.TryAdd(("sendPhoto", new JsonObject { ["chat_id"] = Chat, ["caption"] = "📈 " + J.Cut(J.Str(task["name"]), 200) }, png));
+        }
+        catch (Exception e) { Log.W("telegram chart: " + e.Message); }
     }
 
     JsonObject Keyboard(string tid, JsonObject task)
@@ -155,25 +171,120 @@ sealed class TelegramBridge
         if (chat == 0) return;
         var m = new JsonObject { ["chat_id"] = chat, ["text"] = J.Cut(text, 3900), ["parse_mode"] = "HTML", ["disable_web_page_preview"] = true };
         if (keyboard != null) m["reply_markup"] = keyboard;
-        outbox.TryAdd(m);
+        outbox.TryAdd(("sendMessage", m, null));
     }
 
     void SendWorker()
     {
-        foreach (var m in outbox.GetConsumingEnumerable())
+        foreach (var (method, m, png) in outbox.GetConsumingEnumerable())
         {
             for (int attempt = 0; attempt < 3; attempt++)
             {
                 try
                 {
-                    var (code, _) = Call("sendMessage", m, 20).GetAwaiter().GetResult();
+                    var (code, _) = (png != null ? CallPhoto(m, png) : Call(method, m, 20)).GetAwaiter().GetResult();
                     if (code == 429) { Thread.Sleep(3000); continue; }
-                    if (code != 200) Log.W($"telegram send: HTTP {code}");
+                    if (code != 200) Log.W($"telegram {method}: HTTP {code}");
                     break;
                 }
-                catch (Exception e) { Log.W("telegram send: " + e.Message); Thread.Sleep(2000); }
+                catch (Exception e) { Log.W($"telegram {method}: " + e.Message); Thread.Sleep(2000); }
             }
         }
+    }
+
+    // ------------------------------------------------------------ live progress: one silent message per task, edited in place
+    sealed class Live { public long Chat, Msg; public string Text; public double Last; }
+    readonly Dictionary<string, Live> live = new();          // progress thread only
+    readonly HashSet<string> chartsSent = new();
+    public bool ShowProgress => S.Bool("telegram_progress", true);
+    public void SetProgress(bool on) { S.Cfg["telegram_progress"] = on; S.SaveCfg(); }
+
+    void ProgressWorker()
+    {
+        while (true)
+        {
+            Thread.Sleep(2000);
+            try { ProgressTick(); } catch (Exception e) { Log.W("telegram progress: " + e.Message); }
+        }
+    }
+
+    void ProgressTick()
+    {
+        if (!Linked || !ShowProgress) { live.Clear(); return; }
+        var now = J.Now();
+        var tasks = hub.Brief().GroupBy(t => J.Str(t["id"])).ToDictionary(g => g.Key, g => g.First());
+        foreach (var (tid, p) in live.ToList())
+        {
+            if (p.Chat != Chat) { live.Remove(tid); continue; }
+            tasks.TryGetValue(tid, out var t);
+            if (t != null && Hub.IsActive(J.Str(t["state"]))) continue;
+            if (t != null && p.Msg != 0) Edit(p, ProgressText(t, now), now);   // final state: 100% / failed / cancelled
+            live.Remove(tid);
+        }
+        bool atPc = AwayOnly && IdleSeconds() < 60 * S.Int("telegram_away_minutes", 5);
+        foreach (var (tid, t) in tasks)
+        {
+            if (!Hub.IsActive(J.Str(t["state"])) || J.Num(t["progress"]) == null) continue;
+            var text = ProgressText(t, now);
+            if (live.TryGetValue(tid, out var p))
+            {
+                if (p.Msg != 0 && text != p.Text && now - p.Last >= 5) Edit(p, text, now);
+                continue;
+            }
+            if (hub.Muted || atPc || live.Count >= 5) continue;
+            var (code, r) = Call("sendMessage", new JsonObject
+            {
+                ["chat_id"] = Chat, ["text"] = text, ["parse_mode"] = "HTML", ["disable_notification"] = true,
+            }, 20).GetAwaiter().GetResult();
+            if (code == 429) return;
+            if (code == 200 && J.Num(r?["result"]?["message_id"]) is double id)
+                live[tid] = new Live { Chat = Chat, Msg = (long)id, Text = text, Last = now };
+        }
+    }
+
+    void Edit(Live p, string text, double now)
+    {
+        var (code, r) = Call("editMessageText", new JsonObject
+        {
+            ["chat_id"] = p.Chat, ["message_id"] = p.Msg, ["text"] = text, ["parse_mode"] = "HTML",
+        }, 20).GetAwaiter().GetResult();
+        p.Last = now;
+        if (code == 200 || J.Str(r?["description"]).Contains("not modified")) p.Text = text;
+        else if (code == 400) p.Msg = 0;   // the user deleted the message: stop updating it
+    }
+
+    static string ProgressText(JsonObject t, double now)
+    {
+        var st = J.Str(t["state"]);
+        var icon = st switch
+        {
+            "running" => "⏳", "paused" => "⏸", "stale" => "⚠️", "done" => "✅", "cancelled" => "⏹", _ => "❌",
+        };
+        double p = st == "done" ? 1 : Math.Clamp(J.Num(t["progress"]) ?? 0, 0, 1);
+        int n = (int)Math.Round(p * 12);
+        var sb = new StringBuilder();
+        sb.Append(icon).Append(" <b>").Append(Esc(J.Cut(J.Str(t["name"]), 120))).Append("</b>\n");
+        sb.Append("<code>").Append(new string('█', n)).Append(new string('░', 12 - n)).Append("</code> ")
+          .Append((int)Math.Floor(p * 100)).Append('%');
+        if (J.Num(t["current"]) is double cur && J.Num(t["total"]) is double tot)
+        {
+            sb.Append("  ·  ").Append(J.Fmt(st == "done" ? tot : cur)).Append('/').Append(J.Fmt(tot));
+            if (J.Str(t["unit"]) is { Length: > 0 } u) sb.Append(' ').Append(Esc(u));
+        }
+        var status = J.Str(t["status"]).Length > 0 ? J.Str(t["status"]) : J.Str(t["stage"]);
+        if (status.Length > 0) sb.Append('\n').Append(Esc(J.Cut(status, 150)));
+        double start = J.Num(t["started"]) ?? now;
+        double end = Hub.IsFinal(st) ? J.Num(t["finished"]) ?? now : now;
+        sb.Append("\n⏱ ").Append(Coarse(end - start));
+        if (st == "running" && p >= 0.01 && p < 1) sb.Append("  ·  ETA ").Append(Coarse((end - start) * (1 - p) / p));
+        return sb.ToString();
+    }
+
+    static string Coarse(double s)   // minutes resolution: the message is not edited every second
+    {
+        if (s < 60) return "<1m";
+        long m = (long)(s / 60);
+        return m < 60 ? $"{m}m" : $"{m / 60}h {m % 60:00}m";
     }
 
     // ------------------------------------------------------------ incoming
@@ -288,6 +399,23 @@ sealed class TelegramBridge
         using var req = new HttpRequestMessage(HttpMethod.Post, Api(method))
         { Content = new StringContent(body?.ToJsonString() ?? "{}", Encoding.UTF8, "application/json") };
         using var r = await http.SendAsync(req, cts2.Token);
+        var text = await r.Content.ReadAsStringAsync(cts2.Token);
+        JsonObject o = null;
+        try { o = J.Parse(text) as JsonObject; } catch { }
+        return ((int)r.StatusCode, o);
+    }
+
+    async Task<(int code, JsonObject body)> CallPhoto(JsonObject m, byte[] png)
+    {
+        using var cts2 = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent(((long)(J.Num(m["chat_id"]) ?? 0)).ToString()), "chat_id");
+        form.Add(new StringContent(J.Str(m["caption"])), "caption");
+        form.Add(new StringContent("true"), "disable_notification");
+        var img = new ByteArrayContent(png);
+        img.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+        form.Add(img, "photo", "chart.png");
+        using var r = await http.PostAsync(Api("sendPhoto"), form, cts2.Token);
         var text = await r.Content.ReadAsStringAsync(cts2.Token);
         JsonObject o = null;
         try { o = J.Parse(text) as JsonObject; } catch { }

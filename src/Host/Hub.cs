@@ -980,6 +980,19 @@ sealed class Hub
         }
     }
 
+    /// <summary>Light view of all tasks (no log / widgets) - for the Telegram progress messages.</summary>
+    public List<JsonObject> Brief()
+    {
+        lock (Lock)
+            return tasks.Values.Select(t =>
+            {
+                var o = new JsonObject();
+                foreach (var k in new[] { "id", "name", "state", "progress", "current", "total", "unit", "status", "stage", "started", "finished" })
+                    o[k] = J.C(t[k]);
+                return o;
+            }).ToList();
+    }
+
     public JsonObject GetTask(string tid)
     {
         lock (Lock) return (JsonObject)Get(tid).DeepClone();

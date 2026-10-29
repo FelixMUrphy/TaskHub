@@ -75,6 +75,9 @@ sealed class TelegramForm : Form
         away = new CheckBox { Text = L.T("tg_away"), AutoSize = true, Checked = tg.AwayOnly, Margin = new Padding(0, 12, 0, 0) };
         away.CheckedChanged += (_, _) => tg.SetAwayOnly(away.Checked);
         root.Controls.Add(away);
+        var prog = new CheckBox { Text = L.T("tg_progress"), AutoSize = true, Checked = tg.ShowProgress, Margin = new Padding(0, 6, 0, 0) };
+        prog.CheckedChanged += (_, _) => tg.SetProgress(prog.Checked);
+        root.Controls.Add(prog);
 
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, Margin = new Padding(0, 16, 0, 0) };
         var close = new Button { Text = L.T("tg_close"), AutoSize = true };

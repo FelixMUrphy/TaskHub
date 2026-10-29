@@ -5,7 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 URL = os.environ.get("TASKHUB_URL", "http://127.0.0.1:47899")
 TOKEN = "123456789:" + "A" * 35
 fails = 0
-sent, answers, updates = [], [], []
+sent, answers, updates, edits, photos = [], [], [], [], []
 lock = threading.Condition()
 uid = [100]
 
@@ -23,7 +23,8 @@ class Bot(BaseHTTPRequestHandler):
 
     def do_POST(self):
         m = re.match(r"^/bot([^/]+)/(\w+)$", self.path)
-        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+        raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        body = {"_multipart": raw} if "multipart" in (self.headers.get("Content-Type") or "") else json.loads(raw or b"{}")
         if not m or m.group(1) != TOKEN:
             return self.reply(401, {"ok": False, "description": "Unauthorized"})
         method = m.group(2)
@@ -42,6 +43,16 @@ class Bot(BaseHTTPRequestHandler):
                 sent.append(body)
                 lock.notify_all()
             return self.reply(200, {"ok": True, "result": {"message_id": len(sent)}})
+        if method == "editMessageText":
+            with lock:
+                edits.append(body)
+                lock.notify_all()
+            return self.reply(200, {"ok": True, "result": True})
+        if method == "sendPhoto":
+            with lock:
+                photos.append(body.get("_multipart", b""))
+                lock.notify_all()
+            return self.reply(200, {"ok": True, "result": {"message_id": 999}})
         if method == "answerCallbackQuery":
             with lock:
                 answers.append(body)
@@ -145,6 +156,35 @@ check("/tasks from the linked chat lists tasks", m is not None, sent[n0:])
 check("/tasks from another chat ignored", not any(x["chat_id"] == 777 for x in sent), sent)
 
 call("DELETE", f"/api/tasks/{tid}?force=1")
+
+# live progress: one silent message per task, edited in place; charts as one photo when the task finishes
+s, r = call("POST", "/api/tasks", {"name": "Train run", "total": 10, "unit": "ep",
+                                   "widgets": [{"id": "loss", "type": "chart", "label": "Loss", "series": ["train", "val"]}]})
+ptid = r.get("id")
+call("POST", f"/api/tasks/{ptid}/update", {"current": 3, "status": "epoch 3", "widgets": {"loss": [1.0, 1.3]}})
+pm = wait_sent(lambda m: "Train run" in m["text"] and m.get("disable_notification") is True)
+check("progress: silent message with bar and counter", pm is not None and "30%" in pm["text"] and "3/10 ep" in pm["text"]
+      and "█" in pm["text"], sent[-3:])
+check("no chart while the task runs", not photos, len(photos))
+for i, v in enumerate([0.9, 0.7, 0.5]):
+    call("POST", f"/api/tasks/{ptid}/update", {"current": 4 + i, "widgets": {"loss": [v, v + 0.2]}})
+call("POST", f"/api/tasks/{ptid}/finish", {"message": "ok"})
+end = time.time() + 10
+while time.time() < end and not (photos and any("Train run" in e.get("text", "") and "100%" in e.get("text", "") for e in edits)):
+    time.sleep(0.2)
+fe = [e for e in edits if "Train run" in e.get("text", "")]
+check("progress message edited in place to the final state", pm is not None and fe and fe[-1]["message_id"] == sent.index(pm) + 1
+      and "100%" in fe[-1]["text"] and "✅" in fe[-1]["text"], edits)
+time.sleep(2.5)
+if photos and os.environ.get("TG_DUMP"):   # save the rendered chart to look at it
+    b = photos[0]
+    open(os.environ["TG_DUMP"], "wb").write(b[b.index(b"\x89PNG"):b.index(b"IEND") + 8])
+check("chart sent once, as a PNG, after the finish", len(photos) == 1 and b"\x89PNG" in photos[0] and b"Train run" in photos[0], len(photos))
+check("finish notification still sent", wait_sent(lambda m: "Train run" in m["text"] and "✅" in m["text"]) is not None, sent[-3:])
+s, r = call("POST", "/api/telegram", {"progress": False})
+check("progress option can be switched off", r.get("progress") is False, r)
+call("POST", "/api/telegram", {"progress": True})
+call("DELETE", f"/api/tasks/{ptid}?force=1")
 # relink to another chat (e.g. the phone account) without re-entering the token
 s, r = call("POST", "/api/telegram", {"relink": True})
 code2 = (r.get("link") or "").rsplit("start=", 1)[-1]
