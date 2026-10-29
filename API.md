@@ -3,6 +3,19 @@
 Local hub for long-running tasks: tray icon + toasts + mini panel with live widgets and controls.
 Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/out.
 
+## AI agents: read this first
+- **Claude Code, Codex and other MCP clients: use the TaskHub MCP tools** (`task_start`, `task_update`, `task_finish`,
+  `task_commands`, `task_list`, `notify`). They need no HTTP, no headers and pass any language correctly.
+- **You are Claude Code or Codex but don't see these tools?** Don't fall back to `curl` / HTTP. Tell the user, in one short
+  message: *"Enable TaskHub tools (MCP): tray icon → AI agents → <Claude Code / Codex> — TaskHub tools (MCP), then start a new chat / session -
+  MCP tools only appear in sessions started after that."* (Not installed yet: the setup dialog has the same option.)
+  Meanwhile continue the user's actual work without TaskHub.
+- Only if the user explicitly wants TaskHub in this session anyway, or your client has no MCP (ChatGPT, plain scripts): use
+  the **`taskhub` CLI** or the Python client below - both send UTF-8.
+- **Never put non-ASCII text (Cyrillic, CJK, emoji, accents) into `curl -d '...'` or a PowerShell 5.1 `-Body '...'` string on
+  Windows**: they convert it to the ANSI code page and the user sees `????`. If you must use raw HTTP, send UTF-8 bytes:
+  `curl --data-binary @body.json` (file saved as UTF-8) or `-Body ([Text.Encoding]::UTF8.GetBytes($json))`.
+
 **Rules for every client (scripts, Claude, ChatGPT/Codex, PowerShell, curl):**
 - Write requests (`POST`/`DELETE`) MUST send header `X-TaskHub: 1` (CSRF guard). Browser requests from other origins are rejected.
 - If `config.json` has `"token"`, send `Authorization: Bearer <token>` (env `TASKHUB_TOKEN` for the Python client).
@@ -47,12 +60,13 @@ Streams output to the log (and echoes it), parses progress, adds Kill / Ctrl+C /
 **PowerShell:**
 ```powershell
 $h=@{"X-TaskHub"="1"}; $u="http://127.0.0.1:47800"
-$id=(Invoke-RestMethod "$u/api/tasks" -Method Post -Headers $h -ContentType application/json -Body (@{name="Export";total=50;pid=$PID}|ConvertTo-Json -Depth 6)).id
+$id=(Invoke-RestMethod "$u/api/tasks" -Method Post -Headers $h -ContentType "application/json; charset=utf-8" -Body ([Text.Encoding]::UTF8.GetBytes((@{name="Export";total=50;pid=$PID}|ConvertTo-Json -Depth 6)))).id
 Invoke-RestMethod "$u/api/tasks/$id/update" -Method Post -Headers $h -ContentType application/json -Body '{"current":10,"status":"file 10"}'
 Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentType application/json -Body '{"state":"done","message":"ok"}'
 ```
 
 **curl:** `curl -s -X POST localhost:47800/api/notify -H "X-TaskHub: 1" -d '{"title":"Done","message":"render finished"}'`
+(ASCII only; for other languages `--data-binary @body.json` with a UTF-8 file - see [AI agents](#ai-agents-read-this-first)).
 
 ## Endpoints
 
@@ -207,7 +221,8 @@ and `task_list`. It starts the hub on the first tool call. Enable it in the setu
 
 ## Agent notes (Claude / ChatGPT / Codex / any automation)
 Use TaskHub for anything that runs longer than ~1 minute, so the user sees progress and gets notified without watching the chat.
-If you have the TaskHub MCP tools (`task_start`, `task_update`, ...), use them; everything below is for agents without MCP.
+Claude Code / Codex: use the TaskHub MCP tools; if you don't have them, ask the user to enable them and open a new session
+(see [AI agents: read this first](#ai-agents-read-this-first)). Everything below is for agents without MCP.
 0. Where: CLI `taskhub` (PATH) or `%LOCALAPPDATA%\Programs\TaskHub\taskhub.exe`; HTTP `http://127.0.0.1:47800`; this doc: `taskhub api` or `GET /api/help`.
    If the CLI is not on PATH in your shell, call it by the full path. From WSL/containers use the Windows host address only if the user allows it (the hub listens on loopback).
 1. `taskhub health` (or `GET /api/health`) first. If the hub is down and cannot be started, work normally - never fail the user's task because of TaskHub.

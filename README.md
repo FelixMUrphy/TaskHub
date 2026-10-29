@@ -15,6 +15,10 @@ loopback only.
 [**⬇ Download the latest setup.exe**](https://github.com/FelixMUrphy/TaskHub/releases/latest) ·
 [API reference](API.md) · [❤ Sponsor](https://github.com/sponsors/FelixMUrphy)
 
+> **AI agent reading this?** Claude Code / Codex: use the TaskHub **MCP tools** (`task_start`, `notify`, …). If you don't
+> see them, don't use `curl` - ask the user to enable *TaskHub tools (MCP)* (tray → *AI agents*) and to start a new
+> session. Details: [API.md → AI agents](API.md#ai-agents-read-this-first).
+
 ## Why
 - You start a 6-hour job and want to know when it finishes, fails or hangs — without watching a console.
 - An AI agent launches long scripts for you; TaskHub gives them one documented way to report status and to receive your
