@@ -27,16 +27,19 @@ loopback only.
   stats with deltas, LEDs, key-value lists, tables, text.
 - **Controls declared by the task itself**: buttons, number/text/select inputs, confirmations, shell commands,
   open-file/folder, graceful stop, pause/resume, kill. Values go back to the process over long-polling.
-- **Windows notifications** for start/finish/failure, milestones and log events, optionally with the task's buttons and
-  input fields; a live progress notification; quiet while the panel is open.
+- **Windows notifications** on finish / failure / stall by default; start, milestone (plain) and log notifications on
+  request; the task's buttons and input fields in notifications if it asks; a live progress notification; quiet while the
+  panel is open.
+- **Claude Code and Codex in one click**: TaskHub tools for the agent (MCP) and "finished / needs your permission"
+  notifications (hooks) — see [below](#claude-code-and-codex-one-click).
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
-- **Agent-friendly**: a native `taskhub` CLI on PATH, a stdlib-only Python client, plain HTTP for everything else;
-  `taskhub api` prints the docs an agent needs.
+- **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
+  plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
 - 10 UI languages (English, Українська, Español, Deutsch, Français, Italiano, Português, Polski, 中文, 日本語).
 - Per-user install, no admin rights, no .NET runtime needed; self-healing autostart.
 
 ## Quick start
-1. Run `TaskHub-<version>-setup.exe` → **Install** (choose a folder, autostart, PATH).
+1. Run `TaskHub-<version>-setup.exe` → **Install** (choose a folder, autostart, PATH and the Claude Code / Codex options).
 2. Report something:
 
 ```powershell
@@ -61,7 +64,8 @@ with Task("Train", total=100, unit="epochs", source="codex",
 curl -s -X POST localhost:47800/api/notify -H "X-TaskHub: 1" -d '{"title":"Done","message":"backup ok"}'
 ```
 
-**With AI agents** — add one line to your `CLAUDE.md` / `AGENTS.md` / custom instructions:
+**With AI agents** — Claude Code and Codex: enable *TaskHub tools (MCP)* (next section), nothing else to do. Other
+agents (ChatGPT, scripts, any tool with a shell) — add one line to `AGENTS.md` / custom instructions:
 
 > For any job longer than a minute, report it to TaskHub (`taskhub api` prints the docs; wrap commands with
 > `taskhub run --name ... -- <cmd>`).
@@ -90,9 +94,10 @@ The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or an
 `taskhub` CLI, `taskhub_client.py` and `API.md`, registers `taskhub://` and an *Apps & features* entry. Running a newer
 setup over an existing install offers **Update**. *Run without installing* is also available.
 
-- Silent: `TaskHub-<version>-setup.exe --install [--dir PATH] [--no-autostart] [--no-path] --quiet`
+- Silent: `TaskHub-<version>-setup.exe --install [--dir PATH] [--no-autostart] [--no-path] [--claude|--no-claude]
+  [--codex|--no-codex] [--claude-mcp|--no-claude-mcp] [--codex-mcp|--no-codex-mcp] --quiet` (agent options not given stay unchanged)
 - Uninstall: *Apps & features* → TaskHub, or `TaskHubHost.exe --uninstall [--quiet] [--purge]`
-  (`--purge` also deletes the data in `%APPDATA%\TaskHub`).
+  (`--purge` also deletes the data in `%APPDATA%\TaskHub`). Also removes TaskHub's entries from the Claude Code / Codex settings.
 - Autostart restores itself (also if disabled in Task Manager) unless you turn it off in the tray menu.
 - Requirements: Windows 10 1809+ / 11 x64, WebView2 runtime (preinstalled on current Windows).
 - Port 47800, `127.0.0.1` only, CSRF header + Host/Origin checks; optional bearer token (`"token"` in `config.json`).
@@ -106,11 +111,12 @@ first and embedded) and `app\` for development. Sources: `src\Host` (Kestrel HTT
 WinRT toasts), `src\Cli`, `ui.html`, `clients\python`.
 
 Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no tray, no notifications) and runs
-`api_test.py` (API contract) and `parallel_test.py` (8 concurrent workers + notification burst).
+`api_test.py` (API contract, agent hooks, CLI), `parallel_test.py` (8 concurrent workers + notification burst),
+`integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder) and `mcp_test.py` (`taskhub mcp`).
 `tests\demo_long.py` is an interactive ~20 min demo against the main hub.
 
 Hub command line: `TaskHubHost.exe [--port N] [--data DIR] [--install|--uninstall [--quiet] [--purge] | --status |
---panel [ID] | --no-tray]`. A `TaskHubHost.settings.json` next to the exe (`{"port": 47801, "data": "..."}`) runs an
+--panel [ID] | --integrations [claude|codex|claude-mcp|codex-mcp=on|off ...] | --no-tray]`. A `TaskHubHost.settings.json` next to the exe (`{"port": 47801, "data": "..."}`) runs an
 independent second instance.
 
 ## Support

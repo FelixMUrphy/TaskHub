@@ -115,7 +115,7 @@ Thresholds: `warn`, `crit` (value ≥ → amber/red; `invert: true` → value �
 | `led` | `text` | `"ok"`/`"warn"`/`"error"`/`"busy"`/`"off"`, bool, or `{state, text}` |
 | `kv` | | object `{key: value}` |
 | `table` | `columns` | list of rows (lists or dicts); replaces table |
-| `chart` | `series: [names]`, `kind: line/area/bar`, `max_points` (120), `y_min`, `y_max`, `warn`, `crit`, `height` | **appends**: number · `{series: v}` · `[v1, v2]` · batch `[{"t": unix_ts, "S11": -12}, …]`; `null` clears |
+| `chart` | `series: [names]`, `kind: line/area/bar`, `max_points` (120), `y_min`, `y_max`, `warn`, `crit`, `height` | **appends**: number · `{series: v}` · `[v1, v2]` · batch `[{"t": unix_ts, "train": 0.4}, …]`; `null` clears |
 
 ```jsonc
 {"widgets": [
@@ -154,10 +154,11 @@ Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in updat
 `taskhub run --name "<what>" --source <agent> [--auto-progress] [--heartbeat N] -- <cmd args>` wraps any command
 (echo + log + progress; the command may print `::progress 5/20`, `::percent 40`, `::status s`, `::stage s`, `::warn s`,
 `::error s`, `::toast s`, `::metric k=v`, `::widget id=value` lines). Also `notify`, `list`, `show`, `register`, `update`,
-`log`, `finish`, `control`, `commands`, `ack`, `wait ID` (blocks until finished), `panel`, `delete`. `taskhub --help`.
+`log`, `finish`, `control`, `commands`, `ack`, `wait ID` (blocks until finished), `panel`, `delete`,
+`mcp` ([MCP server](#mcp-server)), `hook claude|codex` (agent hooks). `taskhub --help`.
 
 ## Claude Code hooks
-Easiest: setup dialog checkbox or tray → *AI agent notifications* (or `TaskHubHost.exe --integrations claude=on codex=on`)
+Easiest: setup dialog checkbox or tray → *AI agents* (or `TaskHubHost.exe --integrations claude=on codex=on`)
 writes exactly these entries for you and removes them on uninstall. Manual setup:
 Notifications when Claude Code finishes a response (`Stop`, toast shows the first line of the answer and the project folder)
 or waits for a permission / your answer (`Notification`). Add to `~/.claude/settings.json` (or install the
@@ -195,7 +196,7 @@ trusted once in Codex (`/hooks`). Do **not** replace an existing `notify = [...]
 and `task_list`. It starts the hub on the first tool call. Enable it in the setup dialog / tray → *AI agents*, or by hand:
 - Claude Code (user scope, `~/.claude.json`): `"mcpServers": {"taskhub": {"type": "stdio", "command": "<install dir>\\taskhub.exe", "args": ["mcp", "--source", "claude"]}}`
   (or `claude mcp add --scope user taskhub -- "<install dir>\taskhub.exe" mcp --source claude`)
-- Codex (`~/.codex/config.toml`):
+- Codex (`~/.codex/config.toml`; TaskHub's setup writes the same and keeps the rest of the file):
   ```toml
   [mcp_servers.taskhub]
   args = ["mcp", "--source", "codex"]
@@ -204,6 +205,7 @@ and `task_list`. It starts the hub on the first tool call. Enable it in the setu
 
 ## Agent notes (Claude / ChatGPT / Codex / any automation)
 Use TaskHub for anything that runs longer than ~1 minute, so the user sees progress and gets notified without watching the chat.
+If you have the TaskHub MCP tools (`task_start`, `task_update`, ...), use them; everything below is for agents without MCP.
 0. Where: CLI `taskhub` (PATH) or `%LOCALAPPDATA%\Programs\TaskHub\taskhub.exe`; HTTP `http://127.0.0.1:47800`; this doc: `taskhub api` or `GET /api/help`.
    If the CLI is not on PATH in your shell, call it by the full path. From WSL/containers use the Windows host address only if the user allows it (the hub listens on loopback).
 1. `taskhub health` (or `GET /api/health`) first. If the hub is down and cannot be started, work normally - never fail the user's task because of TaskHub.

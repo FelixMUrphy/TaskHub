@@ -44,6 +44,7 @@ body:
         - Panel
         - Notifications
         - HTTP API
+        - Claude Code / Codex (hooks, MCP)
         - CLI (taskhub)
         - Python client
         - Other
