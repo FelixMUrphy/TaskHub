@@ -64,16 +64,28 @@ sealed class Notifier : INotifier
         queue.Add(() => ShowToast(J.Cut(string.IsNullOrEmpty(title) ? Settings.AppId : title, 150), J.Cut(msg ?? "", 500), level, taskId, task, dismissOnly, controls));
     }
 
+    public Action UpdateClicked;               // click on the "new version" toast
+
+    /// <summary>"New version" toast: a click calls UpdateClicked. About this PC's install, so not mirrored to Telegram.</summary>
+    public void UpdateToast(string title, string msg)
+    {
+        if (!S.Bool("toasts", true)) return;
+        Log.W($"TOAST [update] {title}: {msg}");
+        queue.Add(() => ShowToast(title, msg, "info", null, null, action: "update"));
+    }
+
     /// <summary>Toasts currently shown (banner or notification center), so they can be re-rendered when values change.</summary>
-    sealed record Shown(string Title, string Msg, string Level, string Tid, JsonObject Snap, bool DismissOnly = false, bool Controls = true);
+    sealed record Shown(string Title, string Msg, string Level, string Tid, JsonObject Snap, bool DismissOnly = false, bool Controls = true,
+        string Action = null);
     readonly Dictionary<string, Shown> shown = new();   // tag -> content; touched only on the worker thread
 
-    void ShowToast(string title, string msg, string level, string tid, JsonObject task, bool dismissOnly = false, bool controls = true)
+    void ShowToast(string title, string msg, string level, string tid, JsonObject task, bool dismissOnly = false, bool controls = true,
+        string action = null)
     {
         if (failures >= 3) { Balloon?.Invoke(title, msg); return; }
         try
         {
-            var e = new Shown(title, msg, level, tid, task, dismissOnly && tid == null, controls);
+            var e = new Shown(title, msg, level, tid, task, dismissOnly && tid == null, controls, action);
             var b = Build(e, task, out bool interactive);
             var tag = Tag(tid ?? "n") + Guid.NewGuid().ToString("N")[..6];
             bool quiet = Quiet();
@@ -114,7 +126,7 @@ sealed class Notifier : INotifier
     {
         var tid = e.Tid;
         var b = new ToastContentBuilder()
-            .AddArgument("action", e.DismissOnly ? "none" : "open")   // "none": a click just closes the toast
+            .AddArgument("action", e.Action ?? (e.DismissOnly ? "none" : "open"))   // "none": a click just closes the toast
             .AddArgument("task", tid ?? "")
             .AddText(e.Title);
         if (!string.IsNullOrEmpty(e.Msg)) b.AddText(e.Msg);
@@ -381,6 +393,9 @@ sealed class Notifier : INotifier
                     var l = (t2["links"] as JsonArray)?[i];
                     var url = l is JsonObject lo ? J.Str(lo["url"]) : J.Str(l);
                     if (!string.IsNullOrEmpty(url)) Hub.OpenTarget(url);
+                    break;
+                case "update":
+                    UpdateClicked?.Invoke();
                     break;
                 case "none":
                     break;      // informational toast (e.g. agent hooks): clicking only dismisses it

@@ -195,6 +195,10 @@ static class Program
         }
 
         telegram.Start();
+        var updater = new Updater(S, hub, notifier);
+        notifier.UpdateClicked = updater.OpenPage;
+        // dev / test hubs never call GitHub on their own
+        if (Install.IsInstalledCopy) _ = Task.Run(() => updater.Loop(CancellationToken.None));
         if (Has("--no-tray"))
         {
             var cts = new CancellationTokenSource();
@@ -202,7 +206,7 @@ static class Program
             return 0;
         }
 
-        Application.Run(new TrayApp(S, hub, api, notifier, openTask));
+        Application.Run(new TrayApp(S, hub, api, notifier, openTask) { Updater = updater });
         hub.MarkDirty();
         hub.Save();
         Log.W("exit");

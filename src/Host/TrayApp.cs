@@ -20,6 +20,7 @@ sealed class TrayApp : ApplicationContext
     readonly CancellationTokenSource cts = new();
     ToolStripMenuItem miMute, miAuto;
     public TelegramBridge Telegram;
+    public Updater Updater;
 
     public TrayApp(Settings s, Hub h, Api a, Notifier n, string openTask)
     {
@@ -139,6 +140,12 @@ sealed class TrayApp : ApplicationContext
             Hub.OpenTarget(p);
         });
         m.Items.Add(new ToolStripSeparator());
+        var miUpdate = Add("update_to", () => Updater?.OpenPage());
+        var miUpd = Add("updates", () => { });
+        var miUpdNow = new ToolStripMenuItem("", null, (_, _) => { if (Updater != null) _ = Updater.Check(true); });
+        var miUpdAuto = new ToolStripMenuItem("", null, (_, _) => S.Set(("update_check", !S.Bool("update_check", true))));
+        miUpd.DropDownItems.Add(miUpdNow);
+        miUpd.DropDownItems.Add(miUpdAuto);
         Add("support", () => Hub.OpenTarget(L.SupportUrl));
         Add("quit", Quit);
         m.Opening += (_, _) =>
@@ -154,6 +161,12 @@ sealed class TrayApp : ApplicationContext
                 it.Text = Integrations.Name(a) + " — " + L.T(k == Integrations.Kind.Hooks ? "menu_hooks" : "menu_mcp");
                 it.Checked = Integrations.Enabled(a, k);
             }
+            var avail = Updater?.Available;
+            miUpdate.Visible = avail != null;
+            if (avail != null) miUpdate.Text = L.T("update_to", avail.Version);
+            miUpdNow.Text = L.T("update_check_now");
+            miUpdAuto.Text = L.T("update_auto");
+            miUpdAuto.Checked = S.Bool("update_check", true);
             miMute.Checked = hub.Muted;
             miAuto.Checked = Install.AutostartEnabled(S);
         };

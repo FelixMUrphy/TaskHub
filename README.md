@@ -1,5 +1,7 @@
 # TaskHub
 
+[![CI](https://github.com/FelixMUrphy/TaskHub/actions/workflows/ci.yml/badge.svg)](https://github.com/FelixMUrphy/TaskHub/actions/workflows/ci.yml)
+
 **One place to watch and control everything that runs in the background on your Windows PC** — training runs,
 simulations, renders, builds, backups, and the scripts your AI agents (Claude, Codex, ChatGPT) start for you.
 
@@ -122,6 +124,10 @@ setup over an existing install offers **Update**. *Run without installing* is al
 - Requirements: Windows 10 1809+ / 11 x64, WebView2 runtime (preinstalled on current Windows).
 - Port 47800, `127.0.0.1` only, CSRF header + Host/Origin checks; optional bearer token (`"token"` in `config.json`).
 
+Updates: once a day the installed hub looks up the latest release on GitHub (one request to `api.github.com`, nothing is
+downloaded or installed) and shows a notification when a newer version is out; tray → *Updates* has *Check now* and the
+*Check daily* switch (`"update_check": false` in `config.json`). Run the new setup.exe to update.
+
 Toast timing: `toast_seconds` / `toast_seconds_interactive` (4 s / 8 s) in `config.json`; afterwards notifications stay
 in the notification center.
 
@@ -133,6 +139,9 @@ WinRT toasts), `src\Cli`, `ui.html`, `clients\python`.
 Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no tray, no notifications) and runs
 `api_test.py` (API contract, agent hooks, CLI), `validation_test.py` (input validation: non-finite numbers, widget attributes, control values, shell controls), `parallel_test.py` (8 concurrent workers + notification burst),
 `integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder) and `mcp_test.py` (`taskhub mcp`).
+Every push runs the build and these tests on GitHub Actions (`.github/workflows/ci.yml`, Windows runner); pushing a tag
+`v<version>` (matching `Settings.Version`, `build.cmd` and both `.csproj`) also publishes the release with the setup exe
+and its SHA-256.
 `tests\demo_long.py` is an interactive ~20 min demo against the main hub.
 
 Hub command line: `TaskHubHost.exe [--port N] [--data DIR] [--install|--uninstall [--quiet] [--purge] | --status |

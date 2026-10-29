@@ -1,0 +1,109 @@
+# Every push / pull request: build the setup exe and run the test suite (isolated hub on 47899).
+# A tag v<version> also publishes a GitHub release with TaskHub-<version>-setup.exe and its SHA-256.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+      PYTHONUTF8: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('src/**/*.csproj') }}
+
+      # one version everywhere; a release tag must match it
+      - name: Check version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = [regex]::Match((Get-Content src/Host/Settings.cs -Raw), 'Version = "([^"]+)"').Groups[1].Value
+          $found = @{
+            'build.cmd'                  = [regex]::Match((Get-Content build.cmd -Raw), 'set VER=(\S+)').Groups[1].Value
+            'src/Host/TaskHubHost.csproj' = [regex]::Match((Get-Content src/Host/TaskHubHost.csproj -Raw), '<Version>([^<]+)</Version>').Groups[1].Value
+            'src/Cli/taskhub.csproj'      = [regex]::Match((Get-Content src/Cli/taskhub.csproj -Raw), '<Version>([^<]+)</Version>').Groups[1].Value
+          }
+          $bad = $found.GetEnumerator() | Where-Object { $_.Value -ne $v }
+          foreach ($b in $bad) { Write-Output "::error file=$($b.Key)::version '$($b.Value)' differs from Settings.Version '$v'" }
+          if ($bad) { exit 1 }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$v") {
+            Write-Output "::error::tag $env:GITHUB_REF_NAME does not match version $v (expected v$v)"; exit 1
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Build
+        shell: cmd
+        run: call .\build.cmd
+
+      - name: Test
+        shell: cmd
+        run: call .\tests\run_tests.cmd
+
+      - name: Hub log (on failure)
+        if: failure()
+        shell: pwsh
+        run: Get-Content "$env:TEMP\taskhub-tests\taskhub.log" -Tail 200 -ErrorAction SilentlyContinue
+
+      - name: Checksum
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $f = "TaskHub-${{ steps.ver.outputs.version }}-setup.exe"
+          $h = (Get-FileHash "dist/$f" -Algorithm SHA256).Hash.ToLower()
+          "$h  $f" | Out-File -Encoding ascii -NoNewline "dist/$f.sha256"
+
+      - uses: actions/upload-artifact@v4
+        if: github.ref_type == 'tag'
+        with:
+          name: setup
+          path: dist/*
+          retention-days: 7
+
+  release:
+    needs: build-test
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: setup
+          path: dist
+
+      # creates the release, or adds the files to one made by hand for this tag
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "TaskHub ${TAG#v}" --generate-notes --verify-tag
+          fi
