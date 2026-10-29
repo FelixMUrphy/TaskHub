@@ -239,6 +239,7 @@ sealed class TelegramBridge
             if (code == 429) return;
             if (code == 200 && J.Num(r?["result"]?["message_id"]) is double id)
                 live[tid] = new Live { Chat = Chat, Msg = (long)id, Text = text, Last = now };
+            else ProgressError("send", code, r);
         }
     }
 
@@ -250,7 +251,18 @@ sealed class TelegramBridge
         }, 20).GetAwaiter().GetResult();
         p.Last = now;
         if (code == 200 || J.Str(r?["description"]).Contains("not modified")) p.Text = text;
-        else if (code == 400) p.Msg = 0;   // the user deleted the message: stop updating it
+        else
+        {
+            ProgressError("edit", code, r);
+            if (code == 400) p.Msg = 0;   // e.g. the user deleted the message: stop updating it
+        }
+    }
+
+    string lastProgressError;
+    void ProgressError(string what, int code, JsonObject r)
+    {
+        var e = $"telegram progress {what}: HTTP {code} {J.Str(r?["description"])}";
+        if (e != lastProgressError) Log.W(lastProgressError = e);
     }
 
     static string ProgressText(JsonObject t, double now)
@@ -275,8 +287,8 @@ sealed class TelegramBridge
         if (status.Length > 0) sb.Append('\n').Append(Esc(J.Cut(status, 150)));
         double start = J.Num(t["started"]) ?? now;
         double end = Hub.IsFinal(st) ? J.Num(t["finished"]) ?? now : now;
-        sb.Append("\n⏱ ").Append(Coarse(end - start));
-        if (st == "running" && p >= 0.01 && p < 1) sb.Append("  ·  ETA ").Append(Coarse((end - start) * (1 - p) / p));
+        sb.Append("\n⏱ ").Append(Esc(Coarse(end - start)));
+        if (st == "running" && p >= 0.01 && p < 1) sb.Append("  ·  ETA ").Append(Esc(Coarse((end - start) * (1 - p) / p)));
         return sb.ToString();
     }
 

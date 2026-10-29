@@ -43,6 +43,9 @@ class Bot(BaseHTTPRequestHandler):
                 sent.append(body)
                 lock.notify_all()
             return self.reply(200, {"ok": True, "result": {"message_id": len(sent)}})
+        if method in ("sendMessage", "editMessageText") and body.get("parse_mode") == "HTML" and \
+                re.search(r"<(?!/?(b|i|u|s|code|pre|a)[ >])", body.get("text", "")):
+            return self.reply(400, {"ok": False, "description": "Bad Request: can't parse entities"})
         if method == "editMessageText":
             with lock:
                 edits.append(body)
@@ -164,7 +167,7 @@ ptid = r.get("id")
 call("POST", f"/api/tasks/{ptid}/update", {"current": 3, "status": "epoch 3", "widgets": {"loss": [1.0, 1.3]}})
 pm = wait_sent(lambda m: "Train run" in m["text"] and m.get("disable_notification") is True)
 check("progress: silent message with bar and counter", pm is not None and "30%" in pm["text"] and "3/10 ep" in pm["text"]
-      and "█" in pm["text"], sent[-3:])
+      and "█" in pm["text"] and "&lt;1m" in pm["text"], sent[-3:])
 check("no chart while the task runs", not photos, len(photos))
 for i, v in enumerate([0.9, 0.7, 0.5]):
     call("POST", f"/api/tasks/{ptid}/update", {"current": 4 + i, "widgets": {"loss": [v, v + 0.2]}})
