@@ -145,6 +145,16 @@ check("/tasks from the linked chat lists tasks", m is not None, sent[n0:])
 check("/tasks from another chat ignored", not any(x["chat_id"] == 777 for x in sent), sent)
 
 call("DELETE", f"/api/tasks/{tid}?force=1")
+# relink to another chat (e.g. the phone account) without re-entering the token
+s, r = call("POST", "/api/telegram", {"relink": True})
+code2 = (r.get("link") or "").rsplit("start=", 1)[-1]
+check("relink -> new code, not linked yet", s == 200 and code2 and code2 != code and r.get("linked") is False, r)
+msg(888, "/start " + code2)
+check("relinked chat gets the welcome", wait_sent(lambda m: m["chat_id"] == 888) is not None, sent[-2:])
+n2 = len(sent)
+call("POST", "/api/notify", {"title": "to the phone"})
+m = wait_sent(lambda m: "to the phone" in m["text"])
+check("after relink only the new chat gets notifications", m is not None and m["chat_id"] == 888, sent[n2:])
 s, r = call("POST", "/api/telegram", {"disconnect": True})
 check("disconnect", s == 200 and r.get("configured") is False and r.get("linked") is False, r)
 n1 = len(sent)

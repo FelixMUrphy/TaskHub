@@ -104,6 +104,7 @@ sealed class Api
             if (J.Truthy(b["disconnect"])) Telegram.Disconnect();
             if (b.ContainsKey("away_only")) Telegram.SetAwayOnly(J.Truthy(b["away_only"]));
             if (J.IsStr(b["token"])) return await Task.Run(() => Telegram.Pair(J.Str(b["token"])));
+            if (J.Truthy(b["relink"])) return await Task.Run(() => Telegram.Relink());
             if (J.Truthy(b["test"])) Telegram.Test();
             return Telegram.State();
         });

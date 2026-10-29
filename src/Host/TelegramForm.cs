@@ -7,7 +7,8 @@ sealed class TelegramForm : Form
     readonly TelegramBridge tg;
     readonly TextBox token;
     readonly Button connect, test, disconnect;
-    readonly Label state;
+    readonly Label state, qrHint;
+    readonly PictureBox qr;
     readonly LinkLabel link;
     readonly CheckBox away;
     readonly System.Windows.Forms.Timer timer;
@@ -50,20 +51,25 @@ sealed class TelegramForm : Form
             busy = true; connect.Enabled = false;
             var t = token.Text;
             string err = null;
-            try { await Task.Run(() => tg.Pair(t)); }
+            // empty field + a bot already set up -> keep the bot, link another chat (new code)
+            try { await Task.Run(() => string.IsNullOrWhiteSpace(t) && J.Truthy(tg.State()["configured"]) ? tg.Relink() : tg.Pair(t)); }
             catch (Exception ex) { err = ex.Message; }
             busy = false; connect.Enabled = true;
             if (err != null) MessageBox.Show(this, err, "TaskHub", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            else { token.Clear(); Refresh_(); var s = tg.State(); if (J.Str(s["link"]) is { Length: > 0 } l) Open(l); }
+            else { token.Clear(); Refresh_(); }   // not opened automatically: the Telegram account may be on the phone
         };
         row.Controls.Add(token);
         row.Controls.Add(connect);
         root.Controls.Add(row);
 
         state = new Label { AutoSize = true, MaximumSize = new Size(520, 0), Margin = new Padding(0, 12, 0, 0), Font = new Font(Font, FontStyle.Bold) };
+        qrHint = new Label { Text = L.T("tg_qr"), AutoSize = true, MaximumSize = new Size(520, 0), Margin = new Padding(0, 8, 0, 4) };
+        qr = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(200, 200), Margin = new Padding(0, 0, 0, 4) };
         link = new LinkLabel { AutoSize = true, MaximumSize = new Size(520, 0), Margin = new Padding(0, 4, 0, 0) };
         link.LinkClicked += (_, e) => Open(e.Link.LinkData as string);
         root.Controls.Add(state);
+        root.Controls.Add(qrHint);
+        root.Controls.Add(qr);
         root.Controls.Add(link);
 
         away = new CheckBox { Text = L.T("tg_away"), AutoSize = true, Checked = tg.AwayOnly, Margin = new Padding(0, 12, 0, 0) };
@@ -99,14 +105,24 @@ sealed class TelegramForm : Form
         var lnk = J.Str(s["link"]);
         state.Text = linked ? L.T("tg_state_ok", J.Str(s["bot"])) + (st == "connected" ? "" : "  (" + st + ")")
             : configured ? (lnk.Length > 0 ? L.T("tg_state_wait") : st) : L.T("tg_state_off");
-        link.Visible = !linked && lnk.Length > 0;
+        link.Visible = qr.Visible = qrHint.Visible = !linked && lnk.Length > 0;
         if (link.Visible && link.Tag as string != lnk)
         {
             link.Tag = lnk;
             link.Text = L.T("tg_open", lnk);
             link.Links.Clear();
             link.Links.Add(link.Text.IndexOf(lnk, StringComparison.Ordinal), lnk.Length, lnk);
+            try
+            {
+                using var gen = new QRCoder.QRCodeGenerator();
+                using var data = gen.CreateQrCode(lnk, QRCoder.QRCodeGenerator.ECCLevel.M);
+                var png = new QRCoder.PngByteQRCode(data).GetGraphic(8);
+                qr.Image?.Dispose();
+                qr.Image = Image.FromStream(new MemoryStream(png));
+            }
+            catch (Exception e) { Log.W("qr: " + e.Message); qr.Visible = qrHint.Visible = false; }
         }
+        token.PlaceholderText = configured ? L.T("tg_relink_ph") : "123456789:AA...";
         test.Enabled = disconnect.Enabled = configured;
         test.Enabled = linked;
     }

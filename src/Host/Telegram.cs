@@ -68,6 +68,13 @@ sealed class TelegramBridge
         return State();
     }
 
+    /// <summary>Keep the bot, link a different chat (e.g. the account on the phone): new one-time code.</summary>
+    public JsonObject Relink()
+    {
+        if (Token.Length == 0) throw new ApiError(400, "no bot token yet");
+        return Pair(Token);
+    }
+
     public void Disconnect()
     {
         S.Cfg.Remove("telegram_token");
