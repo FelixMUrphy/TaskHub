@@ -43,6 +43,14 @@ s, r = call("GET", "/api/health", headers={"Origin": "http://evil.com"})
 check("cross-origin rejected", s == 403, (s, r))
 s, r = call("GET", "/api/health", headers={"Host": "evil.com"})
 check("bad host rejected", s == 403, (s, r))
+# Claude Code HTTP hooks: always 200 + {} (never blocks the agent)
+for ev in ({"hook_event_name": "Stop", "cwd": "C:\\proj\\demo", "stop_hook_active": False,
+            "last_assistant_message": "## Done\n**Fixed** the `bug` in [Api.cs](x)\n```cs\ncode\n```"},
+           {"hook_event_name": "Notification", "cwd": "/home/u/demo", "message": "Claude needs your permission to use Bash",
+            "notification_type": "permission_prompt"},
+           {"hook_event_name": "PreToolUse", "tool_name": "Bash"}, {}):
+    s, r = call("POST", "/api/hooks/claude", ev)
+    check(f"claude hook {ev.get('hook_event_name', 'empty')}", s == 200 and r == {}, (s, r))
 s, r = call("GET", "/api/nope")
 check("404 route", s == 404 and "error" in r, (s, r))
 s, r = call("POST", "/api/tasks", None, raw=False)

@@ -6,18 +6,18 @@ import time
 from taskhub_client import C, Task, W
 
 blocks = 10
-with Task("Demo: HFSS-like sweep", total=200, unit="pts", source="demo",
+with Task("Demo: parameter sweep", total=200, unit="pts", source="demo",
           description="Synthetic task showing all widgets and controls",
           widgets=[
               W.progress("block", "Block", total=blocks),
-              W.chart("s", "S-params", series=["S11", "S21"], unit="dB", max_points=150),
+              W.chart("s", "Response", series=["A", "B"], unit="dB", max_points=150),
               W.gauge("gpu", "GPU load", unit="%", warn=80, crit=95),
               W.gauge("vram", "VRAM", max=24, unit="GB", decimals=1, warn=20, crit=23),
               W.stat("loss", "Loss", decimals=4, invert=True),
               W.led("lic", "License server"),
               W.chart("thr", "Throughput", kind="bar", unit="pts/s", max_points=40),
               W.kv("cfg", "Config"),
-              W.table("best", "Best points", columns=["f, GHz", "S11, dB", "VSWR"]),
+              W.table("best", "Best points", columns=["x", "A, dB", "ratio"]),
               W.text("cur", "Current file", mono=True, span=2),
           ],
           controls=[
@@ -36,7 +36,7 @@ with Task("Demo: HFSS-like sweep", total=200, unit="pts", source="demo",
         return f"step = {v} MHz"
     t.on("step", set_step)
     t.on("mode", lambda v: f"mode -> {v}")
-    t.set(cfg={"solver": "FEM", "mesh": "adaptive", "f_start": "1.7 GHz", "f_stop": "2.2 GHz"}, lic="ok")
+    t.set(cfg={"method": "grid", "points": 200, "x_start": 1.7, "x_stop": 2.2}, lic="ok")
 
     best = []
     loss = 1.0
@@ -51,8 +51,8 @@ with Task("Demo: HFSS-like sweep", total=200, unit="pts", source="demo",
         vswr = (1 + 10 ** (s11 / 20)) / (1 - 10 ** (s11 / 20))
         best = sorted(best + [[round(f, 4), round(s11, 2), round(vswr, 3)]], key=lambda r: r[1])[:4]
         blk = i // (200 // blocks)
-        t.progress(i + 1, status=f"f = {f:.4f} GHz", stage=f"block {blk + 1}/{blocks}", widgets={
-            "s": {"S11": s11, "S21": s21},
+        t.progress(i + 1, status=f"x = {f:.4f}", stage=f"block {blk + 1}/{blocks}", widgets={
+            "s": {"A": s11, "B": s21},
             "gpu": 60 + 35 * abs(math.sin(i / 15)),
             "vram": 14 + 9 * abs(math.sin(i / 40)),
             "loss": loss,

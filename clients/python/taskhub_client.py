@@ -6,8 +6,8 @@ Library (fail-soft: if the hub is down, all calls are silent no-ops):
 
     from taskhub_client import Task, W, C
 
-    with Task("HFSS sweep", total=120, unit="pts", source="claude",
-              widgets=[W.chart("s11", "S11, dB", series=["S11", "S21"]),
+    with Task("Parameter sweep", total=120, unit="pts", source="claude",
+              widgets=[W.chart("loss", "Loss", series=["train", "val"]),
                        W.gauge("gpu", "GPU", unit="%", warn=80, crit=95),
                        W.led("lic", "License")],
               controls=[C.signal("save", "Save snapshot"),
@@ -18,7 +18,7 @@ Library (fail-soft: if the hub is down, all calls are silent no-ops):
             t.wait_if_paused()
             if t.stop_requested: break
             t.progress(i + 1, status=f"point {i+1}",
-                       widgets={"s11": {"S11": -12.3, "S21": -0.4}, "gpu": 71, "lic": "ok"})
+                       widgets={"loss": {"train": 0.42, "val": 0.51}, "gpu": 71, "lic": "ok"})
             t.log("block done", toast=(i % 40 == 39))
 
 CLI (any language / agent):

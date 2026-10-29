@@ -66,6 +66,10 @@ curl -s -X POST localhost:47800/api/notify -H "X-TaskHub: 1" -d '{"title":"Done"
 > For any job longer than a minute, report it to TaskHub (`taskhub api` prints the docs; wrap commands with
 > `taskhub run --name ... -- <cmd>`).
 
+**Claude Code notifications** — get a toast when Claude finishes a response or needs your permission: install the
+[taskhub-claude-code](https://github.com/FelixMUrphy/taskhub-claude-code) plugin or add the two hooks from
+[API.md → Claude Code hooks](API.md#claude-code-hooks) to `~/.claude/settings.json`.
+
 ## Install details
 The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or any folder you choose), unpacks the
 `taskhub` CLI, `taskhub_client.py` and `API.md`, registers `taskhub://` and an *Apps & features* entry. Running a newer

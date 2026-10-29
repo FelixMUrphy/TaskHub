@@ -14,7 +14,7 @@ Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/
 
 **Any command, no code changes (native CLI `taskhub`, on PATH after install; full path `%LOCALAPPDATA%\Programs\TaskHub\taskhub.exe`):**
 ```
-taskhub run --name "HFSS sweep" --source claude --auto-progress --heartbeat 600 -- ansysedt.exe -ng -batchsolve proj.aedt
+taskhub run --name "Video export" --source claude --auto-progress --heartbeat 600 -- ffmpeg -i in.mov -c:v libx265 out.mp4
 ```
 
 **Python scripts (stdlib-only `taskhub_client.py`, installed next to the CLI in `%LOCALAPPDATA%\Programs\TaskHub`; copy it next to your script or add that folder to PYTHONPATH):**
@@ -35,7 +35,7 @@ Other helpers: `t.set(gpu=71, lic="ok")` (widget values), `t.metric(k=v)`, `t.st
 
 **Wrap any command with the Python client (equivalent of `taskhub run`):**
 ```
-python taskhub_client.py run --name "HFSS sweep" --auto-progress --heartbeat 600 -- ansysedt.exe -ng -batchsolve proj.aedt
+python taskhub_client.py run --name "Video export" --auto-progress --heartbeat 600 -- ffmpeg -i in.mov -c:v libx265 out.mp4
 python taskhub_client.py run --name build --progress-regex "\[(?P<cur>\d+)/(?P<tot>\d+)\]" -- ninja
 ```
 Streams output to the log (and echoes it), parses progress, adds Kill / Ctrl+C / "Send input" (stdin) controls, finishes with the exit code and returns it.
@@ -72,6 +72,7 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/tasks/{id}/controls/{cid}` | `{value?}` | trigger a control (same as panel button) |
 | DELETE | `/api/tasks/{id}` | `?force=1` for active | remove |
 | POST | `/api/notify` | `{title, message, level: info/warn/error, task?}` | one-off toast |
+| POST | `/api/hooks/claude` | Claude Code hook input (as sent) | `Stop` / `Notification` → toast; always `{}` (below) |
 | POST | `/api/clear` | | remove finished tasks |
 | POST | `/api/settings` | `{muted?: bool, seen?: true}` | mute toasts |
 | POST | `/api/ui/open` | `{task?}` | open panel (focus a task) |
@@ -79,8 +80,8 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 ## Registration `POST /api/tasks`
 ```jsonc
 {
-  "name": "HFSS sweep 1.7–2.2 GHz",        // required
-  "id": "hfss-yagi",                      // optional [A-Za-z0-9_.-]; same id = resume (log/charts kept)
+  "name": "Parameter sweep 1–200",          // required
+  "id": "sweep-a",                        // optional [A-Za-z0-9_.-]; same id = resume (log/charts kept)
   "source": "claude",                     // who started it: claude | chatgpt | codex | script ...
   "description": "…", "total": 200, "unit": "pts",
   "pid": 12345,                           // lost-detection + automatic "Kill" control ("kill_control": false to disable)
@@ -116,12 +117,12 @@ Thresholds: `warn`, `crit` (value ≥ → amber/red; `invert: true` → value �
 
 ```jsonc
 {"widgets": [
-  {"id": "s", "type": "chart", "label": "S-params", "series": ["S11", "S21"], "unit": "dB"},
+  {"id": "s", "type": "chart", "label": "Loss", "series": ["train", "val"]},
   {"id": "gpu", "type": "gauge", "label": "GPU", "unit": "%", "warn": 80, "crit": 95},
   {"id": "lic", "type": "led", "label": "License"}
 ]}
 // update:
-{"current": 57, "widgets": {"s": {"S11": -18.2, "S21": -0.4}, "gpu": 73, "lic": "ok"}}
+{"current": 57, "widgets": {"s": {"train": 0.42, "val": 0.51}, "gpu": 73, "lic": "ok"}}
 ```
 
 ## Controls
@@ -153,6 +154,22 @@ Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in updat
 `::error s`, `::toast s`, `::metric k=v`, `::widget id=value` lines). Also `notify`, `list`, `show`, `register`, `update`,
 `log`, `finish`, `control`, `commands`, `ack`, `wait ID` (blocks until finished), `panel`, `delete`. `taskhub --help`.
 
+## Claude Code hooks
+Notifications when Claude Code finishes a response (`Stop`, toast shows the first line of the answer and the project folder)
+or waits for a permission / your answer (`Notification`). Add to `~/.claude/settings.json` (or install the
+[taskhub-claude-code](https://github.com/FelixMUrphy/taskhub-claude-code) plugin, which contains the same hooks):
+```json
+{
+  "hooks": {
+    "Stop": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:47800/api/hooks/claude", "headers": { "X-TaskHub": "1" }, "timeout": 5 }] }],
+    "Notification": [{ "matcher": "permission_prompt|elicitation_dialog",
+      "hooks": [{ "type": "http", "url": "http://127.0.0.1:47800/api/hooks/claude", "headers": { "X-TaskHub": "1" }, "timeout": 5 }] }]
+  }
+}
+```
+The endpoint never returns a decision, so it cannot block or change Claude Code; if TaskHub is not running the hook just fails
+silently (non-blocking). Toasts follow the usual rules (mute, no pop-ups while the panel is open).
+
 ## Agent notes (Claude / ChatGPT / Codex / any automation)
 Use TaskHub for anything that runs longer than ~1 minute, so the user sees progress and gets notified without watching the chat.
 0. Where: CLI `taskhub` (PATH) or `%LOCALAPPDATA%\Programs\TaskHub\taskhub.exe`; HTTP `http://127.0.0.1:47800`; this doc: `taskhub api` or `GET /api/help`.
@@ -161,7 +178,7 @@ Use TaskHub for anything that runs longer than ~1 minute, so the user sees progr
 2. Long shell command: `taskhub run --name "<what>" --source <claude|chatgpt|codex> [--auto-progress] [--heartbeat N] -- <cmd args>`.
    Inside your own scripts print `::progress i/N`, `::status ...`, `::warn ...` lines - `taskhub run` turns them into panel updates.
    `taskhub wait <id>` blocks until a task finishes (exit 0 = done).
-2a. Name things for the user: task `name` = what is being done ("HFSS sweep 1.7-2.2 GHz"), `source` = who started it.
+2a. Name things for the user: task `name` = what is being done ("Parameter sweep 1-200"), `source` = who started it.
     Controls with `input` send their value only when the button is pressed, so label them as actions ("Set speed", "Apply").
     Use `"toast": true` only for 1-3 controls the user may need from a notification (Pause, Stop, a key parameter).
 3. For your own Python scripts use `Task(...)` with meaningful widgets; `toast=True` only for events the user must see.

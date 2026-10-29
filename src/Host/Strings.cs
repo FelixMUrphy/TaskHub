@@ -49,6 +49,8 @@ static class L
         ["data_folder"] = new[] { "Data folder", "Тека даних", "Carpeta de datos", "Datenordner", "Dossier de données", "Cartella dati", "Pasta de dados", "Folder danych", "数据文件夹", "データフォルダー" },
         ["api_help"] = new[] { "API reference", "API (довідка)", "Referencia de la API", "API-Referenz", "Référence API", "Riferimento API", "Referência da API", "Dokumentacja API", "API 文档", "API リファレンス" },
         ["support"] = new[] { "❤ Support TaskHub", "❤ Підтримати TaskHub", "❤ Apoyar TaskHub", "❤ TaskHub unterstützen", "❤ Soutenir TaskHub", "❤ Sostieni TaskHub", "❤ Apoiar o TaskHub", "❤ Wesprzyj TaskHub", "❤ 支持 TaskHub", "❤ TaskHub を支援" },
+        ["agent_done"] = new[] { "response ready", "відповідь готова", "respuesta lista", "Antwort fertig", "réponse prête", "risposta pronta", "resposta pronta", "odpowiedź gotowa", "回复已就绪", "応答完了" },
+        ["agent_input"] = new[] { "Needs your input", "Потрібна твоя дія", "Necesita tu respuesta", "Braucht deine Eingabe", "Attend ta réponse", "Serve il tuo input", "Precisa da sua ação", "Czeka na Twoją decyzję", "需要你的操作", "入力が必要です" },
         ["quit"] = new[] { "Exit", "Вийти", "Salir", "Beenden", "Quitter", "Esci", "Sair", "Zakończ", "退出", "終了" },
         ["language"] = new[] { "Language", "Мова", "Idioma", "Sprache", "Langue", "Lingua", "Idioma", "Język", "语言", "言語" },
         ["auto"] = new[] { "Auto (system)", "Авто (системна)", "Automático (sistema)", "Automatisch (System)", "Auto (système)", "Automatica (sistema)", "Automático (sistema)", "Automatycznie (system)", "自动（系统）", "自動（システム）" },
