@@ -93,21 +93,22 @@ sealed class Notifier : INotifier
                         var iid = "v_" + cid;
                         var lbl = J.Truthy(inp["label"]) ? J.Str(inp["label"]) : J.Str(c["label"]);
                         var typ = J.Str(inp["type"]);
+                        var cur = c["last_value"] ?? inp["default"];   // current value, not the registration default
                         if (typ == "select")
                         {
                             var opts = (inp["options"] as JsonArray).Select(x => J.Str(x)).Take(5).ToList();
-                            var def = J.Str(inp["default"]);
+                            var def = J.Str(cur);
                             if (!opts.Contains(def)) def = opts[0];
                             b.AddComboBox(iid, lbl, def, opts.Select(o => (o, o)).ToArray());
                         }
                         else if (typ == "bool")
                         {
-                            b.AddComboBox(iid, lbl, J.Truthy(inp["default"]) ? "true" : "false", ("true", L.T("yes")), ("false", L.T("no")));
+                            b.AddComboBox(iid, lbl, J.Truthy(cur) ? "true" : "false", ("true", L.T("yes")), ("false", L.T("no")));
                         }
                         else
                         {
-                            var ph = J.Truthy(inp["placeholder"]) ? J.Str(inp["placeholder"]) : J.Str(inp["default"]);
-                            b.AddInputTextBox(iid, ph, lbl);
+                            var ph = J.Truthy(inp["placeholder"]) ? J.Str(inp["placeholder"]) : "";
+                            b.AddToastInput(new ToastTextBox(iid) { Title = lbl, PlaceholderContent = ph, DefaultInput = cur == null ? "" : J.Str(cur) });
                         }
                         inputs++;
                     }
@@ -131,7 +132,11 @@ sealed class Notifier : INotifier
             }
             b.AddButton(new ToastButton().SetContent(L.T("open_panel")).AddArgument("action", "open").AddArgument("task", tid ?? ""));
             var tag = Tag(tid ?? "n") + Guid.NewGuid().ToString("N")[..6];
-            b.Show(t => { t.Tag = tag; t.Group = Settings.AppId; });
+            b.Show(t =>
+            {
+                t.Tag = tag; t.Group = Settings.AppId;
+                t.Failed += (s, a) => Log.W($"toast[{tag}] failed: {a.ErrorCode}");
+            });
             failures = 0;
         }
         catch (Exception e)
@@ -228,7 +233,7 @@ sealed class Notifier : INotifier
             var args = ToastArguments.Parse(e.Argument);
             args.TryGetValue("action", out string action);
             args.TryGetValue("task", out string tid);
-            Log.W($"toast activated: {e.Argument}");
+            Log.W($"toast activated: {e.Argument} input=[{string.Join(",", e.UserInput.Select(kv => kv.Key + "=" + kv.Value))}]");
             if (string.IsNullOrEmpty(tid)) tid = null;
             switch (action)
             {

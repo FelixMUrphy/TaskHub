@@ -137,6 +137,9 @@ Declared by the task, rendered as buttons. Fields: `id`, `label`, `kind`, `style
 | `kill` | hub kills `pid` with its whole process tree; task → cancelled |
 
 `input`: `{"type": "text"|"number"|"select"|"bool", "label", "default", "options": [...], "min", "max", "step"}`.
+The value is sent only when the control's button is pressed, so give such controls an action label ("Set speed", "Apply", "Send"),
+and `input.label` for the field itself. The hub remembers the last sent value (`last_value` in the control) and pre-fills the panel form
+and the toast input with it.
 Command delivered to the process: `{"id": "a1b2c3", "control": "lr", "value": 0.001, "t": 1793240199.6}`.
 Python client built-ins: `stop` → `t.stop_requested`; `pause`/`resume` (`pausable=True`) → `t.paused`, `t.wait_if_paused()`.
 

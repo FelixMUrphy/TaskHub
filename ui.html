@@ -377,11 +377,12 @@ async function onControl(el, tid, c, btn){
     return send(tid,c,undefined,btn);
   }
   const f=$(".form",el), i=c.input; ui[tid].formFor=c.id;
+  const dv = c.last_value ?? i.default;   // last sent value, else the declared default
   let field;
-  if (i.type==="select") field=`<select>${i.options.map(o=>`<option ${o==i.default?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
-  else if (i.type==="bool") field=`<input type="checkbox" ${i.default?"checked":""}>`;
-  else if (i.type==="number") field=`<input type="number" value="${esc(i.default??"")}" ${i.min!=null?`min="${i.min}"`:""} ${i.max!=null?`max="${i.max}"`:""} step="${i.step??"any"}">`;
-  else field=`<input type="text" value="${esc(i.default??"")}" placeholder="${esc(i.placeholder??"")}">`;
+  if (i.type==="select") field=`<select>${i.options.map(o=>`<option ${o==dv?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
+  else if (i.type==="bool") field=`<input type="checkbox" ${dv?"checked":""}>`;
+  else if (i.type==="number") field=`<input type="number" value="${esc(dv??"")}" ${i.min!=null?`min="${i.min}"`:""} ${i.max!=null?`max="${i.max}"`:""} step="${i.step??"any"}">`;
+  else field=`<input type="text" value="${esc(dv??"")}" placeholder="${esc(i.placeholder??"")}">`;
   f.innerHTML=`<label>${esc(i.label||c.label)}</label>${field}<button class="btn primary">OK</button><button class="btn">✕</button>`;
   f.classList.add("on");
   const inp=f.querySelector("input,select"); inp.focus(); if (inp.select) try{inp.select();}catch(e){}

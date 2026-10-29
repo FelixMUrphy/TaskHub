@@ -726,6 +726,7 @@ sealed class Hub
             var states = (c["states"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x)).ToList();
             if (!states.Contains(St(t))) throw new ApiError(409, $"control '{cid}' not available in state '{St(t)}'");
             var label = J.Str(c["label"]) + (value != null ? " = " + J.Dump(value) : "") + (via != null ? $" ({via})" : "");
+            if (value != null) c["last_value"] = J.C(value);   // next toast / panel form starts from the current value
             if (J.Str(c["kind"]) == "signal")
             {
                 var cmd = new JsonObject
