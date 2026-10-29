@@ -121,6 +121,7 @@ pre .warn{color:var(--amber)} pre .error{color:var(--red)} pre .cmd{color:var(--
   <select id="lang" class="lng"></select>
   <button class="ib" id="mute" title="Сповіщення">🔔</button>
   <button class="ib" id="clear">🧹</button>
+  <button class="ib" id="sup">♡</button>
 </header>
 <div id="off" data-i="offline"></div>
 <main id="list"></main>
@@ -172,10 +173,13 @@ let LANG = (()=>{ const n=(navigator.language||"en").slice(0,2).toLowerCase(); r
 let LANG_SETTING = "auto";
 function T(k, ...a){ const d=I18N[LANG]||I18N.en; let s=d[k]; if (s==null) s=I18N.en[k]; if (s==null) return k; return a.length? String(s).replace(/\{(\d)\}/g,(_,i)=>a[+i]) : s; }
 const LOC = () => LOCALE[LANG]||"en-GB";
+const SUPPORT_URL = "https://github.com/sponsors/FelixMUrphy";
+const SUP = {en:"Support TaskHub",uk:"Підтримати TaskHub",es:"Apoyar TaskHub",de:"TaskHub unterstützen",fr:"Soutenir TaskHub",it:"Sostieni TaskHub",pt:"Apoiar o TaskHub",pl:"Wesprzyj TaskHub",zh:"支持 TaskHub",ja:"TaskHub を支援"};
 function applyLang(){
   document.documentElement.lang = LANG;
   document.querySelectorAll("[data-i]").forEach(e=>e.textContent=T(e.dataset.i));
   $("#clear").title = T("clear_done");
+  $("#sup").title = SUP[LANG] || SUP.en;
   const [ok,no]=document.querySelectorAll("#dlg button"); ok.textContent=T("ok"); no.textContent=T("cancel");
   const sel=$("#lang");
   sel.innerHTML = `<option value="auto">🌐 ${esc(T("auto"))}</option>` + Object.entries(LANGS).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join("");
@@ -448,6 +452,7 @@ async function loop(){
 document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setFilt(b.dataset.f));
 $("#mute").onclick=()=>api("POST","/api/settings",{muted:!(data&&data.muted)}).catch(e=>snack(e.message));
 $("#clear").onclick=()=>api("POST","/api/clear",{}).catch(e=>snack(e.message));
+$("#sup").onclick=()=>{ if (NATIVE) host({open:SUPPORT_URL}); else window.open(SUPPORT_URL,"_blank"); };
 const seen=()=>api("POST","/api/settings",{seen:true}).catch(()=>{});
 window.addEventListener("focus",seen);
 document.addEventListener("keydown",e=>{ if(e.key==="Escape" && !modal && !Object.values(ui).some(u=>u.formFor)){ if (NATIVE) host("hide"); else api("POST","/api/ui/hide",{}).catch(()=>{}); } });

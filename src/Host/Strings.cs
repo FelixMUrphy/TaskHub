@@ -13,6 +13,8 @@ static class L
     };
 
     public static Settings S;
+    public const string RepoUrl = "https://github.com/FelixMUrphy/TaskHub";
+    public const string SupportUrl = "https://github.com/sponsors/FelixMUrphy";
 
     /// <summary>Setting value: "auto" or a language code.</summary>
     public static string Setting
@@ -46,6 +48,7 @@ static class L
         ["test_toast"] = new[] { "Test notification", "Тестове сповіщення", "Notificación de prueba", "Testbenachrichtigung", "Notification de test", "Notifica di prova", "Notificação de teste", "Powiadomienie testowe", "测试通知", "テスト通知" },
         ["data_folder"] = new[] { "Data folder", "Тека даних", "Carpeta de datos", "Datenordner", "Dossier de données", "Cartella dati", "Pasta de dados", "Folder danych", "数据文件夹", "データフォルダー" },
         ["api_help"] = new[] { "API reference", "API (довідка)", "Referencia de la API", "API-Referenz", "Référence API", "Riferimento API", "Referência da API", "Dokumentacja API", "API 文档", "API リファレンス" },
+        ["support"] = new[] { "❤ Support TaskHub", "❤ Підтримати TaskHub", "❤ Apoyar TaskHub", "❤ TaskHub unterstützen", "❤ Soutenir TaskHub", "❤ Sostieni TaskHub", "❤ Apoiar o TaskHub", "❤ Wesprzyj TaskHub", "❤ 支持 TaskHub", "❤ TaskHub を支援" },
         ["quit"] = new[] { "Exit", "Вийти", "Salir", "Beenden", "Quitter", "Esci", "Sair", "Zakończ", "退出", "終了" },
         ["language"] = new[] { "Language", "Мова", "Idioma", "Sprache", "Langue", "Lingua", "Idioma", "Język", "语言", "言語" },
         ["auto"] = new[] { "Auto (system)", "Авто (системна)", "Automático (sistema)", "Automatisch (System)", "Auto (système)", "Automatica (sistema)", "Automático (sistema)", "Automatycznie (system)", "自动（系统）", "自動（システム）" },

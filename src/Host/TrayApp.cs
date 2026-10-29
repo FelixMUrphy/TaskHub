@@ -117,6 +117,7 @@ sealed class TrayApp : ApplicationContext
             Hub.OpenTarget(p);
         });
         m.Items.Add(new ToolStripSeparator());
+        Add("support", () => Hub.OpenTarget(L.SupportUrl));
         Add("quit", Quit);
         m.Opening += (_, _) =>
         {
