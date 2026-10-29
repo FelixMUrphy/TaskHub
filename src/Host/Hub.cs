@@ -16,6 +16,7 @@ interface INotifier
     void Toast(string title, string msg, string level, string taskId, JsonObject task);
     void Progress(JsonObject task);
     void ProgressEnd(string taskId);
+    void Refresh(string taskId);   // a control value changed -> re-render shown toasts
 }
 
 /// <summary>Task registry - a port of the Python Hub class; tasks are JsonObjects with the same shape.</summary>
@@ -726,7 +727,11 @@ sealed class Hub
             var states = (c["states"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x)).ToList();
             if (!states.Contains(St(t))) throw new ApiError(409, $"control '{cid}' not available in state '{St(t)}'");
             var label = J.Str(c["label"]) + (value != null ? " = " + J.Dump(value) : "") + (via != null ? $" ({via})" : "");
-            if (value != null) c["last_value"] = J.C(value);   // next toast / panel form starts from the current value
+            if (value != null)
+            {
+                c["last_value"] = J.C(value);   // next toast / panel form starts from the current value
+                Notifier?.Refresh(tid);         // and toasts already on screen / in the notification center follow it
+            }
             if (J.Str(c["kind"]) == "signal")
             {
                 var cmd = new JsonObject

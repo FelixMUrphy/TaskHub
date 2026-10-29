@@ -61,98 +61,114 @@ sealed class Notifier : INotifier
         queue.Add(() => ShowToast(J.Cut(string.IsNullOrEmpty(title) ? Settings.AppId : title, 150), J.Cut(msg ?? "", 500), level, taskId, task));
     }
 
+    /// <summary>Toasts currently shown (banner or notification center), so they can be re-rendered when values change.</summary>
+    sealed record Shown(string Title, string Msg, string Level, string Tid, JsonObject Snap);
+    readonly Dictionary<string, Shown> shown = new();   // tag -> content; touched only on the worker thread
+
     void ShowToast(string title, string msg, string level, string tid, JsonObject task)
     {
         if (failures >= 3) { Balloon?.Invoke(title, msg); return; }
         try
         {
-            var b = new ToastContentBuilder()
-                .AddArgument("action", "open")
-                .AddArgument("task", tid ?? "")
-                .AddText(title);
-            if (!string.IsNullOrEmpty(msg)) b.AddText(msg);
-            if (iconPath != null && File.Exists(iconPath)) b.AddAppLogoOverride(new Uri(iconPath));
-            if (level == "error") b.AddAudio(new Uri("ms-winsoundevent:Notification.Reminder"));
-            int actions = 0, inputs = 0;
-            var state = task != null ? J.Str(task["state"]) : null;
-            if (task != null && S.Bool("toast_controls", true) && Hub.IsActive(state))
-            {
-                foreach (var c in (task["controls"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
-                {
-                    if (!J.Truthy(c["toast"])) continue;
-                    var states = (c["states"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x));
-                    if (!states.Contains(state)) continue;
-                    if (actions >= 3) break;
-                    var cid = J.Str(c["id"]);
-                    if (c["input"] is JsonObject inp)
-                    {
-                        if (inputs >= 3) continue;
-                        var iid = "v_" + cid;
-                        var lbl = J.Truthy(inp["label"]) ? J.Str(inp["label"]) : J.Str(c["label"]);
-                        var typ = J.Str(inp["type"]);
-                        var cur = c["last_value"] ?? inp["default"];   // current value, not the registration default
-                        if (typ == "select")
-                        {
-                            var opts = (inp["options"] as JsonArray).Select(x => J.Str(x)).Take(5).ToList();
-                            var def = J.Str(cur);
-                            if (!opts.Contains(def)) def = opts[0];
-                            b.AddComboBox(iid, lbl, def, opts.Select(o => (o, o)).ToArray());
-                        }
-                        else if (typ == "bool")
-                        {
-                            b.AddComboBox(iid, lbl, J.Truthy(cur) ? "true" : "false", ("true", L.T("yes")), ("false", L.T("no")));
-                        }
-                        else
-                        {
-                            var ph = J.Truthy(inp["placeholder"]) ? J.Str(inp["placeholder"]) : "";
-                            b.AddToastInput(new ToastTextBox(iid) { Title = lbl, PlaceholderContent = ph, DefaultInput = cur == null ? "" : J.Str(cur) });
-                        }
-                        inputs++;
-                    }
-                    b.AddButton(new ToastButton()
-                        .SetContent(J.Cut(J.Str(c["label"]), 40))
-                        .AddArgument("action", "ctl").AddArgument("task", tid).AddArgument("cid", cid));
-                    actions++;
-                }
-            }
-            if (task != null && Hub.IsFinal(state ?? ""))
-            {
-                var links = (task["links"] as JsonArray ?? new JsonArray()).ToList();
-                for (int i = 0; i < links.Count && actions < 2; i++)
-                {
-                    var l = links[i];
-                    var label = l is JsonObject lo ? (J.Truthy(lo["label"]) ? J.Str(lo["label"]) : J.Str(lo["url"])) : J.Str(l);
-                    b.AddButton(new ToastButton().SetContent(J.Cut(label, 40))
-                        .AddArgument("action", "link").AddArgument("task", tid).AddArgument("i", i));
-                    actions++;
-                }
-            }
-            b.AddButton(new ToastButton().SetContent(L.T("open_panel")).AddArgument("action", "open").AddArgument("task", tid ?? ""));
+            var e = new Shown(title, msg, level, tid, task);
+            var b = Build(e, task, out bool interactive);
             var tag = Tag(tid ?? "n") + Guid.NewGuid().ToString("N")[..6];
             bool quiet = Quiet();
-            b.Show(t =>
-            {
-                t.Tag = tag; t.Group = Settings.AppId;
-                t.SuppressPopup = quiet;
-                t.Failed += (s, a) => Log.W($"toast[{tag}] failed: {a.ErrorCode}");
-            });
+            Post(b, tag, quiet);
             failures = 0;
+            if (tid != null) shown[tag] = e;
             if (!quiet)
             {
-                // shorter on-screen time than Windows' default: after N s re-post the same toast silently
-                // (same tag) -> the banner disappears, the notification stays in the notification center
-                double secs = inputs > 0 || actions > 0
-                    ? (J.Num(S.Cfg["toast_seconds_interactive"]) ?? 8)
-                    : (J.Num(S.Cfg["toast_seconds"]) ?? 4);
-                if (secs > 0) HideBannerLater(b.GetToastContent().GetXml(), tag, Settings.AppId, secs);
+                // shorter on-screen time than Windows' default: after N s re-post the toast silently (same tag)
+                // -> the banner disappears, the notification stays in the notification center
+                double secs = interactive ? (J.Num(S.Cfg["toast_seconds_interactive"]) ?? 8) : (J.Num(S.Cfg["toast_seconds"]) ?? 4);
+                if (secs > 0)
+                    _ = Task.Delay(TimeSpan.FromSeconds(secs)).ContinueWith(_ => queue.Add(() => Repost(tag, e)));
             }
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
             failures++;
-            Log.W("toast failed: " + e);
+            Log.W("toast failed: " + ex);
             Balloon?.Invoke(title, msg);
         }
+    }
+
+    ToastContentBuilder Build(Shown e, JsonObject task, out bool interactive)
+    {
+        var tid = e.Tid;
+        var b = new ToastContentBuilder()
+            .AddArgument("action", "open")
+            .AddArgument("task", tid ?? "")
+            .AddText(e.Title);
+        if (!string.IsNullOrEmpty(e.Msg)) b.AddText(e.Msg);
+        if (iconPath != null && File.Exists(iconPath)) b.AddAppLogoOverride(new Uri(iconPath));
+        if (e.Level == "error") b.AddAudio(new Uri("ms-winsoundevent:Notification.Reminder"));
+        int actions = 0, inputs = 0;
+        var state = task != null ? J.Str(task["state"]) : null;
+        if (task != null && S.Bool("toast_controls", true) && Hub.IsActive(state))
+        {
+            foreach (var c in (task["controls"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
+            {
+                if (!J.Truthy(c["toast"])) continue;
+                var states = (c["states"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x));
+                if (!states.Contains(state)) continue;
+                if (actions >= 3) break;
+                var cid = J.Str(c["id"]);
+                if (c["input"] is JsonObject inp)
+                {
+                    if (inputs >= 3) continue;
+                    var iid = "v_" + cid;
+                    var lbl = J.Truthy(inp["label"]) ? J.Str(inp["label"]) : J.Str(c["label"]);
+                    var typ = J.Str(inp["type"]);
+                    var cur = c["last_value"] ?? inp["default"];   // current value, not the registration default
+                    if (typ == "select")
+                    {
+                        var opts = (inp["options"] as JsonArray).Select(x => J.Str(x)).Take(5).ToList();
+                        var def = J.Str(cur);
+                        if (!opts.Contains(def)) def = opts[0];
+                        b.AddComboBox(iid, lbl, def, opts.Select(o => (o, o)).ToArray());
+                    }
+                    else if (typ == "bool")
+                        b.AddComboBox(iid, lbl, J.Truthy(cur) ? "true" : "false", ("true", L.T("yes")), ("false", L.T("no")));
+                    else
+                    {
+                        var ph = J.Truthy(inp["placeholder"]) ? J.Str(inp["placeholder"]) : "";
+                        b.AddToastInput(new ToastTextBox(iid) { Title = lbl, PlaceholderContent = ph, DefaultInput = cur == null ? "" : J.Str(cur) });
+                    }
+                    inputs++;
+                }
+                b.AddButton(new ToastButton()
+                    .SetContent(J.Cut(J.Str(c["label"]), 40))
+                    .AddArgument("action", "ctl").AddArgument("task", tid).AddArgument("cid", cid));
+                actions++;
+            }
+        }
+        if (task != null && Hub.IsFinal(state ?? ""))
+        {
+            var links = (task["links"] as JsonArray ?? new JsonArray()).ToList();
+            for (int i = 0; i < links.Count && actions < 2; i++)
+            {
+                var l = links[i];
+                var label = l is JsonObject lo ? (J.Truthy(lo["label"]) ? J.Str(lo["label"]) : J.Str(lo["url"])) : J.Str(l);
+                b.AddButton(new ToastButton().SetContent(J.Cut(label, 40))
+                    .AddArgument("action", "link").AddArgument("task", tid).AddArgument("i", i));
+                actions++;
+            }
+        }
+        b.AddButton(new ToastButton().SetContent(L.T("open_panel")).AddArgument("action", "open").AddArgument("task", tid ?? ""));
+        interactive = actions > 0 || inputs > 0;
+        return b;
+    }
+
+    static void Post(ToastContentBuilder b, string tag, bool quiet)
+    {
+        b.Show(t =>
+        {
+            t.Tag = tag; t.Group = Settings.AppId;
+            t.SuppressPopup = quiet;
+            t.Failed += (s, a) => Log.W($"toast[{tag}] failed: {a.ErrorCode}");
+        });
     }
 
     bool Quiet()
@@ -161,20 +177,31 @@ sealed class Notifier : INotifier
         try { return PanelOpen?.Invoke() ?? false; } catch { return false; }
     }
 
-    void HideBannerLater(Windows.Data.Xml.Dom.XmlDocument xml, string tag, string group, double secs)
+    /// <summary>Silently re-render a shown toast from the task's current state (worker thread).</summary>
+    void Repost(string tag, Shown e)
     {
-        _ = Task.Delay(TimeSpan.FromSeconds(secs)).ContinueWith(_ => queue.Add(() =>
+        try
         {
-            try
+            // only if it is still there (not clicked / dismissed by the user)
+            if (!ToastNotificationManagerCompat.History.GetHistory().Any(n => n.Tag == tag && n.Group == Settings.AppId))
             {
-                // only if it is still there (not clicked / dismissed by the user)
-                var still = ToastNotificationManagerCompat.History.GetHistory().Any(n => n.Tag == tag && n.Group == group);
-                if (!still) return;
-                var n = new ToastNotification(xml) { Tag = tag, Group = group, SuppressPopup = true };
-                ToastNotificationManagerCompat.CreateToastNotifier().Show(n);
+                shown.Remove(tag);
+                return;
             }
-            catch (Exception e) { Log.W("hide banner: " + e.Message); }
-        }));
+            JsonObject task = e.Snap;
+            if (e.Tid != null) try { task = Hub.GetTask(e.Tid); } catch { }
+            Post(Build(e, task, out _), tag, true);
+        }
+        catch (Exception ex) { Log.W("repost: " + ex.Message); }
+    }
+
+    /// <summary>A control value changed: refresh this task's toasts so their inputs show the current value.</summary>
+    public void Refresh(string tid)
+    {
+        queue.Add(() =>
+        {
+            foreach (var (tag, e) in shown.Where(kv => kv.Value.Tid == tid).ToList()) Repost(tag, e);
+        });
     }
 
     // ------------------------------------------------------------ in-place progress toasts
