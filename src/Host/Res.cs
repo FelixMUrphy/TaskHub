@@ -22,6 +22,11 @@ static class Res
         return ms.ToArray();
     }
 
+    static string[] SafeGlob(string dir, string pattern)
+    {
+        try { return Directory.GetFiles(dir, pattern); } catch { return Array.Empty<string>(); }
+    }
+
     public static bool Has(string name) => Assembly.GetExecutingAssembly().GetManifestResourceInfo(name) != null;
 
     /// <summary>Write the payload (CLI, Python client, API doc) into a directory.</summary>
@@ -32,10 +37,17 @@ static class Res
             var data = Read(name, allowOverride: false);
             if (data == null) continue;
             var dst = Path.Combine(dir, name);
+            foreach (var old in SafeGlob(dir, name + ".old-*")) try { File.Delete(old); } catch { }   // leftovers of earlier updates
             for (int i = 0; ; i++)
             {
                 try { File.WriteAllBytes(dst, data); break; }
-                catch (IOException) when (i < 10) { Thread.Sleep(500); }   // CLI may be running
+                catch (IOException) when (i < 4) { Thread.Sleep(500); }
+                catch (IOException) when (i == 4)
+                {
+                    // still in use (e.g. `taskhub mcp` kept running by an AI agent): a running exe can be renamed but not
+                    // overwritten -> move it aside; the running process keeps working, new starts use the new file
+                    File.Move(dst, dst + ".old-" + DateTime.Now.Ticks);
+                }
             }
         }
     }

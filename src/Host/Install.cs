@@ -213,6 +213,7 @@ static class Install
     {
         foreach (var f in Payload)
             try { File.Delete(Path.Combine(dir, f)); } catch { }
+        try { foreach (var f in Directory.GetFiles(dir, "taskhub.exe.old-*")) try { File.Delete(f); } catch { } } catch { }
         try { if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any()) Directory.Delete(dir); } catch { }
     }
 
@@ -249,7 +250,7 @@ static class Install
     public static void ScheduleRemoveFiles(string dir)
     {
         if (!Directory.Exists(dir)) return;
-        var dels = string.Join(" & ", Payload.Select(f => $"del /f /q \"{Path.Combine(dir, f)}\""));
+        var dels = string.Join(" & ", Payload.Append("taskhub.exe.old-*").Select(f => $"del /f /q \"{Path.Combine(dir, f)}\""));
         var cmd = $"/d /c timeout /t 3 /nobreak >nul & {dels} & rmdir \"{dir}\"";
         Process.Start(new ProcessStartInfo("cmd.exe", cmd) { CreateNoWindow = true, UseShellExecute = false, WorkingDirectory = Path.GetTempPath() })?.Dispose();
     }

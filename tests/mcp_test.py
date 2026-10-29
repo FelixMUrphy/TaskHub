@@ -41,7 +41,7 @@ def tool(_tool, **args):
 r = rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}})
 res = r.get("result", {})
 check("initialize", res.get("serverInfo", {}).get("name") == "taskhub" and "tools" in res.get("capabilities", {})
-      and res.get("protocolVersion") == "2025-06-18" and "Do NOT add intermediate" in res.get("instructions", ""), r)
+      and res.get("protocolVersion") == "2025-06-18" and "Do NOT add start or intermediate" in res.get("instructions", ""), r)
 rpc("notifications/initialized", notify=True)
 r = rpc("tools/list")
 names = [t["name"] for t in r.get("result", {}).get("tools", [])]
@@ -72,6 +72,12 @@ check("task_commands returns the press", '"control":"go"' in txt and not err, tx
 txt, err, _ = tool("task_commands", id=tid)
 check("task_commands: acknowledged, not repeated", txt == "no pending commands", txt)
 
+full = json.loads(op.open(f"{url}/api/tasks/{tid}", timeout=5).read())
+check("defaults: no start / milestone notifications", full["notify"]["start"] is False and full["notify"]["milestones"] == [], full["notify"])
+tid2, err, raw = tool("task_start", name="with notifications", notify_start=True, notify_milestones=[50])
+full2 = json.loads(op.open(f"{url}/api/tasks/{tid2}", timeout=5).read())
+check("notify_start / notify_milestones passed through", full2["notify"]["start"] is True and full2["notify"]["milestones"] == [50], full2["notify"])
+tool("task_finish", id=tid2)
 txt, err, _ = tool("task_finish", id=tid, state="done", message="готово")
 check("task_finish", txt == "finished" and not err, txt)
 txt, err, _ = tool("task_update", id="nope-404")

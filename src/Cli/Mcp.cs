@@ -19,7 +19,7 @@ static class Mcp
         "Use it for work that runs longer than about a minute (builds, tests, training, renders, exports, long scripts): " +
         "task_start when it begins, task_update with progress/status as it goes (at most every few seconds), task_finish when it ends " +
         "(the user gets a notification on finish/failure automatically). Use notify for a one-off message the user should see. " +
-        "Do NOT add intermediate notifications (milestones, toast=true) unless the user asks for them. " +
+        "Do NOT add start or intermediate notifications (notify_start, notify_milestones) unless the user asks for them. " +
         "Add controls (buttons/inputs) only when the user may want to steer the job; read their clicks with task_commands. " +
         "If TaskHub is unavailable, continue the user's work without it.";
 
@@ -98,6 +98,9 @@ static class Mcp
                 ("total", Num("Optional number of steps/items for progress")),
                 ("unit", Str("Unit of total, e.g. 'tests', 'files'")),
                 ("heartbeat_timeout", Num("Seconds without task_update after which the task is shown as stalled (0 = off)")),
+                ("notify_start", Obj(("type", "boolean"), ("description", "Also show a notification when the task starts. Default false - set only if the user asked for it."))),
+                ("notify_milestones", Obj(("type", "array"), ("items", Obj(("type", "number"))),
+                    ("description", "Percentages that show a plain progress notification, e.g. [50]. Default none - set only if the user asked for it."))),
                 ("controls", Obj(("type", "array"), ("items", Obj(("type", "object"))),
                     ("description", "Optional buttons the user can press, e.g. [{\"id\":\"stop\",\"label\":\"Stop\"}] or with an input " +
                         "{\"id\":\"lr\",\"label\":\"Set LR\",\"input\":{\"type\":\"number\",\"default\":0.001}}. Read presses with task_commands."))),
@@ -156,7 +159,11 @@ static class Mcp
                     var b = new JsonObject { ["source"] = source };
                     foreach (var k in new[] { "name", "description", "total", "unit", "heartbeat_timeout", "controls", "widgets" })
                         if (a[k] != null) b[k] = a[k].DeepClone();
-                    b["notify"] = new JsonObject { ["milestones"] = new JsonArray() };
+                    b["notify"] = new JsonObject
+                    {
+                        ["start"] = a["notify_start"] is JsonValue ns && ns.TryGetValue<bool>(out var st) && st,
+                        ["milestones"] = a["notify_milestones"] is JsonArray ms ? ms.DeepClone() : new JsonArray(),
+                    };
                     var r = c.Call("POST", "/api/tasks", b);
                     return Text(Program.S(r?["id"]));
                 }
