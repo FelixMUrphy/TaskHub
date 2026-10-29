@@ -13,7 +13,8 @@ sealed class ApiError : Exception
 interface INotifier
 {
     /// <param name="task">snapshot of the task (may be null) - used for toast buttons</param>
-    void Toast(string title, string msg, string level, string taskId, JsonObject task);
+    /// <param name="dismissOnly">clicking the toast only closes it (no panel) - for toasts not tied to a task</param>
+    void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false);
     void Progress(JsonObject task);
     void ProgressEnd(string taskId);
     void Refresh(string taskId);   // a control value changed -> re-render shown toasts
@@ -936,7 +937,8 @@ sealed class Hub
         lock (Lock)
             if (tid != null && tasks.TryGetValue(tid, out var t)) snap = (JsonObject)t.DeepClone();
         // "force" overrides the user's mute, but not "toasts": false in config.json (notifications disabled entirely)
-        if (S.Bool("toasts", true) && (!Muted || J.Truthy(b["force"]))) Notifier?.Toast(title, msg, level, tid, snap);
+        bool dismiss = snap == null && J.Str(b["click"]) == "dismiss";
+        if (S.Bool("toasts", true) && (!Muted || J.Truthy(b["force"]))) Notifier?.Toast(title, msg, level, tid, snap, dismiss);
         return new JsonObject { ["ok"] = true };
     }
 

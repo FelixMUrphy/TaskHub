@@ -55,22 +55,22 @@ sealed class Notifier : INotifier
     }
 
     // ------------------------------------------------------------ plain / interactive toasts
-    public void Toast(string title, string msg, string level, string taskId, JsonObject task)
+    public void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false)
     {
         Log.W($"TOAST [{level}] {title}: {msg}");
-        queue.Add(() => ShowToast(J.Cut(string.IsNullOrEmpty(title) ? Settings.AppId : title, 150), J.Cut(msg ?? "", 500), level, taskId, task));
+        queue.Add(() => ShowToast(J.Cut(string.IsNullOrEmpty(title) ? Settings.AppId : title, 150), J.Cut(msg ?? "", 500), level, taskId, task, dismissOnly));
     }
 
     /// <summary>Toasts currently shown (banner or notification center), so they can be re-rendered when values change.</summary>
-    sealed record Shown(string Title, string Msg, string Level, string Tid, JsonObject Snap);
+    sealed record Shown(string Title, string Msg, string Level, string Tid, JsonObject Snap, bool DismissOnly = false);
     readonly Dictionary<string, Shown> shown = new();   // tag -> content; touched only on the worker thread
 
-    void ShowToast(string title, string msg, string level, string tid, JsonObject task)
+    void ShowToast(string title, string msg, string level, string tid, JsonObject task, bool dismissOnly = false)
     {
         if (failures >= 3) { Balloon?.Invoke(title, msg); return; }
         try
         {
-            var e = new Shown(title, msg, level, tid, task);
+            var e = new Shown(title, msg, level, tid, task, dismissOnly && tid == null);
             var b = Build(e, task, out bool interactive);
             var tag = Tag(tid ?? "n") + Guid.NewGuid().ToString("N")[..6];
             bool quiet = Quiet();
@@ -98,7 +98,7 @@ sealed class Notifier : INotifier
     {
         var tid = e.Tid;
         var b = new ToastContentBuilder()
-            .AddArgument("action", "open")
+            .AddArgument("action", e.DismissOnly ? "none" : "open")   // "none": a click just closes the toast
             .AddArgument("task", tid ?? "")
             .AddText(e.Title);
         if (!string.IsNullOrEmpty(e.Msg)) b.AddText(e.Msg);
@@ -156,7 +156,8 @@ sealed class Notifier : INotifier
                 actions++;
             }
         }
-        b.AddButton(new ToastButton().SetContent(L.T("open_panel")).AddArgument("action", "open").AddArgument("task", tid ?? ""));
+        if (!e.DismissOnly)
+            b.AddButton(new ToastButton().SetContent(L.T("open_panel")).AddArgument("action", "open").AddArgument("task", tid ?? ""));
         interactive = actions > 0 || inputs > 0;
         return b;
     }
@@ -331,6 +332,8 @@ sealed class Notifier : INotifier
                     var url = l is JsonObject lo ? J.Str(lo["url"]) : J.Str(l);
                     if (!string.IsNullOrEmpty(url)) Hub.OpenTarget(url);
                     break;
+                case "none":
+                    break;      // informational toast (e.g. agent hooks): clicking only dismisses it
                 default:
                     OpenPanel?.Invoke(tid);
                     break;

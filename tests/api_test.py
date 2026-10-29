@@ -51,6 +51,25 @@ for ev in ({"hook_event_name": "Stop", "cwd": "C:\\proj\\demo", "stop_hook_activ
            {"hook_event_name": "PreToolUse", "tool_name": "Bash"}, {}):
     s, r = call("POST", "/api/hooks/claude", ev)
     check(f"claude hook {ev.get('hook_event_name', 'empty')}", s == 200 and r == {}, (s, r))
+for ev in ({"hook_event_name": "Stop", "cwd": "C:\\proj\\demo", "last_assistant_message": "Готово: тести пройшли"},
+           {"hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": {"command": "rm -rf build"}},
+           {"type": "agent-turn-complete", "last-assistant-message": "All tests pass"}):
+    s, r = call("POST", "/api/hooks/codex", ev)
+    check(f"codex hook {ev.get('hook_event_name') or ev.get('type')}", s == 200 and r == {}, (s, r))
+s, r = call("POST", "/api/hooks/other", {})
+check("unknown agent -> 404", s == 404, (s, r))
+# CLI: `taskhub hook` is silent and always exits 0 (stdin JSON, JSON as last arg, garbage, hub down)
+import subprocess, os
+cli = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "taskhub.exe")
+if os.path.exists(cli):
+    env = dict(os.environ)
+    for name, argv, inp, url in (("stdin", ["hook", "codex"], '{"hook_event_name":"Stop","last_assistant_message":"Привіт"}', None),
+                                 ("last arg", ["hook", "codex", '{"type":"agent-turn-complete"}'], None, None),
+                                 ("garbage", ["hook", "claude"], "not json", None),
+                                 ("hub down", ["hook", "claude"], '{"hook_event_name":"Stop"}', "http://127.0.0.1:1")):
+        e = dict(env, **({"TASKHUB_URL": url} if url else {}))
+        p = subprocess.run([cli] + argv, input=(inp or "").encode("utf-8"), capture_output=True, env=e, timeout=15)
+        check(f"cli hook {name}: exit 0, no output", p.returncode == 0 and not p.stdout and not p.stderr, (p.returncode, p.stdout, p.stderr))
 s, r = call("GET", "/api/nope")
 check("404 route", s == 404 and "error" in r, (s, r))
 s, r = call("POST", "/api/tasks", None, raw=False)

@@ -80,7 +80,7 @@ static class Program
 {
     static readonly JsonSerializerOptions Pretty = new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    const string Help = @"TaskHub CLI 2.0 - talks to the TaskHub hub over HTTP (default http://127.0.0.1:47800, env TASKHUB_URL / TASKHUB_TOKEN)
+    const string Help = @"TaskHub CLI 2.1 - talks to the TaskHub hub over HTTP (default http://127.0.0.1:47800, env TASKHUB_URL / TASKHUB_TOKEN)
 
   taskhub health
   taskhub notify ""Title"" [""message""] [--level info|warn|error] [--task ID]
@@ -97,6 +97,8 @@ static class Program
   taskhub panel [ID]                               (open the panel, optionally focused on a task)
   taskhub delete ID [--force]
   taskhub api                                      (print API.md served by the hub)
+  taskhub hook claude|codex                        (agent hook: event JSON on stdin or as the last argument -> toast;
+                                                    prints nothing, always exits 0, never starts the hub)
   taskhub run [--name N] [--id ID] [--source S] [--description D] [--cwd DIR] [--heartbeat SEC]
               [--auto-progress] [--progress-regex RX] [--status-regex RX] [--milestones 25,50,75]
               [--progress-toast] [--toast-controls] [--encoding utf8|oem|ansi] [--quiet] -- COMMAND [ARGS...]
@@ -118,6 +120,7 @@ Global option: --url URL";
         var cmd = args[0];
         args.RemoveAt(0);
         var c = new Client(url);
+        if (cmd == "hook") return Hook(c, args);
         EnsureHub(c);
         try
         {
@@ -264,6 +267,28 @@ Global option: --url URL";
     }
 
     [DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int pid);
+
+    /// <summary>Forward an agent hook event to POST /api/hooks/{agent}. Fail-soft and silent: an agent hook must never
+    /// block or slow down the agent, so no hub autostart, short timeouts, no output, exit code 0.</summary>
+    static int Hook(Client c, List<string> args)
+    {
+        try
+        {
+            var agent = args.Count > 0 ? args[0] : "";
+            if (agent is not ("claude" or "codex")) return 0;
+            string text = null;
+            if (args.Count > 1 && args[^1].TrimStart().StartsWith("{")) text = args[^1];   // Codex `notify`: JSON as last argument
+            else if (Console.IsInputRedirected)
+            {
+                var read = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false)).ReadToEndAsync();   // agents send UTF-8
+                if (read.Wait(TimeSpan.FromSeconds(3))) text = read.Result;
+            }
+            if (string.IsNullOrWhiteSpace(text)) return 0;
+            if (JsonNode.Parse(text) is JsonObject body) c.Call("POST", "/api/hooks/" + agent, body, 3);
+        }
+        catch { }
+        return 0;
+    }
 
     /// <summary>If the local hub is not running, start it (TaskHubHost.exe next to this CLI or the installed copy) and wait for it.
     /// Disable with TASKHUB_NO_AUTOSTART=1.</summary>

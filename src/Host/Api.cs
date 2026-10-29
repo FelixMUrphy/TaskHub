@@ -94,7 +94,7 @@ sealed class Api
         R("POST", $"/api/tasks/{Id}/commands/([A-Za-z0-9]+)/ack", async (c, q, g) => hub.Ack(g[0], g[1], await Body(c)));
         R("POST", "/api/clear", async (c, q, g) => { await Body(c); return hub.ClearFinished(); });
         R("POST", "/api/notify", async (c, q, g) => hub.Notify(await Body(c)));
-        R("POST", "/api/hooks/claude", async (c, q, g) => AgentHooks.Claude(hub, await Body(c)));
+        R("POST", "/api/hooks/(claude|codex)", async (c, q, g) => AgentHooks.Handle(hub, g[0], await Body(c)));
         R("POST", "/api/settings", async (c, q, g) =>
         {
             var b = await Body(c);

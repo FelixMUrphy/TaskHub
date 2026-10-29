@@ -72,7 +72,7 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/tasks/{id}/controls/{cid}` | `{value?}` | trigger a control (same as panel button) |
 | DELETE | `/api/tasks/{id}` | `?force=1` for active | remove |
 | POST | `/api/notify` | `{title, message, level: info/warn/error, task?}` | one-off toast |
-| POST | `/api/hooks/claude` | Claude Code hook input (as sent) | `Stop` / `Notification` → toast; always `{}` (below) |
+| POST | `/api/hooks/claude`, `/api/hooks/codex` | agent hook input (as sent) | `Stop` / `Notification` / `PermissionRequest` → toast; always `{}` (below) |
 | POST | `/api/clear` | | remove finished tasks |
 | POST | `/api/settings` | `{muted?: bool, seen?: true}` | mute toasts |
 | POST | `/api/ui/open` | `{task?}` | open panel (focus a task) |
@@ -168,7 +168,22 @@ or waits for a permission / your answer (`Notification`). Add to `~/.claude/sett
 }
 ```
 The endpoint never returns a decision, so it cannot block or change Claude Code; if TaskHub is not running the hook just fails
-silently (non-blocking). Toasts follow the usual rules (mute, no pop-ups while the panel is open).
+silently (non-blocking). Toasts follow the usual rules (mute, no pop-ups while the panel is open); clicking one only closes it.
+
+## Codex hooks
+Same notifications for [Codex](https://developers.openai.com/codex/hooks): Codex runs command hooks, so use the CLI, which
+forwards the event JSON from stdin to `POST /api/hooks/codex` (silent, exit 0, never starts the hub). `~/.codex/hooks.json`:
+```json
+{
+  "hooks": {
+    "Stop": [{ "hooks": [{ "type": "command", "command": "taskhub hook codex", "timeout": 10 }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "taskhub hook codex", "timeout": 10 }] }]
+  }
+}
+```
+Use the full path (`%LOCALAPPDATA%\Programs\TaskHub\taskhub.exe`) if `taskhub` is not on PATH for Codex. New hooks must be
+trusted once in Codex (`/hooks`). Do **not** replace an existing `notify = [...]` in `config.toml` (the Codex app uses it);
+`taskhub hook codex` also accepts the legacy `notify` payload as its last argument if you need it.
 
 ## Agent notes (Claude / ChatGPT / Codex / any automation)
 Use TaskHub for anything that runs longer than ~1 minute, so the user sees progress and gets notified without watching the chat.

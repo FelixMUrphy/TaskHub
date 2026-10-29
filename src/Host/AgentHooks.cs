@@ -4,47 +4,54 @@ using System.Text.Json.Nodes;
 namespace TaskHub;
 
 /// <summary>
-/// Adapters for AI-agent hook payloads. POST /api/hooks/claude receives Claude Code HTTP-hook input as-is
-/// (hook_event_name, cwd, message, last_assistant_message, ...) and turns it into a notification.
-/// Always answers {} so the agent never blocks or changes behaviour because of TaskHub.
+/// Adapters for AI-agent hook payloads, posted as-is:
+///   POST /api/hooks/claude  - Claude Code HTTP hooks (Stop, Notification, PermissionRequest)
+///   POST /api/hooks/codex   - Codex hooks via `taskhub hook codex` (Stop, PermissionRequest) and the legacy
+///                             `notify` payload ({"type": "agent-turn-complete", "last-assistant-message": ...})
+/// Each becomes an informational toast (a click only dismisses it). Always answers {} so the agent never
+/// blocks or changes behaviour because of TaskHub.
 /// </summary>
 static class AgentHooks
 {
-    public static JsonObject Claude(Hub hub, JsonObject b)
+    public static JsonObject Handle(Hub hub, string agent, JsonObject b)
     {
         try
         {
+            var name = agent == "codex" ? "Codex" : "Claude Code";
             var ev = J.Str(b["hook_event_name"]);
+            if (ev.Length == 0 && J.Str(b["type"]) == "agent-turn-complete") ev = "Stop";   // Codex legacy notify
             var project = Project(J.Str(b["cwd"]));
-            var title = "Claude Code" + (project.Length > 0 ? " · " + project : "");
+            var title = name + (project.Length > 0 ? " · " + project : "");
             switch (ev)
             {
+                case "Stop":
+                {
+                    var last = Plain(J.Str(b["last_assistant_message"] ?? b["last-assistant-message"]));
+                    Toast(hub, title + " — " + L.T("agent_done"), last.Length > 0 ? J.Cut(last, 200) : L.T("agent_done"), "info");
+                    break;
+                }
                 case "Notification":
                 {
                     var msg = J.Str(b["message"]);
-                    hub.Notify(new JsonObject
-                    {
-                        ["title"] = title,
-                        ["message"] = msg.Length > 0 ? J.Cut(msg, 250) : L.T("agent_input"),
-                        ["level"] = "warn",
-                    });
+                    Toast(hub, title, msg.Length > 0 ? J.Cut(msg, 250) : L.T("agent_input"), "warn");
                     break;
                 }
-                case "Stop":
+                case "PermissionRequest":
                 {
-                    var last = Plain(J.Str(b["last_assistant_message"]));
-                    hub.Notify(new JsonObject
-                    {
-                        ["title"] = title + " — " + L.T("agent_done"),
-                        ["message"] = last.Length > 0 ? J.Cut(last, 200) : L.T("agent_done"),
-                    });
+                    var tool = J.Str(b["tool_name"]);
+                    var desc = b["tool_input"] is JsonObject ti ? J.Str(ti["description"] ?? ti["command"]) : "";
+                    var msg = L.T("agent_input") + (tool.Length > 0 ? ": " + tool : "") + (desc.Length > 0 ? " — " + desc : "");
+                    Toast(hub, title, J.Cut(msg, 250), "warn");
                     break;
                 }
             }
         }
-        catch (Exception e) { Log.W("claude hook: " + e.Message); }
+        catch (Exception e) { Log.W(agent + " hook: " + e.Message); }
         return new JsonObject();
     }
+
+    static void Toast(Hub hub, string title, string msg, string level) =>
+        hub.Notify(new JsonObject { ["title"] = title, ["message"] = msg, ["level"] = level, ["click"] = "dismiss" });
 
     static string Project(string cwd)
     {
