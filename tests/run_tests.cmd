@@ -9,6 +9,9 @@ if "%EXE%"=="" set EXE=%~dp0..\app\TaskHubHost.exe
 if "%PYTHON%"=="" set PYTHON=python
 set DATA=%TEMP%\taskhub-tests
 if exist "%DATA%" rmdir /s /q "%DATA%"
+rem the test hub must not show Windows notifications (the burst test would queue dozens of them)
+mkdir "%DATA%"
+> "%DATA%\config.json" echo {"toasts": false, "autostart": false}
 set TASKHUB_URL=http://127.0.0.1:47899
 start "" /b "%EXE%" --port 47899 --data "%DATA%" --no-tray
 rem wait until the hub answers (up to 30 s)

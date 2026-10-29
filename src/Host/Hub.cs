@@ -935,7 +935,8 @@ sealed class Hub
         JsonObject snap = null;
         lock (Lock)
             if (tid != null && tasks.TryGetValue(tid, out var t)) snap = (JsonObject)t.DeepClone();
-        if (!Muted || J.Truthy(b["force"])) Notifier?.Toast(title, msg, level, tid, snap);
+        // "force" overrides the user's mute, but not "toasts": false in config.json (notifications disabled entirely)
+        if (S.Bool("toasts", true) && (!Muted || J.Truthy(b["force"]))) Notifier?.Toast(title, msg, level, tid, snap);
         return new JsonObject { ["ok"] = true };
     }
 
