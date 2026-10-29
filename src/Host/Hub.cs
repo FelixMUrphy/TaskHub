@@ -157,7 +157,7 @@ sealed class Hub
 
     void ToastFor(JsonObject t, string title, string msg, string level = "info", string kind = null)
     {
-        if (Muted || !S.Bool("toasts", true)) return;
+        if (Muted) return;   // "toasts": false only disables Windows toasts (checked in the Notifier); Telegram still gets them
         if (kind != null && kind != "milestones")
         {
             var nt = t["notify"] as JsonObject;
@@ -941,7 +941,7 @@ sealed class Hub
             if (tid != null && tasks.TryGetValue(tid, out var t)) snap = (JsonObject)t.DeepClone();
         // "force" overrides the user's mute, but not "toasts": false in config.json (notifications disabled entirely)
         bool dismiss = snap == null && J.Str(b["click"]) == "dismiss";
-        if (S.Bool("toasts", true) && (!Muted || J.Truthy(b["force"]))) Notifier?.Toast(title, msg, level, tid, snap, dismiss);
+        if (!Muted || J.Truthy(b["force"])) Notifier?.Toast(title, msg, level, tid, snap, dismiss);
         return new JsonObject { ["ok"] = true };
     }
 

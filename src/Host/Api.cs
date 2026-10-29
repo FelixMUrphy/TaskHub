@@ -16,6 +16,7 @@ sealed class Api
     readonly Hub hub;
     public Func<string, bool> UiOpen;    // task -> ok
     public Func<bool> UiHide;            // -> hidden
+    public TelegramBridge Telegram;
     WebApplication app;
 
     delegate Task<JsonNode> Handler(HttpContext ctx, Dictionary<string, string> q, string[] g);
@@ -95,6 +96,17 @@ sealed class Api
         R("POST", "/api/clear", async (c, q, g) => { await Body(c); return hub.ClearFinished(); });
         R("POST", "/api/notify", async (c, q, g) => hub.Notify(await Body(c)));
         R("POST", "/api/hooks/(claude|codex)", async (c, q, g) => AgentHooks.Handle(hub, g[0], await Body(c)));
+        R("GET", "/api/telegram", (c, q, g) => V(Telegram?.State() ?? new JsonObject { ["status"] = "off" }));
+        R("POST", "/api/telegram", async (c, q, g) =>
+        {
+            var b = await Body(c);
+            if (Telegram == null) throw new ApiError(503, "telegram bridge not available");
+            if (J.Truthy(b["disconnect"])) Telegram.Disconnect();
+            if (b.ContainsKey("away_only")) Telegram.SetAwayOnly(J.Truthy(b["away_only"]));
+            if (J.IsStr(b["token"])) return await Task.Run(() => Telegram.Pair(J.Str(b["token"])));
+            if (J.Truthy(b["test"])) Telegram.Test();
+            return Telegram.State();
+        });
         R("POST", "/api/settings", async (c, q, g) =>
         {
             var b = await Body(c);

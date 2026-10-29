@@ -19,10 +19,12 @@ sealed class TrayApp : ApplicationContext
     IntPtr lastHicon;
     readonly CancellationTokenSource cts = new();
     ToolStripMenuItem miMute, miAuto;
+    public TelegramBridge Telegram;
 
     public TrayApp(Settings s, Hub h, Api a, Notifier n, string openTask)
     {
         S = s; hub = h; api = a;
+        Telegram = n.Telegram;
         ui = new Control();
         ui.CreateControl();
         _ = ui.Handle;
@@ -119,6 +121,7 @@ sealed class TrayApp : ApplicationContext
                 intItems.Add((it, a, k));
             }
         }
+        Add("tg_menu", () => { if (Telegram != null) TelegramForm.ShowFor(Telegram); });
         var miLang = Add("language", () => { });
         var langItems = new List<(ToolStripMenuItem, string)>();
         foreach (var code in new[] { "auto" }.Concat(L.Langs))

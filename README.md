@@ -32,6 +32,8 @@ loopback only.
   panel is open.
 - **Claude Code and Codex in one click**: TaskHub tools for the agent (MCP) and "finished / needs your permission"
   notifications (hooks) — see [below](#claude-code-and-codex-one-click).
+- **Telegram**: the same notifications on your phone through your own bot, with the task's buttons; `/tasks`, `/mute`
+  (optionally only when you are away from the PC) — see [Telegram](#telegram).
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
   plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
@@ -88,6 +90,14 @@ TaskHub adds — and on uninstall removes — only its own entries and keeps eve
 
 Scripted: `TaskHubHost.exe --integrations claude=on codex=on claude-mcp=on codex-mcp=off`. Manual setup:
 [API.md → Claude Code hooks](API.md#claude-code-hooks), [Codex hooks](API.md#codex-hooks), [MCP server](API.md#mcp-server).
+
+### Telegram
+Tray menu → *Telegram…*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
+*Connect*, open the link that appears and press *Start*. From then on every notification TaskHub shows also arrives in
+that chat (only that chat can talk to the bot); a task's notification buttons become inline buttons — including
+select / yes-no inputs — and presses go back to the task. Commands: `/tasks`, `/mute`, `/unmute`. Option: send only
+when you are away from the PC (no keyboard / mouse for 5 min, `telegram_away_minutes` in `config.json`). The bot token
+is stored in `%APPDATA%\TaskHub\config.json`; messages go from your PC straight to Telegram's Bot API.
 
 ## Install details
 The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or any folder you choose), unpacks the

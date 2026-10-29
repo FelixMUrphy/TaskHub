@@ -180,7 +180,9 @@ static class Program
         var notifier = new Notifier(S) { Hub = hub };
         hub.Notifier = notifier;
         notifier.Init(iconPng);
-        var api = new Api(S, hub);
+        var telegram = new TelegramBridge(S, hub);
+        notifier.Telegram = telegram;
+        var api = new Api(S, hub) { Telegram = telegram };
         try { api.Start().GetAwaiter().GetResult(); }
         catch (Exception e)
         {
@@ -189,6 +191,7 @@ static class Program
             return 1;
         }
 
+        telegram.Start();
         if (Has("--no-tray"))
         {
             var cts = new CancellationTokenSource();
