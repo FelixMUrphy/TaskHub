@@ -101,8 +101,9 @@ Tray menu → *Telegram…*: create a bot with [@BotFather](https://t.me/BotFath
 *Connect*, scan the QR code with your phone (or open the link on this PC) and press *Start*. To link another account
 later (e.g. the one on your phone), leave the token field empty and press *Connect* again. From then on every notification TaskHub shows also arrives in
 that chat (only that chat can talk to the bot); a task's notification buttons become inline buttons — including
-select / yes-no inputs — and presses go back to the task. A task with progress gets one silent message with a progress
-bar, ETA and status that is edited in place (no new message per update); when the task finishes, its charts arrive
+select options and yes/no; number / text inputs: the bot asks for the value and your reply goes to the task — and presses
+go back to the task. A task with progress gets one silent message with a progress bar, ETA, status and the task's
+buttons that is edited in place (no new message per update); when the task finishes, its charts arrive
 as one picture (option *Progress and charts*, `telegram_progress`). Commands: `/tasks`, `/mute`, `/unmute`. Option: send only
 when you are away from the PC (no keyboard / mouse for 5 min, `telegram_away_minutes` in `config.json`). The bot token
 is stored in `%APPDATA%\TaskHub\config.json`; messages go from your PC straight to Telegram's Bot API.

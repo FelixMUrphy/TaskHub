@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -20,7 +21,11 @@ sealed class TelegramBridge
     readonly Hub hub;
     readonly HttpClient http = new(new HttpClientHandler()) { Timeout = TimeSpan.FromSeconds(75) };
     readonly BlockingCollection<(string method, JsonObject body, byte[] png)> outbox = new(500);
-    readonly Dictionary<string, (string tid, string cid, JsonNode value)> callbacks = new();
+    sealed class Cb { public string Tid, Cid, Sig; public JsonNode Value; public bool Ask; }
+    readonly Dictionary<string, Cb> callbacks = new();          // callback_data key -> control (+ value)
+    readonly Dictionary<string, string> cbIndex = new();        // same control/value -> same key (buttons stay valid)
+    readonly Dictionary<long, (string tid, string cid)> asks = new();   // "reply with a value" prompt message -> control
+    (string tid, string cid, double t)? lastAsk;
     int cbSeq;
     CancellationTokenSource cts;
     public string BotName { get; private set; }
@@ -103,6 +108,7 @@ sealed class TelegramBridge
         if (!Linked) return;
         if (AwayOnly && IdleSeconds() < 60 * S.Int("telegram_away_minutes", 5)) return;
         var icon = level == "error" ? "❌ " : level == "warn" ? "⚠️ " : "";
+        if (title != null && (title.StartsWith("❌") || title.StartsWith("⚠"))) icon = "";
         var text = icon + "<b>" + Esc(title) + "</b>" + (string.IsNullOrEmpty(msg) ? "" : "\n" + Esc(msg));
         Enqueue(Chat, text, controls ? Keyboard(tid, task) : null);
         // charts: only once, when the task has finished (not on every change)
@@ -130,38 +136,50 @@ sealed class TelegramBridge
         var rows = new JsonArray();
         foreach (var c in (task["controls"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
         {
-            if (!J.Truthy(c["toast"]) || rows.Count >= 4) continue;
+            if (!J.Truthy(c["toast"]) || rows.Count >= 10) continue;
             if (!(c["states"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x)).Contains(state)) continue;
             var cid = J.Str(c["id"]);
             var label = J.Cut(J.Str(c["label"]), 30);
-            var row = new JsonArray();
             if (c["input"] is JsonObject inp)
             {
                 var typ = J.Str(inp["type"]);
                 if (typ == "select")
-                    foreach (var o in (inp["options"] as JsonArray ?? new JsonArray()).Take(4))
-                        row.Add(Button(label + ": " + J.Str(o), tid, cid, o?.DeepClone()));
-                else if (typ == "bool")
                 {
-                    row.Add(Button(label + ": " + L.T("yes"), tid, cid, true));
-                    row.Add(Button(label + ": " + L.T("no"), tid, cid, false));
+                    // narrow phone screens: max 3 per row and ~30 characters per row, the rest wraps
+                    var row = new JsonArray();
+                    int len = 0;
+                    foreach (var o in (inp["options"] as JsonArray ?? new JsonArray()).Take(9))
+                    {
+                        var text = label + ": " + J.Str(o);
+                        if (row.Count > 0 && (row.Count >= 3 || len + text.Length > 30)) { rows.Add(row); row = new JsonArray(); len = 0; }
+                        row.Add(Button(text, tid, cid, o?.DeepClone()));
+                        len += text.Length;
+                    }
+                    if (row.Count > 0) rows.Add(row);
                 }
-                else continue;   // free text / number: only in the panel or the Windows notification
+                else if (typ == "bool")
+                    rows.Add(new JsonArray(Button(label + " ✓", tid, cid, true), Button(label + " ✗", tid, cid, false)));
+                else   // text / number: the bot asks for the value, the user replies to that message
+                    rows.Add(new JsonArray(Button("✏️ " + label + "…", tid, cid, null, ask: true)));
             }
-            else row.Add(Button(label, tid, cid, null));
-            rows.Add(row);
+            else rows.Add(new JsonArray(Button(label, tid, cid, null)));
         }
         return rows.Count == 0 ? null : new JsonObject { ["inline_keyboard"] = rows };
     }
 
-    JsonObject Button(string text, string tid, string cid, JsonNode value)
+    JsonObject Button(string text, string tid, string cid, JsonNode value, bool ask = false)
     {
+        var sig = tid + "\n" + cid + "\n" + J.Dump(value) + "\n" + ask;
         string key;
         lock (callbacks)
         {
-            key = "k" + (++cbSeq);
-            callbacks[key] = (tid, cid, value);
-            if (callbacks.Count > 500) callbacks.Remove("k" + (cbSeq - 500));
+            if (!cbIndex.TryGetValue(sig, out key) || !callbacks.ContainsKey(key))
+            {
+                key = "k" + (++cbSeq);
+                callbacks[key] = new Cb { Tid = tid, Cid = cid, Value = value, Ask = ask, Sig = sig };
+                cbIndex[sig] = key;
+                if (callbacks.Remove("k" + (cbSeq - 1000), out var old)) cbIndex.Remove(old.Sig);
+            }
         }
         return new JsonObject { ["text"] = text, ["callback_data"] = key };
     }
@@ -218,7 +236,7 @@ sealed class TelegramBridge
             if (p.Chat != Chat) { live.Remove(tid); continue; }
             tasks.TryGetValue(tid, out var t);
             if (t != null && Hub.IsActive(J.Str(t["state"]))) continue;
-            if (t != null && p.Msg != 0) Edit(p, ProgressText(t, now), now);   // final state: 100% / failed / cancelled
+            if (t != null && p.Msg != 0) Edit(p, ProgressText(t, now), null, now);   // final state, buttons removed
             live.Remove(tid);
         }
         bool atPc = AwayOnly && IdleSeconds() < 60 * S.Int("telegram_away_minutes", 5);
@@ -226,31 +244,36 @@ sealed class TelegramBridge
         {
             if (!Hub.IsActive(J.Str(t["state"])) || J.Num(t["progress"]) == null) continue;
             var text = ProgressText(t, now);
+            var kb = Keyboard(tid, t);
             if (live.TryGetValue(tid, out var p))
             {
-                if (p.Msg != 0 && text != p.Text && now - p.Last >= 5) Edit(p, text, now);
+                if (p.Msg != 0 && text + J.Dump(kb) != p.Text && now - p.Last >= 5) Edit(p, text, kb, now);
                 continue;
             }
             if (hub.Muted || atPc || live.Count >= 5) continue;
-            var (code, r) = Call("sendMessage", new JsonObject
+            var body = new JsonObject
             {
                 ["chat_id"] = Chat, ["text"] = text, ["parse_mode"] = "HTML", ["disable_notification"] = true,
-            }, 20).GetAwaiter().GetResult();
+            };
+            if (kb != null) body["reply_markup"] = kb;
+            var (code, r) = Call("sendMessage", body, 20).GetAwaiter().GetResult();
             if (code == 429) return;
             if (code == 200 && J.Num(r?["result"]?["message_id"]) is double id)
-                live[tid] = new Live { Chat = Chat, Msg = (long)id, Text = text, Last = now };
+                live[tid] = new Live { Chat = Chat, Msg = (long)id, Text = text + J.Dump(kb), Last = now };
             else ProgressError("send", code, r);
         }
     }
 
-    void Edit(Live p, string text, double now)
+    void Edit(Live p, string text, JsonObject kb, double now)
     {
-        var (code, r) = Call("editMessageText", new JsonObject
+        var body = new JsonObject
         {
             ["chat_id"] = p.Chat, ["message_id"] = p.Msg, ["text"] = text, ["parse_mode"] = "HTML",
-        }, 20).GetAwaiter().GetResult();
+        };
+        if (kb != null) body["reply_markup"] = kb.DeepClone();
+        var (code, r) = Call("editMessageText", body, 20).GetAwaiter().GetResult();
         p.Last = now;
-        if (code == 200 || J.Str(r?["description"]).Contains("not modified")) p.Text = text;
+        if (code == 200 || J.Str(r?["description"]).Contains("not modified")) p.Text = text + J.Dump(kb);
         else
         {
             ProgressError("edit", code, r);
@@ -352,7 +375,7 @@ sealed class TelegramBridge
             if (chat != Chat || chat == 0) answer = "not linked";
             else
             {
-                (string tid, string cid, JsonNode value) cb;
+                Cb cb;
                 bool found;
                 lock (callbacks) found = callbacks.TryGetValue(J.Str(cq["data"]), out cb);
                 if (!found) answer = L.T("tg_expired");
@@ -360,8 +383,12 @@ sealed class TelegramBridge
                 {
                     try
                     {
-                        hub.Trigger(cb.tid, cb.cid, new JsonObject { ["value"] = cb.value?.DeepClone() }, "telegram");
-                        answer = "✓ " + cb.cid + (cb.value != null ? " = " + J.Str(cb.value) : "");
+                        if (cb.Ask) { Ask(chat, cb.Tid, cb.Cid); answer = "✏️"; }
+                        else
+                        {
+                            hub.Trigger(cb.Tid, cb.Cid, new JsonObject { ["value"] = cb.Value?.DeepClone() }, "telegram");
+                            answer = "✓ " + cb.Cid + (cb.Value != null ? " = " + J.Str(cb.Value) : "");
+                        }
                     }
                     catch (Exception e) { answer = e.Message; }
                 }
@@ -386,6 +413,18 @@ sealed class TelegramBridge
             return;
         }
         if (from != Chat || from == 0) return;   // only the linked chat may talk to TaskHub
+        if (text.Length > 0 && !text.StartsWith('/'))   // a value for a text / number control?
+        {
+            long replyTo = (long)(J.Num(msg["reply_to_message"]?["message_id"]) ?? 0);
+            (string tid, string cid) target = default;
+            bool have;
+            lock (asks)
+            {
+                have = replyTo != 0 && asks.TryGetValue(replyTo, out target);
+                if (!have && lastAsk is { } la && J.Now() - la.t < 600) { target = (la.tid, la.cid); have = true; }
+            }
+            if (have) { SubmitValue(from, target.tid, target.cid, text); return; }
+        }
         switch (cmd)
         {
             case "/tasks":
@@ -401,6 +440,62 @@ sealed class TelegramBridge
             case "/unmute": hub.SetMuted(false); Enqueue(from, "🔔 OK", null); break;
             default: Enqueue(from, Esc(L.T("tg_help")), null); break;
         }
+    }
+
+    static JsonObject FindControl(JsonObject task, string cid) =>
+        (task["controls"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().FirstOrDefault(x => J.Str(x["id"]) == cid)
+        ?? throw new ApiError(404, $"control '{cid}' not found");
+
+    /// <summary>Text / number control pressed: ask for the value; the reply to this message goes to the task.</summary>
+    void Ask(long chat, string tid, string cid)
+    {
+        var c = FindControl(hub.GetTask(tid), cid);
+        var inp = c["input"] as JsonObject;
+        string label = J.Str(c["label"]), il = J.Str(inp?["label"]);
+        var what = label + (il.Length > 0 && il != label ? " (" + il + ")" : "");
+        if (J.Str(inp?["type"]) == "number" && (J.Num(inp["min"]) is double || J.Num(inp["max"]) is double))
+            what += $" [{(J.Num(inp["min"]) is double mn ? J.Fmt(mn) : "")} … {(J.Num(inp["max"]) is double mx ? J.Fmt(mx) : "")}]";
+        var cur = J.Str(c["last_value"]).Length > 0 ? J.Str(c["last_value"]) : J.Str(inp?["default"]);
+        var text = "✏️ " + Esc(L.T("tg_ask", what)) + (cur.Length > 0 ? "\n<code>" + Esc(J.Cut(cur, 200)) + "</code>" : "");
+        var (code, r) = Call("sendMessage", new JsonObject
+        {
+            ["chat_id"] = chat, ["text"] = text, ["parse_mode"] = "HTML",
+            ["reply_markup"] = new JsonObject { ["force_reply"] = true, ["input_field_placeholder"] = J.Cut(il.Length > 0 ? il : label, 60) },
+        }, 20).GetAwaiter().GetResult();
+        lock (asks)
+        {
+            if (code == 200 && J.Num(r?["result"]?["message_id"]) is double id)
+            {
+                if (asks.Count > 100) asks.Clear();
+                asks[(long)id] = (tid, cid);
+            }
+            lastAsk = (tid, cid, J.Now());
+        }
+    }
+
+    void SubmitValue(long chat, string tid, string cid, string raw)
+    {
+        try
+        {
+            var c = FindControl(hub.GetTask(tid), cid);
+            var inp = c["input"] as JsonObject;
+            JsonNode value;
+            if (J.Str(inp?["type"]) == "number")
+            {
+                if (!double.TryParse(raw.Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) || !double.IsFinite(d)
+                    || (J.Num(inp["min"]) is double mn && d < mn) || (J.Num(inp["max"]) is double mx && d > mx))
+                {
+                    Enqueue(chat, "⚠️ " + Esc(L.T("tg_bad_value", J.Cut(raw, 100))), null);
+                    return;
+                }
+                value = d;
+            }
+            else value = J.Cut(raw, 2000);
+            hub.Trigger(tid, cid, new JsonObject { ["value"] = value }, "telegram");
+            lock (asks) lastAsk = null;
+            Enqueue(chat, "✓ " + Esc(J.Str(c["label"]) + " = " + J.Cut(J.Str(value), 200)), null);
+        }
+        catch (Exception e) { Enqueue(chat, "⚠️ " + Esc(e.Message), null); }
     }
 
     // ------------------------------------------------------------ helpers

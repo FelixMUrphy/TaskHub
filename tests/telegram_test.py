@@ -160,8 +160,67 @@ check("/tasks from another chat ignored", not any(x["chat_id"] == 777 for x in s
 
 call("DELETE", f"/api/tasks/{tid}?force=1")
 
+# no double icon: a failure title already starts with one
+call("POST", "/api/notify", {"title": "❌ Boom", "message": "x", "level": "error"})
+m = wait_sent(lambda m: "Boom" in m["text"])
+check("error title with its own icon -> one icon", m is not None and m["text"].startswith("<b>❌ Boom"), m)
+
+# number / text controls: the button asks for a value, the reply goes to the task; bool = two buttons; long selects wrap
+s, r = call("POST", "/api/tasks", {"name": "Inputs", "notify": {"start": True}, "controls": [
+    {"id": "spd", "label": "Speed", "kind": "signal", "toast": True, "input": {"type": "number", "min": 1, "max": 10}},
+    {"id": "note", "label": "Note", "kind": "signal", "toast": True, "input": {"type": "text"}},
+    {"id": "dbg", "label": "Debug", "kind": "signal", "toast": True, "input": {"type": "bool"}},
+    {"id": "col", "label": "Colour", "kind": "signal", "toast": True,
+     "input": {"type": "select", "options": ["crimson", "emerald", "ultramarine"]}}]})
+itid = r.get("id")
+m = wait_sent(lambda m: "Inputs" in m["text"] and "reply_markup" in m)
+kb = m["reply_markup"]["inline_keyboard"] if m else []
+rows = [[b["text"] for b in row] for row in kb]
+check("text/number -> 'value' buttons, bool -> two buttons", ["✏️ Speed…"] in rows and ["✏️ Note…"] in rows
+      and ["Debug ✓", "Debug ✗"] in rows, rows)
+check("long select options wrap to several rows", sum(1 for row in rows if row and row[0].startswith("Colour")) >= 2
+      and all(len(row) <= 3 for row in rows), rows)
+data = {b["text"]: b["callback_data"] for row in kb for b in row}
+
+
+def ask(button):
+    n = len(sent)
+    push({"callback_query": {"id": "cb-" + button, "from": {"id": 555}, "message": {"message_id": 9, "chat": {"id": 555}},
+                             "data": data.get(button, "x")}})
+    return wait_sent(lambda x: sent.index(x) >= n and x.get("reply_markup", {}).get("force_reply") is True)
+
+
+pr = ask("✏️ Speed…")
+check("number button -> prompt with force_reply", pr is not None and "Speed" in pr["text"], sent[-2:])
+pid_ = sent.index(pr) + 1 if pr else 0
+n = len(sent)
+push({"message": {"message_id": 50, "chat": {"id": 555}, "from": {"id": 555}, "text": "abc",
+                  "reply_to_message": {"message_id": pid_}}})
+check("not a number -> warning, nothing sent to the task", wait_sent(lambda x: sent.index(x) >= n and "⚠️" in x["text"]) is not None, sent[n:])
+push({"message": {"message_id": 51, "chat": {"id": 555}, "from": {"id": 555}, "text": "42",
+                  "reply_to_message": {"message_id": pid_}}})
+time.sleep(1)
+push({"message": {"message_id": 52, "chat": {"id": 555}, "from": {"id": 555}, "text": "7,5",
+                  "reply_to_message": {"message_id": pid_}}})
+ok = wait_sent(lambda x: x["text"].startswith("✓") and "7.5" in x["text"])
+s, r = call("GET", f"/api/tasks/{itid}/commands?wait=3")
+vals = [c.get("value") for c in r.get("commands", []) if c["control"] == "spd"]
+check("reply '7,5' -> value 7.5; out of range (42) rejected", ok is not None and vals == [7.5], (vals, sent[-3:]))
+pr = ask("✏️ Note…")
+n = len(sent)
+push({"message": {"message_id": 53, "chat": {"id": 555}, "from": {"id": 555}, "text": "hello there"}})   # typed without "reply"
+wait_sent(lambda x: sent.index(x) >= n and x["text"].startswith("✓"))
+s, r = call("GET", f"/api/tasks/{itid}/commands?wait=3")
+vals = [c.get("value") for c in r.get("commands", []) if c["control"] == "note"]
+check("text value (even without 'reply') -> delivered", vals == ["hello there"], vals)
+n = len(sent)
+msg(555, "/tasks")
+check("commands still work after a prompt", wait_sent(lambda x: sent.index(x) >= n and "Inputs" in x["text"]) is not None, sent[n:])
+call("DELETE", f"/api/tasks/{itid}?force=1")
+
 # live progress: one silent message per task, edited in place; charts as one photo when the task finishes
 s, r = call("POST", "/api/tasks", {"name": "Train run", "total": 10, "unit": "ep",
+                                   "controls": [{"id": "halt", "label": "Halt", "kind": "signal", "toast": True}],
                                    "widgets": [{"id": "loss", "type": "chart", "label": "Loss", "series": ["train", "val"]}]})
 ptid = r.get("id")
 call("POST", f"/api/tasks/{ptid}/update", {"current": 3, "status": "epoch 3", "widgets": {"loss": [1.0, 1.3]}})
@@ -169,6 +228,8 @@ pm = wait_sent(lambda m: "Train run" in m["text"] and m.get("disable_notificatio
 check("progress: silent message with bar and counter", pm is not None and "30%" in pm["text"] and "3/10 ep" in pm["text"]
       and "█" in pm["text"] and "&lt;1m" in pm["text"], sent[-3:])
 check("no chart while the task runs", not photos, len(photos))
+check("progress message has the task's buttons", pm is not None and
+      [b["text"] for row in pm.get("reply_markup", {}).get("inline_keyboard", []) for b in row] == ["Halt"], pm)
 for i, v in enumerate([0.9, 0.7, 0.5]):
     call("POST", f"/api/tasks/{ptid}/update", {"current": 4 + i, "widgets": {"loss": [v, v + 0.2]}})
 call("POST", f"/api/tasks/{ptid}/finish", {"message": "ok"})
@@ -177,7 +238,7 @@ while time.time() < end and not (photos and any("Train run" in e.get("text", "")
     time.sleep(0.2)
 fe = [e for e in edits if "Train run" in e.get("text", "")]
 check("progress message edited in place to the final state", pm is not None and fe and fe[-1]["message_id"] == sent.index(pm) + 1
-      and "100%" in fe[-1]["text"] and "✅" in fe[-1]["text"], edits)
+      and "100%" in fe[-1]["text"] and "✅" in fe[-1]["text"] and "reply_markup" not in fe[-1], edits)
 time.sleep(2.5)
 if photos and os.environ.get("TG_DUMP"):   # save the rendered chart to look at it
     b = photos[0]
