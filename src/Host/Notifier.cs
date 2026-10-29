@@ -18,6 +18,7 @@ sealed class Notifier : INotifier
     public Hub Hub;
     public Action<string> OpenPanel;           // task id or null
     public Action<string, string> Balloon;     // fallback: tray balloon (title, msg)
+    public Func<bool> PanelOpen;               // true -> no popup banners, toasts go silently to the notification center
     readonly BlockingCollection<Action> queue = new();
     readonly HashSet<string> progressDismissed = new();
     readonly Dictionary<string, uint> progressSeq = new();
@@ -71,11 +72,7 @@ sealed class Notifier : INotifier
                 .AddText(title);
             if (!string.IsNullOrEmpty(msg)) b.AddText(msg);
             if (iconPath != null && File.Exists(iconPath)) b.AddAppLogoOverride(new Uri(iconPath));
-            if (level == "error")
-            {
-                b.SetToastDuration(ToastDuration.Long);
-                b.AddAudio(new Uri("ms-winsoundevent:Notification.Reminder"));
-            }
+            if (level == "error") b.AddAudio(new Uri("ms-winsoundevent:Notification.Reminder"));
             int actions = 0, inputs = 0;
             var state = task != null ? J.Str(task["state"]) : null;
             if (task != null && S.Bool("toast_controls", true) && Hub.IsActive(state))
@@ -132,12 +129,23 @@ sealed class Notifier : INotifier
             }
             b.AddButton(new ToastButton().SetContent(L.T("open_panel")).AddArgument("action", "open").AddArgument("task", tid ?? ""));
             var tag = Tag(tid ?? "n") + Guid.NewGuid().ToString("N")[..6];
+            bool quiet = Quiet();
             b.Show(t =>
             {
                 t.Tag = tag; t.Group = Settings.AppId;
+                t.SuppressPopup = quiet;
                 t.Failed += (s, a) => Log.W($"toast[{tag}] failed: {a.ErrorCode}");
             });
             failures = 0;
+            if (!quiet)
+            {
+                // shorter on-screen time than Windows' default: after N s re-post the same toast silently
+                // (same tag) -> the banner disappears, the notification stays in the notification center
+                double secs = inputs > 0 || actions > 0
+                    ? (J.Num(S.Cfg["toast_seconds_interactive"]) ?? 8)
+                    : (J.Num(S.Cfg["toast_seconds"]) ?? 4);
+                if (secs > 0) HideBannerLater(b.GetToastContent().GetXml(), tag, Settings.AppId, secs);
+            }
         }
         catch (Exception e)
         {
@@ -145,6 +153,28 @@ sealed class Notifier : INotifier
             Log.W("toast failed: " + e);
             Balloon?.Invoke(title, msg);
         }
+    }
+
+    bool Quiet()
+    {
+        if (S.Bool("toasts_when_panel_open", false)) return false;
+        try { return PanelOpen?.Invoke() ?? false; } catch { return false; }
+    }
+
+    void HideBannerLater(Windows.Data.Xml.Dom.XmlDocument xml, string tag, string group, double secs)
+    {
+        _ = Task.Delay(TimeSpan.FromSeconds(secs)).ContinueWith(_ => queue.Add(() =>
+        {
+            try
+            {
+                // only if it is still there (not clicked / dismissed by the user)
+                var still = ToastNotificationManagerCompat.History.GetHistory().Any(n => n.Tag == tag && n.Group == group);
+                if (!still) return;
+                var n = new ToastNotification(xml) { Tag = tag, Group = group, SuppressPopup = true };
+                ToastNotificationManagerCompat.CreateToastNotifier().Show(n);
+            }
+            catch (Exception e) { Log.W("hide banner: " + e.Message); }
+        }));
     }
 
     // ------------------------------------------------------------ in-place progress toasts
@@ -220,6 +250,7 @@ sealed class Notifier : INotifier
                 n.Tag = tag;
                 n.Group = "progress";
                 n.Data = new NotificationData(vals, 1);
+                n.SuppressPopup = Quiet();
             });
         }
         catch (Exception e) { Log.W("progress toast failed: " + e.Message); }

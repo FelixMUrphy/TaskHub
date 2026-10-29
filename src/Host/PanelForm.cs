@@ -22,6 +22,7 @@ sealed class PanelForm : Form
     int placing;
     bool allowClose;
     public DateTime LastAutoHide = DateTime.MinValue;
+    public volatile bool IsShown;      // readable from any thread (toast worker)
     DateTime lastDeactivate = DateTime.MinValue;
     Size logicalSize = new(480, 760);
 
@@ -47,6 +48,7 @@ sealed class PanelForm : Form
         LoadSize();
         Size = logicalSize;
         Deactivate += (_, _) => OnDeactivated();
+        VisibleChanged += (_, _) => IsShown = Visible;
         ResizeEnd += (_, _) => SaveSize();
         Move += (_, _) => { if (Visible && placing == 0) userMoved = true; };
     }

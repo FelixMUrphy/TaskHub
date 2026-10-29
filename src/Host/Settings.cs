@@ -58,6 +58,9 @@ sealed class Settings
         ["toast_controls"] = true,
         ["progress_toasts"] = false,
         ["language"] = "auto",
+        ["toast_seconds"] = 4,              // on-screen time of a plain toast (then it stays in the notification center)
+        ["toast_seconds_interactive"] = 8,  // toasts with buttons / inputs
+        ["toasts_when_panel_open"] = false, // false: no popup banners while the panel is open
     };
 
     string cfgPath;

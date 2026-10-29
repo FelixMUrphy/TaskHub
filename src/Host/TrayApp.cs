@@ -36,6 +36,7 @@ sealed class TrayApp : ApplicationContext
         tray.ContextMenuStrip = BuildMenu();
 
         n.OpenPanel = tid => Ui(() => Panel.ShowPanel(tid));
+        n.PanelOpen = () => Panel.IsShown;
         n.Balloon = (t, m) => Ui(() => { try { tray.ShowBalloonTip(5000, J.Cut(t, 60), string.IsNullOrEmpty(m) ? " " : J.Cut(m, 250), ToolTipIcon.None); } catch { } });
         api.UiOpen = tid => { Ui(() => Panel.ShowPanel(tid)); return true; };
         api.UiHide = () =>
