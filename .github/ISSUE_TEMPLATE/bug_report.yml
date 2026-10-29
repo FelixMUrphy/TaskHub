@@ -1,0 +1,55 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, script or API call (curl / CLI / Python) that triggers the problem.
+      placeholder: |
+        1. taskhub run --name Test -- ping -n 5 127.0.0.1
+        2. Open the panel
+        3. ...
+  - type: input
+    id: version
+    attributes:
+      label: TaskHub version
+      description: Output of `taskhub health` ("version"), or the setup file name.
+      placeholder: 2.0.0
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Win+R → `winver`
+      placeholder: Windows 11 24H2 (26100)
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Install / update / autostart
+        - Tray icon
+        - Panel
+        - Notifications
+        - HTTP API
+        - CLI (taskhub)
+        - Python client
+        - Other
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Relevant lines from `%APPDATA%\TaskHub\taskhub.log` (tray menu → Data folder). Remove anything private.
+      render: text

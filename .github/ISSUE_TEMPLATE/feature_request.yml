@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest an idea or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The job or workflow, and what is missing or awkward today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Proposed solution
+      description: How you imagine it (widget, control, API field, notification...). Mock-ups welcome.
+  - type: dropdown
+    id: who
+    attributes:
+      label: Who reports to TaskHub in your setup?
+      multiple: true
+      options:
+        - My own scripts
+        - AI agents (Claude / Codex / ChatGPT)
+        - Build / CI tools
+        - Other
