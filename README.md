@@ -5,12 +5,14 @@ PowerShell, curl) registers a task over a local HTTP API, reports progress and r
 and gets Windows notifications plus a pop-up panel. Port 47800 (loopback only), data in `%APPDATA%\TaskHub`.
 
 ## Install (per user, no admin, no .NET needed)
-1. Unzip `TaskHub-<version>-win-x64.zip` anywhere and run `TaskHubHost.exe`.
-2. Answer **Yes** to "Install TaskHub for the current user?". It installs to `%LOCALAPPDATA%\Programs\TaskHub`, starts with
-   Windows, adds the `taskhub` command to the user PATH, registers `taskhub://` and an entry in *Apps & features*.
+Run the single file `TaskHub-<version>-setup.exe`. The setup dialog lets you choose the install folder (default
+`%LOCALAPPDATA%\Programs\TaskHub`), *Start with Windows* and *Add 'taskhub' to PATH*; or *Run without installing*.
+It copies itself there, unpacks the `taskhub` CLI, `taskhub_client.py` and `API.md` next to it, registers `taskhub://`
+and an entry in *Apps & features*. Running a newer setup.exe over an existing install offers **Update** (same folder).
 
-Silent: `TaskHubHost.exe --install --quiet`. Uninstall: *Apps & features* → TaskHub, or
-`TaskHubHost.exe --uninstall [--quiet] [--purge]` (`--purge` also deletes `%APPDATA%\TaskHub`).
+Silent: `TaskHub-<version>-setup.exe --install [--dir PATH] [--no-autostart] [--no-path] --quiet`.
+Uninstall: *Apps & features* → TaskHub, or `TaskHubHost.exe --uninstall [--quiet] [--purge]` (`--purge` also deletes
+`%APPDATA%\TaskHub`). Only TaskHub's own files are removed from the install folder.
 
 Autostart is self-healing: the installed hub restores its Run entry (and re-enables it if it was disabled in Task
 Manager) on every start, unless you switched autostart off in the tray menu. `taskhub` (CLI) starts the hub if it is not
@@ -28,7 +30,8 @@ running. Requirements: Windows 10 1809+ / 11, WebView2 runtime (preinstalled on 
 - Python: `taskhub_client.py` (stdlib only, installed next to the CLI): `Task`, widget/control builders, `run` wrapper.
 
 ## Build
-`build.cmd` → `app\` (self-contained win-x64) and `dist\TaskHub-<version>-win-x64.zip`; `build.cmd nozip` skips the zip.
+`build.cmd` → `dist\TaskHub-<version>-setup.exe` (single self-contained file; the CLI is built first and embedded) and
+`app\TaskHubHost.exe` + `app\taskhub.exe` for development/tests.
 Needs the .NET 8 SDK. Sources: `src\Host` (hub: Kestrel HTTP API, WinForms tray, WebView2 panel, WinRT toasts),
 `src\Cli` (CLI), `ui.html` (panel), `clients\python`.
 

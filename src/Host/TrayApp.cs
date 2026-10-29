@@ -110,7 +110,12 @@ sealed class TrayApp : ApplicationContext
         }
         Add("test_toast", () => hub.Notify(new JsonObject { ["title"] = "TaskHub", ["message"] = L.T("test_toast") + " ✓", ["force"] = true }));
         Add("data_folder", () => Hub.OpenTarget(S.DataDir));
-        Add("api_help", () => Hub.OpenTarget(Path.Combine(S.ExeDir, "API.md")));
+        Add("api_help", () =>
+        {
+            var p = Path.Combine(S.ExeDir, "API.md");
+            if (!File.Exists(p)) { p = S.File_("API.md"); File.WriteAllBytes(p, Res.Read("API.md")); }
+            Hub.OpenTarget(p);
+        });
         m.Items.Add(new ToolStripSeparator());
         Add("quit", Quit);
         m.Opening += (_, _) =>

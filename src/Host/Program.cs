@@ -8,7 +8,7 @@ namespace TaskHub;
 
 static class Program
 {
-    const string Usage = "TaskHubHost [--port N] [--data DIR] [--install [--quiet] | --uninstall [--quiet] [--purge] | --status | --panel [ID] | --open-url taskhub://open/ID | --no-tray]";
+    const string Usage = "TaskHubHost [--port N] [--data DIR] [--install [--dir PATH] [--no-autostart] [--no-path] [--quiet] | --uninstall [--quiet] [--purge] | --status | --panel [ID] | --open-url taskhub://open/ID | --no-tray]";
 
     [STAThread]
     static int Main(string[] args)
@@ -20,44 +20,74 @@ static class Program
         bool quiet = Has("--quiet");
 
         if (Has("--help") || Has("-h") || Has("/?")) { Msg(Usage); return 0; }
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
 
         if (Has("--uninstall"))
         {
             if (!quiet && MessageBox.Show(L.T("uninstall_q"), "TaskHub", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return 0;
+            var dir = Install.InstallDir;
+            bool wasInstalled = Install.IsInstalled;
             Install.StopOtherHubs();
             Install.Unregister(S);
             try { ToastNotificationManagerCompat.Uninstall(); } catch { }
             if (Has("--purge")) try { Directory.Delete(S.DataDir, true); } catch { }
-            if (Install.IsInstalledCopy) Install.ScheduleDeleteInstallDir();
+            if (wasInstalled) Install.ScheduleRemoveFiles(dir);
             if (!quiet) Msg(L.T("uninstalled", S.DataDir));
             return 0;
         }
 
-        // first start of a downloaded copy: offer to install
+        // second stage of the setup: the installed copy registers itself from its own folder
+        if (Has("--register"))
+        {
+            try
+            {
+                bool auto = !Has("--no-autostart");
+                S.Cfg["autostart"] = auto;
+                S.SaveCfg();
+                Install.Register(S, auto, !Has("--no-path"));
+                if (!Running(S)) Process.Start(new ProcessStartInfo(Environment.ProcessPath, "--run") { UseShellExecute = true })?.Dispose();
+                if (!quiet) Msg(L.T("installed") + "\n\n" + Install.Describe(S));
+                return 0;
+            }
+            catch (Exception e)
+            {
+                Log.W("register failed: " + e);
+                Msg("TaskHub: install failed\n" + e.Message);
+                return 1;
+            }
+        }
+
+        // started by double-click from anywhere but the install folder (downloaded setup exe): setup dialog
         bool install = Has("--install");
-        if (!install && args.Length == 0 && !Install.IsInstalledCopy && !Install.IsInstalled && Settings.ReadExeSettings() == null
+        string installDir = Arg("--dir");
+        bool optAuto = !Has("--no-autostart"), optPath = !Has("--no-path");
+        if (!install && args.Length == 0 && !Install.IsInstalledCopy && Settings.ReadExeSettings() == null
             && !ToastNotificationManagerCompat.WasCurrentProcessToastActivated())
         {
-            var r = MessageBox.Show(L.T("install_q", Install.InstallDir), "TaskHub", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
-            if (r == DialogResult.Cancel) return 0;
-            install = r == DialogResult.Yes;
+            using var f = new InstallForm(Install.IsInstalled);
+            f.ShowDialog();
+            if (f.Result == InstallForm.Choice.Cancel) return 0;
+            if (f.Result == InstallForm.Choice.Install)
+            {
+                install = true;
+                installDir = f.Folder;
+                optAuto = f.Autostart;
+                optPath = f.AddPath;
+            }
         }
         if (install)
         {
             try
             {
-                if (!Install.IsInstalledCopy)
-                {
-                    // copy to %LOCALAPPDATA%\Programs\TaskHub and let the installed copy register itself
-                    var exe = Install.InstallFromHere();
-                    Process.Start(new ProcessStartInfo(exe, "--install" + (quiet ? " --quiet" : "")) { UseShellExecute = true })?.Dispose();
-                    return 0;
-                }
-                S.Cfg["autostart"] = true;
-                S.SaveCfg();
-                Install.Register(S);
-                if (!Running(S)) Process.Start(new ProcessStartInfo(Environment.ProcessPath) { UseShellExecute = true })?.Dispose();
-                if (!quiet) Msg(L.T("installed") + "\n\n" + Install.Describe(S));
+                installDir ??= Install.IsInstalled ? Install.InstallDir : Install.DefaultDir;
+                installDir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(installDir));
+                var err = Install.CheckWritable(installDir);
+                if (err != null) { Msg(L.T("setup_no_access", installDir) + "\n\n" + err); return 1; }
+                var exe = Install.InstallFiles(installDir);
+                var a2 = "--register" + (quiet ? " --quiet" : "") + (optAuto ? "" : " --no-autostart") + (optPath ? "" : " --no-path");
+                Process.Start(new ProcessStartInfo(exe, a2) { UseShellExecute = true })?.Dispose();
                 return 0;
             }
             catch (Exception e)
@@ -93,9 +123,7 @@ static class Program
 
         Log.W($"TaskHub {Settings.Version} (.NET) starting; exe={Environment.ProcessPath} data={S.DataDir} port={S.Port} args=[{string.Join(" ", args)}]");
         if (S.Bool("autostart", true)) Install.EnsureAutostart(S);
-        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
-        Application.EnableVisualStyles();
-        Application.SetCompatibleTextRenderingDefault(false);
+        Install.EnsurePayload();
         Application.ThreadException += (_, e) => Log.W("UI exception: " + e.Exception);
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.W("fatal: " + e.ExceptionObject);

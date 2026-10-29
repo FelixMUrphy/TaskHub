@@ -42,7 +42,7 @@ sealed class PanelForm : Form
         var dark = IsDarkTheme();
         BackColor = dark ? Color.FromArgb(0x14, 0x16, 0x1b) : Color.FromArgb(0xf4, 0xf5, 0xf7);
         Padding = new Padding(4);
-        try { Icon = new Icon(Path.Combine(s.ExeDir, "taskhub.ico")); } catch { }
+        try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath); } catch { }
         web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };
         Controls.Add(web);
         LoadSize();

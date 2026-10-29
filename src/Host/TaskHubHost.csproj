@@ -16,6 +16,8 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <MSBuildWarningsAsMessages>MSB3277</MSBuildWarningsAsMessages>
+    <!-- CLI single-file exe built first by build.cmd and embedded as payload -->
+    <CliExe>$(MSBuildThisFileDirectory)..\..\obj\cli\taskhub.exe</CliExe>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
@@ -23,9 +25,9 @@
     <PackageReference Include="Microsoft.Toolkit.Uwp.Notifications" Version="7.1.3" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\..\ui.html" Link="ui.html" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\API.md" Link="API.md" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="taskhub.ico" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\clients\python\taskhub_client.py" Link="taskhub_client.py" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="..\..\ui.html" LogicalName="ui.html" />
+    <EmbeddedResource Include="..\..\API.md" LogicalName="API.md" />
+    <EmbeddedResource Include="..\..\clients\python\taskhub_client.py" LogicalName="taskhub_client.py" />
+    <EmbeddedResource Include="$(CliExe)" LogicalName="taskhub.exe" Condition="Exists('$(CliExe)')" />
   </ItemGroup>
 </Project>
