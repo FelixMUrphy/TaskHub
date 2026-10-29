@@ -19,6 +19,7 @@ powershell -NoProfile -Command "for($i=0;$i -lt 60;$i++){ try{ Invoke-RestMethod
 set RC=0
 "%PYTHON%" api_test.py || set RC=1
 "%PYTHON%" parallel_test.py 8 || set RC=1
+"%PYTHON%" integration_test.py "%EXE%" || set RC=1
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='TaskHubHost.exe'\" | Where-Object { $_.CommandLine -like '*47899*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
 if %RC%==0 (echo ALL TESTS PASSED) else (echo TESTS FAILED)
 exit /b %RC%

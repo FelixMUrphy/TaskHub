@@ -12,7 +12,7 @@ Library (fail-soft: if the hub is down, all calls are silent no-ops):
                        W.led("lic", "License")],
               controls=[C.signal("save", "Save snapshot"),
                         C.signal("lr", "Set LR", input=C.number(default=1e-3))],
-              pausable=True, milestones=[50]) as t:
+              pausable=True) as t:
         t.on("lr", lambda v: f"lr={v}")         # handler result -> shown in panel
         for i in range(120):
             t.wait_if_paused()

@@ -99,6 +99,22 @@ sealed class TrayApp : ApplicationContext
             }
             catch (Exception e) { MessageBox.Show(e.Message, "TaskHub"); }
         });
+        var miInt = Add("integrations", () => { });
+        var intItems = new List<(ToolStripMenuItem, Integrations.Agent)>();
+        foreach (var ag in Integrations.All)
+        {
+            var a = ag;
+            var it = new ToolStripMenuItem(Integrations.Name(a), null, (_, _) =>
+            {
+                bool on = !Integrations.Enabled(a);
+                var err = Integrations.Set(a, on, S);
+                if (err != null) MessageBox.Show(err, "TaskHub", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                else if (on && a == Integrations.Agent.Codex)
+                    hub.Notify(new JsonObject { ["title"] = "TaskHub · Codex", ["message"] = L.T("codex_trust"), ["force"] = true, ["click"] = "dismiss" });
+            });
+            miInt.DropDownItems.Add(it);
+            intItems.Add((it, a));
+        }
         var miLang = Add("language", () => { });
         var langItems = new List<(ToolStripMenuItem, string)>();
         foreach (var code in new[] { "auto" }.Concat(L.Langs))
@@ -127,6 +143,7 @@ sealed class TrayApp : ApplicationContext
                 if (c == "auto") li.Text = L.T("auto");
                 li.Checked = L.Setting == c;
             }
+            foreach (var (it, a) in intItems) it.Checked = Integrations.Enabled(a);
             miMute.Checked = hub.Muted;
             miAuto.Checked = Install.AutostartEnabled(S);
         };

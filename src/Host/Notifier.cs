@@ -55,22 +55,22 @@ sealed class Notifier : INotifier
     }
 
     // ------------------------------------------------------------ plain / interactive toasts
-    public void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false)
+    public void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false, bool controls = true)
     {
         Log.W($"TOAST [{level}] {title}: {msg}");
-        queue.Add(() => ShowToast(J.Cut(string.IsNullOrEmpty(title) ? Settings.AppId : title, 150), J.Cut(msg ?? "", 500), level, taskId, task, dismissOnly));
+        queue.Add(() => ShowToast(J.Cut(string.IsNullOrEmpty(title) ? Settings.AppId : title, 150), J.Cut(msg ?? "", 500), level, taskId, task, dismissOnly, controls));
     }
 
     /// <summary>Toasts currently shown (banner or notification center), so they can be re-rendered when values change.</summary>
-    sealed record Shown(string Title, string Msg, string Level, string Tid, JsonObject Snap, bool DismissOnly = false);
+    sealed record Shown(string Title, string Msg, string Level, string Tid, JsonObject Snap, bool DismissOnly = false, bool Controls = true);
     readonly Dictionary<string, Shown> shown = new();   // tag -> content; touched only on the worker thread
 
-    void ShowToast(string title, string msg, string level, string tid, JsonObject task, bool dismissOnly = false)
+    void ShowToast(string title, string msg, string level, string tid, JsonObject task, bool dismissOnly = false, bool controls = true)
     {
         if (failures >= 3) { Balloon?.Invoke(title, msg); return; }
         try
         {
-            var e = new Shown(title, msg, level, tid, task, dismissOnly && tid == null);
+            var e = new Shown(title, msg, level, tid, task, dismissOnly && tid == null, controls);
             var b = Build(e, task, out bool interactive);
             var tag = Tag(tid ?? "n") + Guid.NewGuid().ToString("N")[..6];
             bool quiet = Quiet();
@@ -106,7 +106,7 @@ sealed class Notifier : INotifier
         if (e.Level == "error") b.AddAudio(new Uri("ms-winsoundevent:Notification.Reminder"));
         int actions = 0, inputs = 0;
         var state = task != null ? J.Str(task["state"]) : null;
-        if (task != null && S.Bool("toast_controls", true) && Hub.IsActive(state))
+        if (task != null && e.Controls && S.Bool("toast_controls", true) && Hub.IsActive(state))
         {
             foreach (var c in (task["controls"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
             {

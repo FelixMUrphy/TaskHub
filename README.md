@@ -66,10 +66,12 @@ curl -s -X POST localhost:47800/api/notify -H "X-TaskHub: 1" -d '{"title":"Done"
 > For any job longer than a minute, report it to TaskHub (`taskhub api` prints the docs; wrap commands with
 > `taskhub run --name ... -- <cmd>`).
 
-**Claude Code notifications** — get a toast when Claude finishes a response or needs your permission: install the
-[taskhub-claude-code](https://github.com/FelixMUrphy/taskhub-claude-code) plugin or add the two hooks from
-[API.md → Claude Code hooks](API.md#claude-code-hooks) to `~/.claude/settings.json`.
-**Codex** — the same via `taskhub hook codex` in `~/.codex/hooks.json`, see [API.md → Codex hooks](API.md#codex-hooks).
+**Claude Code and Codex notifications** — a toast when the agent finishes a response or needs your permission. Just tick
+*Notify me when Claude Code / Codex finishes…* in the setup dialog, or later in the tray menu → *AI agent notifications*.
+TaskHub adds (and on uninstall removes) only its own two hook entries in `~/.claude/settings.json` /
+`~/.codex/hooks.json`, keeping everything else (backup: `*.taskhub.bak`). Codex asks you once to approve new hooks:
+Codex → Settings → Hooks → *Trust all*. Works in local sessions (desktop app, CLI, IDE), not in cloud sessions.
+Manual setup and the Claude Code plugin: [API.md → Claude Code hooks](API.md#claude-code-hooks), [Codex hooks](API.md#codex-hooks).
 
 ## Install details
 The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or any folder you choose), unpacks the

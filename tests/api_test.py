@@ -56,6 +56,10 @@ for ev in ({"hook_event_name": "Stop", "cwd": "C:\\proj\\demo", "last_assistant_
            {"type": "agent-turn-complete", "last-assistant-message": "All tests pass"}):
     s, r = call("POST", "/api/hooks/codex", ev)
     check(f"codex hook {ev.get('hook_event_name') or ev.get('type')}", s == 200 and r == {}, (s, r))
+dup = {"hook_event_name": "Stop", "session_id": "s1", "prompt_id": "p1", "last_assistant_message": "x"}
+s1, r1 = call("POST", "/api/hooks/claude", dup)
+s2, r2 = call("POST", "/api/hooks/claude", dup)
+check("duplicate hook event accepted silently", s1 == s2 == 200 and r1 == r2 == {}, (s1, r1, s2, r2))
 s, r = call("POST", "/api/hooks/other", {})
 check("unknown agent -> 404", s == 404, (s, r))
 # CLI: `taskhub hook` is silent and always exits 0 (stdin JSON, JSON as last arg, garbage, hub down)

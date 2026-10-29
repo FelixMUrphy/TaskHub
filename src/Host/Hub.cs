@@ -14,7 +14,8 @@ interface INotifier
 {
     /// <param name="task">snapshot of the task (may be null) - used for toast buttons</param>
     /// <param name="dismissOnly">clicking the toast only closes it (no panel) - for toasts not tied to a task</param>
-    void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false);
+    /// <param name="controls">false: no control buttons / inputs (plain toast)</param>
+    void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false, bool controls = true);
     void Progress(JsonObject task);
     void ProgressEnd(string taskId);
     void Refresh(string taskId);   // a control value changed -> re-render shown toasts
@@ -162,7 +163,9 @@ sealed class Hub
             var nt = t["notify"] as JsonObject;
             if (nt != null && nt.ContainsKey(kind) && !J.Truthy(nt[kind])) return;
         }
-        Notifier?.Toast(title, msg, level, J.Str(t["id"]), (JsonObject)t.DeepClone());
+        // milestone toasts are plain unless the task asks for its controls there (notify.milestone_controls)
+        bool controls = kind != "milestones" || J.Truthy((t["notify"] as JsonObject)?["milestone_controls"]);
+        Notifier?.Toast(title, msg, level, J.Str(t["id"]), (JsonObject)t.DeepClone(), controls: controls);
     }
 
     void AddLog(JsonObject t, JsonNode msg, string level = "info")

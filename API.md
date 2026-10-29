@@ -22,7 +22,7 @@ taskhub run --name "Video export" --source claude --auto-progress --heartbeat 60
 from taskhub_client import Task, W, C
 with Task("Train YOLO", total=100, unit="ep", source="claude",
           widgets=[W.chart("loss", "Loss", series=["train", "val"]), W.gauge("gpu", "GPU", unit="%", warn=85)],
-          controls=[C.signal("ckpt", "Save checkpoint")], pausable=True, milestones=[50]) as t:
+          controls=[C.signal("ckpt", "Save checkpoint")], pausable=True) as t:
     t.on("ckpt", lambda: save() or "saved")            # runs in background thread; return -> shown in panel
     for ep in range(100):
         t.wait_if_paused()
@@ -86,7 +86,9 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
   "description": "…", "total": 200, "unit": "pts",
   "pid": 12345,                           // lost-detection + automatic "Kill" control ("kill_control": false to disable)
   "heartbeat_timeout": 600,               // s without update -> "stale" + toast (0 = off)
-  "notify": {"start": false, "finish": true, "fail": true, "stale": true, "milestones": [25, 50, 75]},
+  "notify": {"start": false, "finish": true, "fail": true, "stale": true, "milestones": []},
+                                          // milestones: e.g. [50] -> one toast at 50 % - only if the user asked for it;
+                                          // milestone toasts are plain, "milestone_controls": true adds the task's toast controls
   "cwd": "E:/proj", "links": [{"label": "results", "url": "file:///E:/proj/out"}], "meta": {},
   "controls": [],                         // see Controls
   "widgets":  [],                         // see Widgets
@@ -155,6 +157,8 @@ Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in updat
 `log`, `finish`, `control`, `commands`, `ack`, `wait ID` (blocks until finished), `panel`, `delete`. `taskhub --help`.
 
 ## Claude Code hooks
+Easiest: setup dialog checkbox or tray → *AI agent notifications* (or `TaskHubHost.exe --integrations claude=on codex=on`)
+writes exactly these entries for you and removes them on uninstall. Manual setup:
 Notifications when Claude Code finishes a response (`Stop`, toast shows the first line of the answer and the project folder)
 or waits for a permission / your answer (`Notification`). Add to `~/.claude/settings.json` (or install the
 [taskhub-claude-code](https://github.com/FelixMUrphy/taskhub-claude-code) plugin, which contains the same hooks):
@@ -196,6 +200,8 @@ Use TaskHub for anything that runs longer than ~1 minute, so the user sees progr
 2a. Name things for the user: task `name` = what is being done ("Parameter sweep 1-200"), `source` = who started it.
     Controls with `input` send their value only when the button is pressed, so label them as actions ("Set speed", "Apply").
     Use `"toast": true` only for 1-3 controls the user may need from a notification (Pause, Stop, a key parameter).
+2b. Don't add intermediate notifications (`notify.milestones`, `toast` on updates/logs) unless the user asks for them:
+    the finish / failure / stall notifications are already on. Never set milestones like [25, 50, 75] by default.
 3. For your own Python scripts use `Task(...)` with meaningful widgets; `toast=True` only for events the user must see.
 4. Before saying a task is still running, check `GET /api/tasks?active=1&brief=1`.
 5. To act on a task: read its `controls`, then `POST /api/tasks/{id}/controls/{cid}` with `{value}` if it has `input`.

@@ -8,7 +8,7 @@ namespace TaskHub;
 
 static class Program
 {
-    const string Usage = "TaskHubHost [--port N] [--data DIR] [--install [--dir PATH] [--no-autostart] [--no-path] [--quiet] | --uninstall [--quiet] [--purge] | --status | --panel [ID] | --open-url taskhub://open/ID | --no-tray]";
+    const string Usage = "TaskHubHost [--port N] [--data DIR] [--install [--dir PATH] [--no-autostart] [--no-path] [--claude|--no-claude] [--codex|--no-codex] [--quiet] | --uninstall [--quiet] [--purge] | --status | --panel [ID] | --open-url taskhub://open/ID | --no-tray]";
 
     [STAThread]
     static int Main(string[] args)
@@ -31,11 +31,35 @@ static class Program
             bool wasInstalled = Install.IsInstalled;
             Install.StopOtherHubs();
             Install.Unregister(S);
+            foreach (var a in Integrations.All)
+                try { Integrations.Apply(a, false, S); } catch (Exception e) { Log.W($"integration {a}: {e.Message}"); }
             try { ToastNotificationManagerCompat.Uninstall(); } catch { }
             if (Has("--purge")) try { Directory.Delete(S.DataDir, true); } catch { }
             if (wasInstalled) Install.ScheduleRemoveFiles(dir);
             if (!quiet) Msg(L.T("uninstalled", S.DataDir));
             return 0;
+        }
+
+        // scripted: TaskHubHost.exe --integrations claude=on codex=off   (prints the result, exit 1 on error)
+        if (Has("--integrations"))
+        {
+            int rc = 0;
+            var outp = new List<string>();
+            foreach (var a in Integrations.All)
+            {
+                var key = a.ToString().ToLowerInvariant();
+                var v = args.FirstOrDefault(x => x.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase))?[(key.Length + 1)..];
+                if (v is "on" or "off")
+                {
+                    bool changed = false;
+                    try { changed = Integrations.Apply(a, v == "on", S); S.Cfg[Integrations.CfgKey(a)] = v == "on"; S.SaveCfg(); }
+                    catch (Exception e) { rc = 1; outp.Add($"{key}: error {e.Message}"); continue; }
+                    outp.Add($"{key}: {v}{(changed ? " (changed)" : " (unchanged)")}");
+                }
+                else outp.Add($"{key}: {(Integrations.Enabled(a) ? "on" : "off")}");
+            }
+            Msg(string.Join("\n", outp));
+            return rc;
         }
 
         // second stage of the setup: the installed copy registers itself from its own folder
@@ -47,8 +71,17 @@ static class Program
                 S.Cfg["autostart"] = auto;
                 S.SaveCfg();
                 Install.Register(S, auto, !Has("--no-path"));
+                // AI-agent notifications: explicit --claude/--no-claude, --codex/--no-codex; otherwise unchanged
+                var notes = new List<string>();
+                foreach (var (a, on, off) in new[] { (Integrations.Agent.Claude, "--claude", "--no-claude"), (Integrations.Agent.Codex, "--codex", "--no-codex") })
+                {
+                    if (!Has(on) && !Has(off)) continue;
+                    var err = Integrations.Set(a, Has(on), S);
+                    if (err != null) notes.Add(err);
+                    else if (Has(on) && a == Integrations.Agent.Codex) notes.Add(L.T("codex_trust"));
+                }
                 if (!Running(S)) Process.Start(new ProcessStartInfo(Environment.ProcessPath, "--run") { UseShellExecute = true })?.Dispose();
-                if (!quiet) Msg(L.T("installed") + "\n\n" + Install.Describe(S));
+                if (!quiet) Msg(L.T("installed") + "\n\n" + Install.Describe(S) + (notes.Count > 0 ? "\n\n" + string.Join("\n", notes) : ""));
                 return 0;
             }
             catch (Exception e)
@@ -63,6 +96,7 @@ static class Program
         bool install = Has("--install");
         string installDir = Arg("--dir");
         bool optAuto = !Has("--no-autostart"), optPath = !Has("--no-path");
+        string optAgents = string.Join("", new[] { "--claude", "--no-claude", "--codex", "--no-codex" }.Where(Has).Select(x => " " + x));
         if (!install && args.Length == 0 && !Install.IsInstalledCopy && Settings.ReadExeSettings() == null
             && !ToastNotificationManagerCompat.WasCurrentProcessToastActivated())
         {
@@ -75,6 +109,7 @@ static class Program
                 installDir = f.Folder;
                 optAuto = f.Autostart;
                 optPath = f.AddPath;
+                optAgents = (f.Claude ? " --claude" : " --no-claude") + (f.Codex ? " --codex" : " --no-codex");
             }
         }
         if (install)
@@ -86,7 +121,7 @@ static class Program
                 var err = Install.CheckWritable(installDir);
                 if (err != null) { Msg(L.T("setup_no_access", installDir) + "\n\n" + err); return 1; }
                 var exe = Install.InstallFiles(installDir);
-                var a2 = "--register" + (quiet ? " --quiet" : "") + (optAuto ? "" : " --no-autostart") + (optPath ? "" : " --no-path");
+                var a2 = "--register" + (quiet ? " --quiet" : "") + (optAuto ? "" : " --no-autostart") + (optPath ? "" : " --no-path") + optAgents;
                 Process.Start(new ProcessStartInfo(exe, a2) { UseShellExecute = true })?.Dispose();
                 return 0;
             }
@@ -124,6 +159,7 @@ static class Program
         Log.W($"TaskHub {Settings.Version} (.NET) starting; exe={Environment.ProcessPath} data={S.DataDir} port={S.Port} args=[{string.Join(" ", args)}]");
         if (S.Bool("autostart", true)) Install.EnsureAutostart(S);
         Install.EnsurePayload();
+        if (Install.IsInstalledCopy) Integrations.Ensure(S);   // never from dev/test hubs
         Application.ThreadException += (_, e) => Log.W("UI exception: " + e.Exception);
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.W("fatal: " + e.ExceptionObject);

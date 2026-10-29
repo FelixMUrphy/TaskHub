@@ -13,10 +13,28 @@ namespace TaskHub;
 /// </summary>
 static class AgentHooks
 {
+    static readonly Dictionary<string, DateTime> recent = new();
+
+    /// <summary>The same event delivered twice (e.g. TaskHub's own hooks + the plugin) -> one toast.</summary>
+    static bool Duplicate(string agent, JsonObject b)
+    {
+        var key = string.Join("|", agent, J.Str(b["hook_event_name"] ?? b["type"]), J.Str(b["session_id"] ?? b["thread-id"]),
+            J.Str(b["turn_id"] ?? b["turn-id"] ?? b["prompt_id"]), J.Str(b["message"]), J.Str(b["tool_name"]));
+        var now = DateTime.UtcNow;
+        lock (recent)
+        {
+            foreach (var k in recent.Where(kv => now - kv.Value > TimeSpan.FromSeconds(10)).Select(kv => kv.Key).ToList()) recent.Remove(k);
+            if (recent.ContainsKey(key)) return true;
+            recent[key] = now;
+            return false;
+        }
+    }
+
     public static JsonObject Handle(Hub hub, string agent, JsonObject b)
     {
         try
         {
+            if (Duplicate(agent, b)) return new JsonObject();
             var name = agent == "codex" ? "Codex" : "Claude Code";
             var ev = J.Str(b["hook_event_name"]);
             if (ev.Length == 0 && J.Str(b["type"]) == "agent-turn-complete") ev = "Stop";   // Codex legacy notify
