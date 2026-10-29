@@ -12,7 +12,7 @@
     <ApplicationIcon>taskhub.ico</ApplicationIcon>
     <Product>TaskHub</Product>
     <AssemblyTitle>TaskHub</AssemblyTitle>
-    <Version>2.4.1</Version>
+    <Version>2.4.2</Version>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <MSBuildWarningsAsMessages>MSB3277</MSBuildWarningsAsMessages>
