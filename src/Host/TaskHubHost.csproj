@@ -26,5 +26,6 @@
     <None Include="..\..\ui.html" Link="ui.html" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\API.md" Link="API.md" CopyToOutputDirectory="PreserveNewest" />
     <None Include="taskhub.ico" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\clients\python\taskhub_client.py" Link="taskhub_client.py" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

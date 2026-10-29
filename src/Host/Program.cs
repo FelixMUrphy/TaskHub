@@ -8,7 +8,7 @@ namespace TaskHub;
 
 static class Program
 {
-    const string Usage = "TaskHubHost [--port N] [--data DIR] [--install | --uninstall | --panel [ID] | --open-url taskhub://open/ID | --no-tray | --status]";
+    const string Usage = "TaskHubHost [--port N] [--data DIR] [--install [--quiet] | --uninstall [--quiet] [--purge] | --status | --panel [ID] | --open-url taskhub://open/ID | --no-tray]";
 
     [STAThread]
     static int Main(string[] args)
@@ -17,24 +17,55 @@ static class Program
         L.S = S;
         string Arg(string k) { int i = Array.IndexOf(args, k); return i >= 0 && i + 1 < args.Length && !args[i + 1].StartsWith("--") ? args[i + 1] : null; }
         bool Has(string k) => args.Contains(k);
+        bool quiet = Has("--quiet");
 
         if (Has("--help") || Has("-h") || Has("/?")) { Msg(Usage); return 0; }
 
         if (Has("--uninstall"))
         {
-            Install.SetAutostart(false, S);
-            Install.SetProtocol(false);
+            if (!quiet && MessageBox.Show(L.T("uninstall_q"), "TaskHub", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return 0;
+            Install.StopOtherHubs();
+            Install.Unregister(S);
             try { ToastNotificationManagerCompat.Uninstall(); } catch { }
-            if (!Has("--quiet")) Msg("TaskHub: autostart, taskhub:// protocol and toast registration removed.\n" + Install.Describe(S));
+            if (Has("--purge")) try { Directory.Delete(S.DataDir, true); } catch { }
+            if (Install.IsInstalledCopy) Install.ScheduleDeleteInstallDir();
+            if (!quiet) Msg(L.T("uninstalled", S.DataDir));
             return 0;
         }
-        if (Has("--install"))
+
+        // first start of a downloaded copy: offer to install
+        bool install = Has("--install");
+        if (!install && args.Length == 0 && !Install.IsInstalledCopy && !Install.IsInstalled && Settings.ReadExeSettings() == null
+            && !ToastNotificationManagerCompat.WasCurrentProcessToastActivated())
         {
-            Install.SetAutostart(true, S);
-            Install.SetProtocol(true);
-            if (!Running(S)) Process.Start(new ProcessStartInfo(Environment.ProcessPath) { UseShellExecute = true })?.Dispose();   // no inherited handles
-            if (!Has("--quiet")) Msg("TaskHub installed (HKCU).\n" + Install.Describe(S));
-            return 0;
+            var r = MessageBox.Show(L.T("install_q", Install.InstallDir), "TaskHub", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+            if (r == DialogResult.Cancel) return 0;
+            install = r == DialogResult.Yes;
+        }
+        if (install)
+        {
+            try
+            {
+                if (!Install.IsInstalledCopy)
+                {
+                    // copy to %LOCALAPPDATA%\Programs\TaskHub and let the installed copy register itself
+                    var exe = Install.InstallFromHere();
+                    Process.Start(new ProcessStartInfo(exe, "--install" + (quiet ? " --quiet" : "")) { UseShellExecute = true })?.Dispose();
+                    return 0;
+                }
+                S.Cfg["autostart"] = true;
+                S.SaveCfg();
+                Install.Register(S);
+                if (!Running(S)) Process.Start(new ProcessStartInfo(Environment.ProcessPath) { UseShellExecute = true })?.Dispose();
+                if (!quiet) Msg(L.T("installed") + "\n\n" + Install.Describe(S));
+                return 0;
+            }
+            catch (Exception e)
+            {
+                Log.W("install failed: " + e);
+                Msg("TaskHub: install failed\n" + e.Message);
+                return 1;
+            }
         }
         if (Has("--status")) { Msg((Running(S) ? "running" : "not running") + $" on {S.Url}\n" + Install.Describe(S)); return 0; }
 
@@ -60,7 +91,8 @@ static class Program
             return 0;
         }
 
-        Log.W($"TaskHub {Settings.Version} (.NET) starting; data={S.DataDir} port={S.Port} args=[{string.Join(" ", args)}]");
+        Log.W($"TaskHub {Settings.Version} (.NET) starting; exe={Environment.ProcessPath} data={S.DataDir} port={S.Port} args=[{string.Join(" ", args)}]");
+        if (S.Bool("autostart", true)) Install.EnsureAutostart(S);
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);

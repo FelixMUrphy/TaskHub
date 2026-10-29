@@ -118,6 +118,7 @@ Global option: --url URL";
         var cmd = args[0];
         args.RemoveAt(0);
         var c = new Client(url);
+        EnsureHub(c);
         try
         {
             switch (cmd)
@@ -263,6 +264,28 @@ Global option: --url URL";
     }
 
     [DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int pid);
+
+    /// <summary>If the local hub is not running, start it (TaskHubHost.exe next to this CLI or the installed copy) and wait for it.
+    /// Disable with TASKHUB_NO_AUTOSTART=1.</summary>
+    static void EnsureHub(Client c)
+    {
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TASKHUB_NO_AUTOSTART"))) return;
+        if (!(c.Url.Contains("://127.0.0.1") || c.Url.Contains("://localhost"))) return;
+        if (c.Available()) return;
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "TaskHubHost.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "TaskHub", "TaskHubHost.exe"),
+        };
+        var exe = candidates.FirstOrDefault(File.Exists);
+        if (exe == null) return;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, "--run") { UseShellExecute = true })?.Dispose();
+            for (int i = 0; i < 30 && !c.Available(); i++) Thread.Sleep(500);
+        }
+        catch { }
+    }
 
     static int Wait(Client c, List<string> args)
     {

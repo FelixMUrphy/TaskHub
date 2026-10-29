@@ -12,12 +12,12 @@ Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/
 
 ## Quick start
 
-**Any command, no code changes (native CLI `D:\Tools\TaskHub2\app\taskhub.exe`, see below):**
+**Any command, no code changes (native CLI `taskhub`, on PATH after install; full path `%LOCALAPPDATA%\Programs\TaskHub\taskhub.exe`):**
 ```
 taskhub run --name "HFSS sweep" --source claude --auto-progress --heartbeat 600 -- ansysedt.exe -ng -batchsolve proj.aedt
 ```
 
-**Python scripts (stdlib-only `D:\Tools\TaskHub2\clients\python\taskhub_client.py`, copy next to your script or add its folder to PYTHONPATH):**
+**Python scripts (stdlib-only `taskhub_client.py`, installed next to the CLI in `%LOCALAPPDATA%\Programs\TaskHub`; copy it next to your script or add that folder to PYTHONPATH):**
 ```python
 from taskhub_client import Task, W, C
 with Task("Train YOLO", total=100, unit="ep", source="claude",
@@ -147,15 +147,23 @@ Python client built-ins: `stop` → `t.stop_requested`; `pause`/`resume` (`pausa
 `running` · `paused` · `stale` (no update for `heartbeat_timeout`) · `done` · `failed` · `cancelled` · `lost` (pid died without finish).
 Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in update/log, `/api/notify`. Global mute in tray or panel.
 
-## Native CLI (C# hub, no Python needed): `D:\Tools\TaskHub2\app\taskhub.exe`
+## Native CLI `taskhub` (no Python needed; starts the hub if it is not running, disable with `TASKHUB_NO_AUTOSTART=1`)
 `taskhub run --name "<what>" --source <agent> [--auto-progress] [--heartbeat N] -- <cmd args>` wraps any command
 (echo + log + progress; the command may print `::progress 5/20`, `::percent 40`, `::status s`, `::stage s`, `::warn s`,
 `::error s`, `::toast s`, `::metric k=v`, `::widget id=value` lines). Also `notify`, `list`, `show`, `register`, `update`,
 `log`, `finish`, `control`, `commands`, `ack`, `wait ID` (blocks until finished), `panel`, `delete`. `taskhub --help`.
 
-## Agent notes (Claude / ChatGPT / Codex)
-1. `GET /api/health` first; if down, work normally (the hub can be started with `D:\Tools\TaskHub2\app\TaskHubHost.exe`).
-2. For a long shell command prefer `D:\Tools\TaskHub2\app\taskhub.exe run --name "<what>" --source <agent> [--auto-progress] [--heartbeat N] -- <cmd>`.
+## Agent notes (Claude / ChatGPT / Codex / any automation)
+Use TaskHub for anything that runs longer than ~1 minute, so the user sees progress and gets notified without watching the chat.
+0. Where: CLI `taskhub` (PATH) or `%LOCALAPPDATA%\Programs\TaskHub\taskhub.exe`; HTTP `http://127.0.0.1:47800`; this doc: `taskhub api` or `GET /api/help`.
+   If the CLI is not on PATH in your shell, call it by the full path. From WSL/containers use the Windows host address only if the user allows it (the hub listens on loopback).
+1. `taskhub health` (or `GET /api/health`) first. If the hub is down and cannot be started, work normally - never fail the user's task because of TaskHub.
+2. Long shell command: `taskhub run --name "<what>" --source <claude|chatgpt|codex> [--auto-progress] [--heartbeat N] -- <cmd args>`.
+   Inside your own scripts print `::progress i/N`, `::status ...`, `::warn ...` lines - `taskhub run` turns them into panel updates.
+   `taskhub wait <id>` blocks until a task finishes (exit 0 = done).
+2a. Name things for the user: task `name` = what is being done ("HFSS sweep 1.7-2.2 GHz"), `source` = who started it.
+    Controls with `input` send their value only when the button is pressed, so label them as actions ("Set speed", "Apply").
+    Use `"toast": true` only for 1-3 controls the user may need from a notification (Pause, Stop, a key parameter).
 3. For your own Python scripts use `Task(...)` with meaningful widgets; `toast=True` only for events the user must see.
 4. Before saying a task is still running, check `GET /api/tasks?active=1&brief=1`.
 5. To act on a task: read its `controls`, then `POST /api/tasks/{id}/controls/{cid}` with `{value}` if it has `input`.

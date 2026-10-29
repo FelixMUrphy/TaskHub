@@ -90,7 +90,13 @@ sealed class TrayApp : ApplicationContext
         m.Items.Add(new ToolStripSeparator());
         miAuto = Add("autostart", () =>
         {
-            try { Install.SetAutostart(!Install.AutostartEnabled(S), S); }
+            try
+            {
+                bool on = !Install.AutostartEnabled(S);
+                Install.SetAutostart(on, S);
+                S.Cfg["autostart"] = on;      // respected by the self-healing check on start
+                S.SaveCfg();
+            }
             catch (Exception e) { MessageBox.Show(e.Message, "TaskHub"); }
         });
         var miLang = Add("language", () => { });

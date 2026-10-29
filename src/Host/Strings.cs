@@ -58,6 +58,20 @@ static class L
         ["cancelled"] = new[] { "cancelled", "скасовано", "cancelada", "abgebrochen", "annulée", "annullata", "cancelada", "anulowane", "已取消", "キャンセル" },
         ["started"] = new[] { "started", "запущено", "iniciada", "gestartet", "démarrée", "avviata", "iniciada", "uruchomione", "已开始", "開始" },
         ["no_updates"] = new[] { "no updates for {0}", "немає оновлень {0}", "sin actualizaciones desde hace {0}", "seit {0} keine Updates", "aucune mise à jour depuis {0}", "nessun aggiornamento da {0}", "sem atualizações há {0}", "brak aktualizacji od {0}", "{0} 内无更新", "{0} 更新なし" },
+        ["install_q"] = new[] {
+            "Install TaskHub for the current user?\n\nYes - install to {0}, start with Windows, add the 'taskhub' command to PATH.\nNo - just run it from this folder.",
+            "Встановити TaskHub для поточного користувача?\n\nТак - встановити в {0}, запускати разом з Windows, додати команду 'taskhub' у PATH.\nНі - просто запустити з цієї теки.",
+            "¿Instalar TaskHub para el usuario actual?\n\nSí - instalar en {0}, iniciar con Windows, añadir el comando 'taskhub' al PATH.\nNo - solo ejecutarlo desde esta carpeta.",
+            "TaskHub für den aktuellen Benutzer installieren?\n\nJa - nach {0} installieren, mit Windows starten, Befehl 'taskhub' zum PATH hinzufügen.\nNein - nur aus diesem Ordner starten.",
+            "Installer TaskHub pour l'utilisateur actuel ?\n\nOui - installer dans {0}, lancer avec Windows, ajouter la commande 'taskhub' au PATH.\nNon - simplement l'exécuter depuis ce dossier.",
+            "Installare TaskHub per l'utente corrente?\n\nSì - installa in {0}, avvio con Windows, comando 'taskhub' nel PATH.\nNo - eseguilo solo da questa cartella.",
+            "Instalar o TaskHub para o usuário atual?\n\nSim - instalar em {0}, iniciar com o Windows, adicionar o comando 'taskhub' ao PATH.\nNão - apenas executar desta pasta.",
+            "Zainstalować TaskHub dla bieżącego użytkownika?\n\nTak - instalacja w {0}, start z Windows, polecenie 'taskhub' w PATH.\nNie - tylko uruchom z tego folderu.",
+            "为当前用户安装 TaskHub？\n\n是 - 安装到 {0}，开机启动，将 'taskhub' 命令加入 PATH。\n否 - 仅从此文件夹运行。",
+            "現在のユーザーに TaskHub をインストールしますか？\n\nはい - {0} にインストールし、Windows 起動時に開始し、'taskhub' コマンドを PATH に追加します。\nいいえ - このフォルダーから実行するだけです。" },
+        ["installed"] = new[] { "TaskHub is installed and running (tray icon).", "TaskHub встановлено й запущено (іконка в треї).", "TaskHub está instalado y en ejecución (icono en la bandeja).", "TaskHub ist installiert und läuft (Infobereich).", "TaskHub est installé et lancé (zone de notification).", "TaskHub è installato e in esecuzione (area di notifica).", "O TaskHub está instalado e em execução (bandeja).", "TaskHub jest zainstalowany i działa (zasobnik).", "TaskHub 已安装并正在运行（托盘图标）。", "TaskHub をインストールし、起動しました（タスクトレイ）。" },
+        ["uninstall_q"] = new[] { "Uninstall TaskHub?", "Видалити TaskHub?", "¿Desinstalar TaskHub?", "TaskHub deinstallieren?", "Désinstaller TaskHub ?", "Disinstallare TaskHub?", "Desinstalar o TaskHub?", "Odinstalować TaskHub?", "卸载 TaskHub？", "TaskHub をアンインストールしますか？" },
+        ["uninstalled"] = new[] { "TaskHub removed. Your data is kept in {0}.", "TaskHub видалено. Дані збережено в {0}.", "TaskHub eliminado. Tus datos se conservan en {0}.", "TaskHub entfernt. Daten bleiben in {0}.", "TaskHub supprimé. Vos données restent dans {0}.", "TaskHub rimosso. I dati restano in {0}.", "TaskHub removido. Os dados ficam em {0}.", "TaskHub usunięty. Dane pozostają w {0}.", "已移除 TaskHub。数据保留在 {0}。", "TaskHub を削除しました。データは {0} に残っています。" },
         ["kill_confirm"] = new[] { "Kill process {0} and its children?", "Завершити процес {0} і його дочірні?", "¿Terminar el proceso {0} y sus hijos?", "Prozess {0} samt Unterprozessen beenden?", "Tuer le processus {0} et ses enfants ?", "Terminare il processo {0} e i figli?", "Encerrar o processo {0} e os filhos?", "Zakończyć proces {0} i jego potomne?", "结束进程 {0} 及其子进程？", "プロセス {0} と子プロセスを終了しますか？" },
     };
 

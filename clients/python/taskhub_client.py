@@ -88,19 +88,23 @@ def notify(title, message="", level="info", url=None):
 class C:
     """Control builders. kind: signal (delivered to the process), shell, open, kill."""
     @staticmethod
-    def signal(id, label=None, *, input=None, confirm=None, style=None, states=None, hint=None):
+    def signal(id, label=None, *, input=None, confirm=None, style=None, states=None, hint=None, toast=False):
+        """toast=True: also show this control as a button in the task's Windows notifications.
+        With input, the value is sent only when the button is pressed - use an action label ("Set LR")."""
         return _clean({"id": id, "label": label or id, "kind": "signal", "input": input,
-                       "confirm": confirm, "style": style, "states": states, "hint": hint})
+                       "confirm": confirm, "style": style, "states": states, "hint": hint, "toast": toast})
 
     @staticmethod
-    def shell(id, label, command, *, cwd=None, input=None, confirm=None, style=None, states=None, timeout=None):
+    def shell(id, label, command, *, cwd=None, input=None, confirm=None, style=None, states=None, timeout=None,
+              toast=False):
         """command: list (recommended) or string (runs via shell). Placeholders: {value} {pid} {task_id}"""
         return _clean({"id": id, "label": label, "kind": "shell", "command": command, "cwd": cwd,
-                       "input": input, "confirm": confirm, "style": style, "states": states, "timeout": timeout})
+                       "input": input, "confirm": confirm, "style": style, "states": states, "timeout": timeout,
+                       "toast": toast})
 
     @staticmethod
-    def open(id, label, target, *, states=None):
-        return _clean({"id": id, "label": label, "kind": "open", "target": target,
+    def open(id, label, target, *, states=None, toast=False):
+        return _clean({"id": id, "label": label, "kind": "open", "target": target, "toast": toast,
                        "states": states or ["running", "paused", "stale", "done", "failed", "cancelled", "lost"]})
 
     @staticmethod
@@ -191,7 +195,9 @@ class Task:
     def __init__(self, name, *, total=None, unit="", source=None, description="", controls=(), widgets=(),
                  stoppable=True, pausable=False, pid=None, heartbeat_timeout=0, milestones=None,
                  notify=None, meta=None, links=None, id=None, url=None, poll=True, throttle=0.5,
-                 kill_control=True, cwd=None):
+                 kill_control=True, cwd=None, progress_toast=None, toast_controls=False):
+        """progress_toast=True: one live Windows notification with a progress bar (C# hub).
+        toast_controls=True: built-in Stop / Pause / Resume also appear as buttons in notifications."""
         self.url = (url or URL).rstrip("/")
         self.name, self.id = name, id
         self.throttle = throttle
@@ -210,11 +216,11 @@ class Task:
         self._poll = poll
         ctr = list(controls)
         if stoppable:
-            ctr.insert(0, C.signal("stop", "Stop", style="primary", confirm="Зупинити задачу (graceful)?",
-                                   hint="Graceful stop: sets task.stop_requested"))
+            ctr.insert(0, C.signal("stop", "Stop", style="primary", confirm="Stop the task (graceful)?",
+                                   hint="Graceful stop: sets task.stop_requested", toast=toast_controls))
         if pausable:
-            ctr.insert(0, C.signal("resume", "Resume", states=["paused"]))
-            ctr.insert(0, C.signal("pause", "Pause", states=["running", "stale"]))
+            ctr.insert(0, C.signal("resume", "Resume", states=["paused"], toast=toast_controls))
+            ctr.insert(0, C.signal("pause", "Pause", states=["running", "stale"], toast=toast_controls))
         n = {"milestones": milestones or []}
         n.update(notify or {})
         self._reg = _clean({"name": name, "total": total, "unit": unit,
@@ -222,7 +228,8 @@ class Task:
                             "description": description, "controls": ctr, "widgets": list(widgets),
                             "pid": os.getpid() if pid is None else (pid or None),
                             "heartbeat_timeout": heartbeat_timeout, "notify": n, "meta": meta, "links": links,
-                            "id": id, "kill_control": kill_control, "cwd": cwd or os.getcwd()})
+                            "id": id, "kill_control": kill_control, "cwd": cwd or os.getcwd(),
+                            "progress_toast": progress_toast})
         if not kill_control:
             self._reg["kill_control"] = False
 

@@ -1,0 +1,219 @@
+"""Exercise the TaskHub HTTP API (TASKHUB_URL, default the test hub on 47899). Prints PASS/FAIL per check.
+Run via tests\run_tests.cmd - it starts an isolated hub; do not point it at your main hub (it clears finished tasks)."""
+import json, os, sys, threading, time, urllib.request, urllib.error
+
+U = os.environ.get("TASKHUB_URL", "http://127.0.0.1:47899").rstrip("/")
+op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+fails = 0
+
+
+def call(method, path, body=None, headers=None, raw=False, timeout=10):
+    h = {"Content-Type": "application/json"}
+    if method != "GET":
+        h["X-TaskHub"] = "1"
+    h.update(headers or {})
+    data = json.dumps(body).encode() if body is not None else (b"{}" if method != "GET" else None)
+    req = urllib.request.Request(U + path, data=data, method=method, headers=h)
+    try:
+        r = op.open(req, timeout=timeout)
+        b = r.read()
+        return r.status, (b if raw else json.loads(b or b"null"))
+    except urllib.error.HTTPError as e:
+        b = e.read()
+        try:
+            return e.code, json.loads(b)
+        except Exception:
+            return e.code, b
+
+
+def check(name, cond, extra=""):
+    global fails
+    print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  -> {extra}"))
+    if not cond:
+        fails += 1
+
+
+s, h = call("GET", "/api/health")
+check("health", s == 200 and h["app"] == "TaskHub", h)
+
+# guards
+s, r = call("POST", "/api/notify", {"title": "x"}, headers={"X-TaskHub": ""})
+check("csrf header required", s == 403, (s, r))
+s, r = call("GET", "/api/health", headers={"Origin": "http://evil.com"})
+check("cross-origin rejected", s == 403, (s, r))
+s, r = call("GET", "/api/health", headers={"Host": "evil.com"})
+check("bad host rejected", s == 403, (s, r))
+s, r = call("GET", "/api/nope")
+check("404 route", s == 404 and "error" in r, (s, r))
+s, r = call("POST", "/api/tasks", None, raw=False)
+check("register without name ok (defaults)", s == 200, (s, r))
+call("DELETE", f"/api/tasks/{r.get('id')}?force=1")
+
+# register with widgets + controls
+reg = {
+    "id": "t-api", "name": "API test", "source": "test", "total": 10, "unit": "it",
+    "notify": {"finish": False, "fail": False, "milestones": [50]},
+    "widgets": [
+        {"id": "c", "type": "chart", "label": "Loss", "series": ["a", "b"]},
+        {"id": "g", "type": "gauge", "label": "GPU", "unit": "%", "warn": 80},
+        {"id": "s", "type": "stat", "label": "Speed"},
+        {"id": "l", "type": "led", "label": "Lic"},
+        {"id": "k", "type": "kv", "label": "KV"},
+        {"id": "tb", "type": "table", "columns": ["x", "y"]},
+        {"id": "p", "type": "progress", "label": "Sub", "total": 5},
+        {"id": "tx", "type": "text", "label": "Txt", "mono": True},
+    ],
+    "controls": [
+        {"id": "sig", "label": "Signal", "kind": "signal", "input": {"type": "number", "default": 1}},
+        {"id": "sh", "label": "Shell", "kind": "shell", "command": "echo hello {value} {task_id}"},
+        {"id": "sel", "label": "Sel", "kind": "signal", "input": {"type": "select", "options": ["a", "b"]}, "toast": True},
+    ],
+}
+s, r = call("POST", "/api/tasks", reg)
+check("register", s == 200 and r["id"] == "t-api", (s, r))
+s, r = call("POST", "/api/tasks", {"name": "bad", "widgets": [{"id": "x", "type": "nope"}]})
+check("bad widget type -> 400", s == 400, (s, r))
+s, r = call("POST", "/api/tasks", {"name": "bad", "id": "bad id!"})
+check("bad id -> 400", s == 400, (s, r))
+
+s, r = call("POST", "/api/tasks/t-api/update", {"current": 5, "status": "half", "stage": "st",
+            "metrics": {"m1": 1.5, "m2": "x"}, "log": ["l1", "l2"],
+            "widgets": {"c": [{"t": 1, "a": 1, "b": 2}, {"t": 2, "a": 2, "b": 3}], "g": 85, "s": 10, "l": "ok",
+                        "k": {"a": 1}, "tb": [[1, 2], [3, 4]], "p": 3, "tx": "hello"}})
+check("update", s == 200, (s, r))
+call("POST", "/api/tasks/t-api/update", {"widgets": {"s": 12, "c": {"a": 5, "b": 6}}})
+s, t = call("GET", "/api/tasks/t-api")
+w = {x["id"]: x for x in t["widgets"]}
+check("progress from current/total", abs(t["progress"] - 0.5) < 1e-9, t["progress"])
+check("milestone hit", 50 in t["milestones_hit"], t["milestones_hit"])
+check("chart batch + append", len(w["c"]["points"]) == 3 and w["c"]["points"][0][0] == 1 and w["c"]["points"][2][1:] == [5, 6], w["c"]["points"])
+check("stat prev", w["s"]["value"] == 12 and w["s"]["prev"] == 10, w["s"])
+check("metrics", t["metrics"] == {"m1": 1.5, "m2": "x"}, t["metrics"])
+check("log lines", [l["msg"] for l in t["log"]][-2:] == ["l1", "l2"], t["log"][-3:])
+check("kill control absent w/o pid", not any(c["id"] == "kill" for c in t["controls"]), t["controls"])
+
+# log endpoint, heartbeat
+s, r = call("POST", "/api/tasks/t-api/log", {"msg": "warned", "level": "warn"})
+check("log endpoint", s == 200)
+s, r = call("POST", "/api/tasks/t-api/heartbeat")
+check("heartbeat", s == 200)
+
+# add/remove widgets & controls
+call("POST", "/api/tasks/t-api/update", {"add_widgets": [{"id": "new", "type": "text"}], "remove_widgets": ["tx"],
+                                         "add_controls": [{"id": "op", "kind": "open", "target": "https://example.com"}],
+                                         "remove_controls": ["sh"]})
+s, t = call("GET", "/api/tasks/t-api")
+ids = [x["id"] for x in t["widgets"]]
+check("add/remove widgets", "new" in ids and "tx" not in ids, ids)
+cids = [x["id"] for x in t["controls"]]
+check("add/remove controls", "op" in cids and "sh" not in cids, cids)
+call("POST", "/api/tasks/t-api/update", {"add_controls": [{"id": "sh", "label": "Shell", "kind": "shell", "command": "echo hello {value} {task_id}"}]})
+
+# signal command round trip with long-poll
+got = {}
+def poller():
+    s2, r2 = call("GET", "/api/tasks/t-api/commands?wait=10", timeout=20)
+    got["r"] = r2
+th = threading.Thread(target=poller); th.start()
+time.sleep(0.5)
+s, r = call("POST", "/api/tasks/t-api/controls/sig", {"value": 42})
+th.join(15)
+cmds = got.get("r", {}).get("commands", [])
+check("signal delivered via long-poll", s == 200 and cmds and cmds[0]["value"] == 42 and cmds[0]["control"] == "sig", got)
+if cmds:
+    s, r = call("POST", f"/api/tasks/t-api/commands/{cmds[0]['id']}/ack", {"ok": True, "message": "done!"})
+    s, t = call("GET", "/api/tasks/t-api")
+    hist = [c for c in t["commands"] if c["id"] == cmds[0]["id"]]
+    check("ack recorded", hist and hist[0]["status"] == "ok" and hist[0]["reply"] == "done!", hist)
+
+# shell control
+s, r = call("POST", "/api/tasks/t-api/controls/sh", {"value": "world"})
+check("shell started", s == 200 and r.get("started"), r)
+time.sleep(2.5)
+s, t = call("GET", "/api/tasks/t-api")
+check("shell output in log", any("hello world t-api" in l["msg"] for l in t["log"]), [l["msg"] for l in t["log"][-4:]])
+s, r = call("POST", "/api/tasks/t-api/controls/nope", {})
+check("unknown control 404", s == 404, (s, r))
+
+# long-poll of task list wakes on change
+s, snap = call("GET", "/api/tasks")
+v = snap["version"]
+def bump():
+    time.sleep(1)
+    call("POST", "/api/tasks/t-api/update", {"status": "wake"})
+threading.Thread(target=bump).start()
+t0 = time.time()
+s, snap2 = call("GET", f"/api/tasks?since={v}&wait=20", timeout=30)
+dt = time.time() - t0
+check("long-poll wakes on change", snap2["version"] > v and dt < 5, (dt, snap2["version"], v))
+s, snap3 = call("GET", "/api/tasks?active=1&brief=1")
+check("active+brief", all(len(x["log"]) <= 5 for x in snap3["tasks"]) and all(x["state"] in ("running", "paused", "stale") for x in snap3["tasks"]), "")
+
+# pause state, delete active refused
+call("POST", "/api/tasks/t-api/update", {"state": "paused"})
+s, t = call("GET", "/api/tasks/t-api")
+check("paused", t["state"] == "paused", t["state"])
+s, r = call("DELETE", "/api/tasks/t-api")
+check("delete active -> 409", s == 409, (s, r))
+
+# finish
+s, r = call("POST", "/api/tasks/t-api/finish", {"state": "done", "message": "ok", "result": {"x": 1}})
+s, t = call("GET", "/api/tasks/t-api")
+check("finish", t["state"] == "done" and t["progress"] == 1.0 and t["result"] == {"x": 1}, t["state"])
+s, r = call("POST", "/api/tasks/t-api/finish", {"state": "weird"})
+check("bad finish state -> 400", s == 400, (s, r))
+s, r = call("POST", "/api/tasks/t-api/controls/sig", {"value": 1})
+check("control not available when done -> 409", s == 409, (s, r))
+
+# pid / kill / lost
+import subprocess
+p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+s, r = call("POST", "/api/tasks", {"id": "t-kill", "name": "kill me", "pid": p.pid, "notify": {"finish": False}})
+s, t = call("GET", "/api/tasks/t-kill")
+check("auto kill control", any(c["id"] == "kill" for c in t["controls"]), t["controls"])
+s, r = call("POST", "/api/tasks/t-kill/controls/kill")
+time.sleep(0.5)
+s, t = call("GET", "/api/tasks/t-kill")
+check("kill -> cancelled + process dead", t["state"] == "cancelled" and p.poll() is not None, (t["state"], p.poll()))
+
+p2 = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1)"])
+call("POST", "/api/tasks", {"id": "t-lost", "name": "will be lost", "pid": p2.pid, "notify": {"fail": False}})
+p2.wait()
+time.sleep(4.5)
+s, t = call("GET", "/api/tasks/t-lost")
+check("watchdog -> lost", t["state"] == "lost", t["state"])
+
+# heartbeat -> stale
+call("POST", "/api/tasks", {"id": "t-stale", "name": "stale", "heartbeat_timeout": 1, "notify": {"stale": False}})
+time.sleep(4.5)
+s, t = call("GET", "/api/tasks/t-stale")
+check("watchdog -> stale", t["state"] == "stale", t["state"])
+call("POST", "/api/tasks/t-stale/update", {"status": "back"})
+s, t = call("GET", "/api/tasks/t-stale")
+check("stale -> running on update", t["state"] == "running", t["state"])
+call("POST", "/api/tasks/t-stale/finish", {"state": "cancelled"})
+
+# re-register keeps log + chart
+call("POST", "/api/tasks", {"id": "t-api", "name": "API test again", "widgets": [{"id": "c", "type": "chart", "series": ["a", "b"]}]})
+s, t = call("GET", "/api/tasks/t-api")
+check("re-register keeps chart + log", len(t["widgets"][0]["points"]) == 3 and any(l["msg"] == "l1" for l in t["log"]), len(t["widgets"][0]["points"]))
+call("POST", "/api/tasks/t-api/finish", {"state": "failed", "message": "boom"})
+
+# misc
+s, r = call("POST", "/api/settings", {"muted": True})
+check("mute", r.get("muted") is True, r)
+s, r = call("POST", "/api/settings", {"muted": False})
+check("unmute", r.get("muted") is False, r)
+s, r = call("GET", "/api/help", raw=True)
+check("help served", s == 200 and b"TaskHub API" in r, s)
+s, r = call("GET", "/ui", raw=True)
+check("ui served", s == 200 and b"const NATIVE" in r and b"__TOKEN__" not in r, s)
+s, r = call("GET", "/icon.png", raw=True)
+check("icon served", s == 200 and r[:4] == b"\x89PNG", s)
+s, r = call("POST", "/api/clear")
+s, snap = call("GET", "/api/tasks")
+check("clear finished", not any(t["state"] in ("done", "failed", "cancelled", "lost") for t in snap["tasks"]), [t["state"] for t in snap["tasks"]])
+s, r = call("POST", "/api/tasks", {"name": "body", "id": "t-bom"}, headers={})
+call("DELETE", "/api/tasks/t-bom?force=1")
+print("\n%d failure(s)" % fails)
+sys.exit(1 if fails else 0)
