@@ -96,8 +96,7 @@ sealed class TrayApp : ApplicationContext
             {
                 bool on = !Install.AutostartEnabled(S);
                 Install.SetAutostart(on, S);
-                S.Cfg["autostart"] = on;      // respected by the self-healing check on start
-                S.SaveCfg();
+                S.Set(("autostart", on));      // respected by the self-healing check on start
             }
             catch (Exception e) { MessageBox.Show(e.Message, "TaskHub"); }
         });

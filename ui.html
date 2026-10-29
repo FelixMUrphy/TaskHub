@@ -207,12 +207,15 @@ function num(v, d){ if (typeof v!=="number"||!isFinite(v)) return esc(v ?? "—"
 const now = () => Date.now()/1000 + skew;
 
 /* ---------------- widgets ---------------- */
+// values that go into style/SVG attributes: only plain CSS colours and finite numbers (the hub checks too; old state may not be)
+const cssc = c => typeof c==="string" && /^(#[0-9a-f]{3,8}|[a-z]{1,30}|var\(--[a-z0-9-]{1,30}\)|(rgb|rgba|hsl|hsla)\([0-9.,%\s/]{1,60}\))$/i.test(c.trim()) ? c.trim() : "";
+const fin = (x, d) => typeof x==="number" && isFinite(x) ? x : d;
 function lvl(w, v){ // threshold color
   if (typeof v!=="number") return "";
   const inv=!!w.invert;
   if (w.crit!=null && (inv? v<=w.crit : v>=w.crit)) return "var(--red)";
   if (w.warn!=null && (inv? v<=w.warn : v>=w.warn)) return "var(--amber)";
-  return w.color || "";
+  return cssc(w.color);
 }
 function lab(w, right=""){ return w.label||right ? `<div class="lb"><span>${esc(w.label)}</span>${right?`<span class="lv">${right}</span>`:""}</div>` : ""; }
 const W = {
@@ -222,14 +225,14 @@ const W = {
     if (typeof v==="number"){ if (tot){ f=v/tot; txt=`${num(v)} / ${num(tot)} ${esc(w.unit)}`; } else { f = v>1? v/100 : v; txt=(f*100).toFixed(1)+"%"; } }
     if (f!=null && tot) txt += ` · ${(f*100).toFixed(0)}%`;
     f = f==null?0:Math.max(0,Math.min(1,f));
-    return lab(w, txt) + `<div class="pb" style="--wc:${lvl(w,f*100)||w.color||"var(--blue)"}"><i style="width:${(f*100).toFixed(2)}%"></i></div>`;
+    return lab(w, txt) + `<div class="pb" style="--wc:${lvl(w,f*100)||"var(--blue)"}"><i style="width:${(f*100).toFixed(2)}%"></i></div>`;
   },
   gauge(w){
     const v=w.value, mn=w.min??0, mx=w.max??100, f=typeof v==="number"?Math.max(0,Math.min(1,(v-mn)/(mx-mn||1))):0;
     const R=34, cx=44, cy=40, a0=Math.PI, a1=Math.PI*(1-f);
     const P=a=>[cx+R*Math.cos(a), cy-R*Math.sin(a)];
     const [x0,y0]=P(a0),[x1,y1]=P(a1),[xe,ye]=P(0);
-    const col=lvl(w,v)||w.color||"var(--blue)";
+    const col=lvl(w,v)||"var(--blue)";
     return `<div style="display:flex;align-items:center;gap:8px">
       <svg viewBox="0 0 88 46" width="88" height="46"><path d="M${x0},${y0} A${R},${R} 0 0 1 ${xe},${ye}" fill="none" stroke="var(--track)" stroke-width="8" stroke-linecap="round"/>
       ${f>0.002?`<path d="M${x0},${y0} A${R},${R} 0 0 1 ${x1.toFixed(2)},${y1.toFixed(2)}" fill="none" stroke="${col}" stroke-width="8" stroke-linecap="round"/>`:""}</svg>
@@ -259,7 +262,7 @@ const W = {
       ${rows.map(r=>`<tr>${(Array.isArray(r)?r:cols.map(c=>r[c])).map(v=>`<td>${cell(v)}</td>`).join("")}</tr>`).join("")}</table>`;
   },
   chart(w){
-    const pts=w.points||[], S=w.series||[w.id], hgt=w.height||54, Wd=300;
+    const pts=w.points||[], S=w.series||[w.id], hgt=Math.min(400,Math.max(20,fin(w.height,54))), Wd=300;
     const last = pts.length? pts[pts.length-1] : null;
     const right = last ? S.map((s,i)=> last[i+1]==null?"":`${S.length>1?esc(s)+" ":""}${num(last[i+1],w.decimals)}`).filter(Boolean).join(" · ")+(w.unit?" "+esc(w.unit):"") : "";
     if (pts.length<2) return lab(w,right)+`<div class="v" style="color:var(--mut);font-size:11px;padding:8px 0">${T("waiting")}</div>`;
@@ -385,13 +388,14 @@ async function onControl(el, tid, c, btn){
   let field;
   if (i.type==="select") field=`<select>${i.options.map(o=>`<option ${o==dv?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
   else if (i.type==="bool") field=`<input type="checkbox" ${dv?"checked":""}>`;
-  else if (i.type==="number") field=`<input type="number" value="${esc(dv??"")}" ${i.min!=null?`min="${i.min}"`:""} ${i.max!=null?`max="${i.max}"`:""} step="${i.step??"any"}">`;
+  else if (i.type==="number") field=`<input type="number" value="${esc(dv??"")}" ${fin(i.min)!=null?`min="${i.min}"`:""} ${fin(i.max)!=null?`max="${i.max}"`:""} step="${fin(i.step)??"any"}">`;
   else field=`<input type="text" value="${esc(dv??"")}" placeholder="${esc(i.placeholder??"")}">`;
   f.innerHTML=`<label>${esc(i.label||c.label)}</label>${field}<button class="btn primary">OK</button><button class="btn">✕</button>`;
   f.classList.add("on");
   const inp=f.querySelector("input,select"); inp.focus(); if (inp.select) try{inp.select();}catch(e){}
   const close=()=>{ f.classList.remove("on"); f.innerHTML=""; ui[tid].formFor=null; ui[tid].ctlSig=null; const t=findTask(tid); if(t) updCard(el,t); };
   const ok=async ()=>{
+    if (inp.reportValidity && !inp.reportValidity()) return;   // number outside min/max, not a number
     let v = i.type==="bool"? inp.checked : i.type==="number"? (inp.value===""?null:Number(inp.value)) : inp.value;
     if (c.confirm && !(await ask(c.confirm))) return;
     close(); send(tid,c,v);

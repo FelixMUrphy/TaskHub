@@ -13,6 +13,10 @@ static class Program
     [STAThread]
     static int Main(string[] args)
     {
+        // taskhub:// activation: the URL comes from a web page or another app, so it must not smuggle in other flags
+        // (--uninstall, --data ...) through quotes in the URL - only the URL itself is kept
+        int ou = Array.IndexOf(args, "--open-url");
+        if (ou >= 0) args = new[] { "--open-url", ou + 1 < args.Length ? args[ou + 1] : "" };
         var S = Settings.Load(args);
         L.S = S;
         string Arg(string k) { int i = Array.IndexOf(args, k); return i >= 0 && i + 1 < args.Length && !args[i + 1].StartsWith("--") ? args[i + 1] : null; }
@@ -52,7 +56,7 @@ static class Program
                     if (v is "on" or "off")
                     {
                         bool changed = false;
-                        try { changed = Integrations.Apply(a, k, v == "on", S); S.Cfg[Integrations.CfgKey(a, k)] = v == "on"; S.SaveCfg(); }
+                        try { changed = Integrations.Apply(a, k, v == "on", S); S.Set((Integrations.CfgKey(a, k), v == "on")); }
                         catch (Exception e) { rc = 1; outp.Add($"{key}: error {e.Message}"); continue; }
                         outp.Add($"{key}: {v}{(changed ? " (changed)" : " (unchanged)")}");
                     }
@@ -68,8 +72,7 @@ static class Program
             try
             {
                 bool auto = !Has("--no-autostart");
-                S.Cfg["autostart"] = auto;
-                S.SaveCfg();
+                S.Set(("autostart", auto));
                 Install.Register(S, auto, !Has("--no-path"));
                 // AI agents: explicit --claude/--no-claude, --codex[-mcp]/--no-codex[-mcp] ...; otherwise unchanged
                 var notes = new List<string>();

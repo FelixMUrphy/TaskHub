@@ -103,8 +103,7 @@ static class Integrations
         try
         {
             Apply(a, k, on, s);
-            s.Cfg[CfgKey(a, k)] = on;
-            s.SaveCfg();
+            s.Set((CfgKey(a, k), on));
             return null;
         }
         catch (Exception e)
@@ -119,7 +118,7 @@ static class Integrations
     {
         foreach (var a in All)
             foreach (var k in Kinds)
-                if (s.Cfg[CfgKey(a, k)] is JsonValue v && v.TryGetValue<bool>(out var on) && on)
+                if (s.Get(CfgKey(a, k)) is JsonValue v && v.TryGetValue<bool>(out var on) && on)
                     try { Apply(a, k, true, s); } catch (Exception e) { Log.W($"integration {Name(a)} {k}: {e.Message}"); }
     }
 
@@ -253,8 +252,21 @@ static class Integrations
     {
         "[mcp_servers.taskhub]",
         "args = [\"mcp\", \"--source\", \"codex\"]",
-        "command = '" + CliPath() + "'",
+        "command = " + TomlStr(CliPath()),
     };
+
+    static string TomlStr(string s)
+    {
+        var sb = new StringBuilder("\"");
+        foreach (var ch in s)
+            sb.Append(ch switch
+            {
+                '\\' => "\\\\", '"' => "\\\"", '\t' => "\\t", '\n' => "\\n", '\r' => "\\r",
+                < ' ' or '\x7f' => $"\\u{(int)ch:X4}",
+                _ => ch.ToString(),
+            });
+        return sb.Append('"').ToString();
+    }
 
     /// <summary>Lines of the [mcp_servers.taskhub] table (+ its sub-tables): start index, count, whether TaskHub owns it.</summary>
     static (int start, int count, bool exists, bool ours, List<string> lines) TomlBlock(List<string> lines)

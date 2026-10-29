@@ -79,12 +79,12 @@ sealed class Notifier : INotifier
             bool quiet = Quiet();
             Post(b, tag, quiet);
             failures = 0;
-            if (tid != null) shown[tag] = e;
+            if (tid != null) { shown[tag] = e; if (shown.Count > 100) PruneShown(); }
             if (!quiet)
             {
                 // shorter on-screen time than Windows' default: after N s re-post the toast silently (same tag)
                 // -> the banner disappears, the notification stays in the notification center
-                double secs = interactive ? (J.Num(S.Cfg["toast_seconds_interactive"]) ?? 8) : (J.Num(S.Cfg["toast_seconds"]) ?? 4);
+                double secs = interactive ? (J.Num(S.Get("toast_seconds_interactive")) ?? 8) : (J.Num(S.Get("toast_seconds")) ?? 4);
                 if (secs > 0)
                     _ = Task.Delay(TimeSpan.FromSeconds(secs)).ContinueWith(_ => queue.Add(() => Repost(tag, e)));
             }
@@ -95,6 +95,19 @@ sealed class Notifier : INotifier
             Log.W("toast failed: " + ex);
             Balloon?.Invoke(title, msg);
         }
+    }
+
+    /// <summary>Forget toasts no longer in the notification center (dismissed, clicked, cleared) - otherwise quiet toasts,
+    /// which get no delayed re-post, would stay in `shown` with their task snapshot for the hub's lifetime.</summary>
+    void PruneShown()
+    {
+        try
+        {
+            var live = ToastNotificationManagerCompat.History.GetHistory()
+                .Where(n => n.Group == Settings.AppId).Select(n => n.Tag).ToHashSet();
+            foreach (var k in shown.Keys.Where(k => !live.Contains(k)).ToList()) shown.Remove(k);
+        }
+        catch (Exception ex) { Log.W("toast history: " + ex.Message); }
     }
 
     ToastContentBuilder Build(Shown e, JsonObject task, out bool interactive)
@@ -287,6 +300,25 @@ sealed class Notifier : INotifier
         catch (Exception e) { Log.W("progress toast failed: " + e.Message); }
     }
 
+    void ShowConfirm(string tid, JsonObject c, JsonNode value)
+    {
+        try
+        {
+            var cid = J.Str(c["id"]);
+            var yes = new ToastButton().SetContent(L.T("yes"))
+                .AddArgument("action", "ctl").AddArgument("task", tid).AddArgument("cid", cid).AddArgument("ok", "1");
+            if (value != null) yes.AddArgument("val", J.Dump(value));
+            var b = new ToastContentBuilder()
+                .AddArgument("action", "none").AddArgument("task", tid)
+                .AddText(J.Cut(J.Str(c["label"]) + (value != null ? " = " + J.Str(value) : ""), 150))
+                .AddText(J.Cut(J.Str(c["confirm"]), 500))
+                .AddButton(yes)
+                .AddButton(new ToastButton().SetContent(L.T("no")).AddArgument("action", "none"));
+            Post(b, Tag(tid) + "q" + Guid.NewGuid().ToString("N")[..6], false);
+        }
+        catch (Exception ex) { Log.W("confirm toast failed: " + ex.Message); }
+    }
+
     // ------------------------------------------------------------ activation (button clicks)
     void OnActivated(ToastNotificationActivatedEventArgsCompat e)
     {
@@ -309,15 +341,30 @@ sealed class Notifier : INotifier
                         ctl = (task["controls"] as JsonArray).OfType<JsonObject>().FirstOrDefault(c => J.Str(c["id"]) == cid);
                     }
                     catch { }
-                    if (ctl?["input"] is JsonObject inp && e.UserInput.TryGetValue("v_" + cid, out var raw))
+                    if (args.TryGetValue("val", out string vj)) value = J.Parse(vj);   // from a confirmation toast
+                    else if (ctl?["input"] is JsonObject inp && e.UserInput.TryGetValue("v_" + cid, out var raw))
                     {
                         var s = raw?.ToString() ?? "";
                         var typ = J.Str(inp["type"]);
                         if (typ == "number")
-                            value = double.TryParse(s.Replace(',', '.'), System.Globalization.NumberStyles.Float,
-                                System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : null;
+                        {
+                            if (!double.TryParse(s.Replace(',', '.'), System.Globalization.NumberStyles.Float,
+                                    System.Globalization.CultureInfo.InvariantCulture, out var d))
+                            {
+                                Toast("TaskHub", $"«{J.Str(ctl["label"])}»: {L.T("tg_bad_value", J.Cut(s, 100))}", "warn", tid, null);
+                                break;
+                            }
+                            value = d;
+                        }
                         else if (typ == "bool") value = s == "true";
                         else value = s;
+                    }
+                    // a control with "confirm" asks first, like the panel: a second toast with Yes / No
+                    if (ctl != null && J.Truthy(ctl["confirm"]) && !args.Contains("ok"))
+                    {
+                        var (c2, v2) = ((JsonObject)ctl.DeepClone(), value?.DeepClone());
+                        queue.Add(() => ShowConfirm(tid, c2, v2));
+                        break;
                     }
                     try
                     {

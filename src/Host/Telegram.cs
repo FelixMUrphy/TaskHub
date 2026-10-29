@@ -21,7 +21,7 @@ sealed class TelegramBridge
     readonly Hub hub;
     readonly HttpClient http = new(new HttpClientHandler()) { Timeout = TimeSpan.FromSeconds(75) };
     readonly BlockingCollection<(string method, JsonObject body, byte[] png)> outbox = new(500);
-    sealed class Cb { public string Tid, Cid, Sig; public JsonNode Value; public bool Ask; }
+    sealed class Cb { public string Tid, Cid, Sig; public JsonNode Value; public bool Ask, Confirmed; }
     readonly Dictionary<string, Cb> callbacks = new();          // callback_data key -> control (+ value)
     readonly Dictionary<string, string> cbIndex = new();        // same control/value -> same key (buttons stay valid)
     readonly Dictionary<long, (string tid, string cid)> asks = new();   // "reply with a value" prompt message -> control
@@ -39,9 +39,9 @@ sealed class TelegramBridge
         new Thread(ProgressWorker) { IsBackground = true, Name = "telegram-progress" }.Start();
     }
 
-    string Token => J.Str(S.Cfg["telegram_token"]);
-    long Chat => J.Num(S.Cfg["telegram_chat"]) is double d ? (long)d : 0;
-    string Api(string method) => (J.Str(S.Cfg["telegram_api"]) is { Length: > 0 } b ? b.TrimEnd('/') : "https://api.telegram.org")
+    string Token => J.Str(S.Get("telegram_token"));
+    long Chat => J.Num(S.Get("telegram_chat")) is double d ? (long)d : 0;
+    string Api(string method) => (J.Str(S.Get("telegram_api")) is { Length: > 0 } b ? b.TrimEnd('/') : "https://api.telegram.org")
                                  + "/bot" + Token + "/" + method;
     public bool Linked => Token.Length > 0 && Chat != 0;
     public bool AwayOnly => S.Bool("telegram_away_only", false);
@@ -63,9 +63,7 @@ sealed class TelegramBridge
         token = (token ?? "").Trim();
         if (!System.Text.RegularExpressions.Regex.IsMatch(token, @"^\d{5,}:[A-Za-z0-9_-]{30,}$"))
             throw new ApiError(400, "this does not look like a bot token from @BotFather (123456789:AA...)");
-        S.Cfg["telegram_token"] = token;
-        S.Cfg["telegram_chat"] = 0;
-        S.SaveCfg();
+        S.Set(("telegram_token", token), ("telegram_chat", 0));
         PairCode = Convert.ToHexString(RandomNumberGenerator.GetBytes(5)).ToLowerInvariant();
         BotName = null;
         Start();
@@ -83,14 +81,12 @@ sealed class TelegramBridge
 
     public void Disconnect()
     {
-        S.Cfg.Remove("telegram_token");
-        S.Cfg.Remove("telegram_chat");
-        S.SaveCfg();
+        S.Set(("telegram_token", null), ("telegram_chat", null));
         PairCode = null;
         Start();
     }
 
-    public void SetAwayOnly(bool on) { S.Cfg["telegram_away_only"] = on; S.SaveCfg(); }
+    public void SetAwayOnly(bool on) => S.Set(("telegram_away_only", on));
 
     public JsonObject State() => new()
     {
@@ -167,16 +163,16 @@ sealed class TelegramBridge
         return rows.Count == 0 ? null : new JsonObject { ["inline_keyboard"] = rows };
     }
 
-    JsonObject Button(string text, string tid, string cid, JsonNode value, bool ask = false)
+    JsonObject Button(string text, string tid, string cid, JsonNode value, bool ask = false, bool confirmed = false)
     {
-        var sig = tid + "\n" + cid + "\n" + J.Dump(value) + "\n" + ask;
+        var sig = tid + "\n" + cid + "\n" + J.Dump(value) + "\n" + ask + "\n" + confirmed;
         string key;
         lock (callbacks)
         {
             if (!cbIndex.TryGetValue(sig, out key) || !callbacks.ContainsKey(key))
             {
                 key = "k" + (++cbSeq);
-                callbacks[key] = new Cb { Tid = tid, Cid = cid, Value = value, Ask = ask, Sig = sig };
+                callbacks[key] = new Cb { Tid = tid, Cid = cid, Value = value, Ask = ask, Confirmed = confirmed, Sig = sig };
                 cbIndex[sig] = key;
                 if (callbacks.Remove("k" + (cbSeq - 1000), out var old)) cbIndex.Remove(old.Sig);
             }
@@ -215,7 +211,7 @@ sealed class TelegramBridge
     readonly Dictionary<string, Live> live = new();          // progress thread only
     readonly HashSet<string> chartsSent = new();
     public bool ShowProgress => S.Bool("telegram_progress", true);
-    public void SetProgress(bool on) { S.Cfg["telegram_progress"] = on; S.SaveCfg(); }
+    public void SetProgress(bool on) => S.Set(("telegram_progress", on));
 
     void ProgressWorker()
     {
@@ -384,6 +380,7 @@ sealed class TelegramBridge
                     try
                     {
                         if (cb.Ask) { Ask(chat, cb.Tid, cb.Cid); answer = "✏️"; }
+                        else if (!cb.Confirmed && Confirm(chat, cb.Tid, cb.Cid, cb.Value)) answer = "❓";
                         else
                         {
                             hub.Trigger(cb.Tid, cb.Cid, new JsonObject { ["value"] = cb.Value?.DeepClone() }, "telegram");
@@ -404,8 +401,12 @@ sealed class TelegramBridge
 
         if (cmd == "/start" && PairCode != null && arg == PairCode)
         {
-            S.Cfg["telegram_chat"] = from;
-            S.SaveCfg();
+            if (J.Str(msg["chat"]?["type"]) != "private")
+            {
+                Enqueue(from, "⚠️ " + Esc(L.T("tg_private_only")), null);
+                return;
+            }
+            S.Set(("telegram_chat", from));
             PairCode = null;
             Status = "connected";
             Log.W("telegram: linked");
@@ -491,11 +492,27 @@ sealed class TelegramBridge
                 value = d;
             }
             else value = J.Cut(raw, 2000);
+            if (Confirm(chat, tid, cid, value)) { lock (asks) lastAsk = null; return; }
             hub.Trigger(tid, cid, new JsonObject { ["value"] = value }, "telegram");
             lock (asks) lastAsk = null;
             Enqueue(chat, "✓ " + Esc(J.Str(c["label"]) + " = " + J.Cut(J.Str(value), 200)), null);
         }
         catch (Exception e) { Enqueue(chat, "⚠️ " + Esc(e.Message), null); }
+    }
+
+    /// <summary>A control with "confirm" (like the panel's dialog): sends the question with a Yes button that carries the
+    /// value and triggers the control. Returns false if the control needs no confirmation.</summary>
+    bool Confirm(long chat, string tid, string cid, JsonNode value)
+    {
+        var c = FindControl(hub.GetTask(tid), cid);
+        var q = J.Str(c["confirm"]);
+        if (q.Length == 0) return false;
+        var what = J.Str(c["label"]) + (value != null ? " = " + J.Cut(J.Str(value), 200) : "");
+        Enqueue(chat, "❓ <b>" + Esc(what) + "</b>\n" + Esc(q), new JsonObject
+        {
+            ["inline_keyboard"] = new JsonArray(new JsonArray(Button("✓ " + L.T("yes"), tid, cid, value?.DeepClone(), confirmed: true))),
+        });
+        return true;
     }
 
     // ------------------------------------------------------------ helpers

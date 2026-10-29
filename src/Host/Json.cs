@@ -52,7 +52,10 @@ static class J
 
     public static string Cut(string s, int n) => s == null ? "" : (s.Length > n ? s.Substring(0, n) : s);
 
-    public static double? Num(JsonNode n)
+    /// <summary>Finite number (JSON number or numeric string), else null: NaN / Infinity would break serialization.</summary>
+    public static double? Num(JsonNode n) => RawNum(n) is double d && double.IsFinite(d) ? d : null;
+
+    static double? RawNum(JsonNode n)
     {
         if (n is not JsonValue v) return null;
         if (v.TryGetValue<JsonElement>(out var e))

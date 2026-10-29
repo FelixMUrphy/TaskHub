@@ -20,6 +20,11 @@ static class Install
     const string HostExe = "TaskHubHost.exe";
     public static readonly string[] Payload = { HostExe, "taskhub.exe", "taskhub_client.py", "API.md" };
 
+    static bool IsOldBuildFile(string name) =>
+        !Payload.Contains(name, StringComparer.OrdinalIgnoreCase) &&
+        (new[] { ".dll", ".pdb", ".xml", ".deps.json", ".runtimeconfig.json" }.Any(e => name.EndsWith(e, StringComparison.OrdinalIgnoreCase))
+         || name is "createdump.exe" or "taskhub.ico" or "ui.html");
+
     static string Exe => Environment.ProcessPath;
     static string ExeDir => Path.GetDirectoryName(Exe);
     public static string DefaultDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "TaskHub");
@@ -190,12 +195,13 @@ static class Install
         Directory.CreateDirectory(dir);
         // a previous installation in another folder: remove its files
         if (IsInstalled && !SameDir(InstallDir, dir)) { RemoveFiles(InstallDir); SetPath(InstallDir, false); }
-        // leftovers of the old multi-file build - only in our own default folder, never in a user-chosen one
+        // leftovers of the old multi-file build - only in our own default folder, never in a user-chosen one, and only the
+        // file kinds that build produced (TaskHubHost.settings.json and anything else the user put there stay)
         if (SameDir(dir, DefaultDir))
         {
-            foreach (var f in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
-                if (!Payload.Contains(Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)) try { File.Delete(f); } catch { }
-            foreach (var d in Directory.EnumerateDirectories(dir)) try { Directory.Delete(d, true); } catch { }
+            foreach (var f in Directory.EnumerateFiles(dir))
+                if (IsOldBuildFile(Path.GetFileName(f))) try { File.Delete(f); } catch { }
+            try { Directory.Delete(Path.Combine(dir, "runtimes"), true); } catch { }
         }
         var exe = Path.Combine(dir, HostExe);
         if (!SameDir(ExeDir, dir))

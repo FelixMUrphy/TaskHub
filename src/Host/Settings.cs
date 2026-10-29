@@ -36,13 +36,15 @@ static class Log
 sealed class Settings
 {
     public const string AppId = "TaskHub";
-    public const string Version = "2.6.0";
+    public const string Version = "2.6.1";
     public const int DefaultPort = 47800;
 
     public int Port = DefaultPort;
     public string DataDir;
     public string ExeDir = AppContext.BaseDirectory;
-    public JsonObject Cfg;
+    // config.json: read and changed from the UI thread, HTTP requests and the Telegram loop -> only through Get / Set
+    JsonObject cfg;
+    readonly object cfgLock = new();
 
     static readonly JsonObject Defaults = new()
     {
@@ -65,11 +67,29 @@ sealed class Settings
 
     string cfgPath;
 
-    /// <summary>Persist the current config (used when settings change from the UI).</summary>
-    public void SaveCfg()
+    /// <summary>A copy of a config value, or null.</summary>
+    public JsonNode Get(string k)
     {
-        try { File.WriteAllText(cfgPath, Cfg.ToJsonString(J.Pretty)); }
-        catch (Exception e) { Log.W("config save failed: " + e.Message); }
+        lock (cfgLock) return cfg[k]?.DeepClone();
+    }
+
+    /// <summary>Sets config values (null removes the key) and saves config.json, as one step.
+    /// Returns false if the file could not be written (the values stay in effect until the next start).</summary>
+    public bool Set(params (string k, JsonNode v)[] kv)
+    {
+        lock (cfgLock)
+        {
+            foreach (var (k, v) in kv)
+                if (v == null) cfg.Remove(k); else cfg[k] = v;
+            try
+            {
+                var tmp = cfgPath + ".tmp";
+                File.WriteAllText(tmp, cfg.ToJsonString(J.Pretty));
+                File.Move(tmp, cfgPath, true);
+                return true;
+            }
+            catch (Exception e) { Log.W("config save failed: " + e.Message); return false; }
+        }
     }
 
     public static JsonObject ReadExeSettings()
@@ -120,14 +140,14 @@ sealed class Settings
         {
             try { File.WriteAllText(cfgPath, Defaults.ToJsonString(J.Pretty)); } catch { }
         }
-        s.Cfg = cfg;
+        s.cfg = cfg;
         s.Port = port ?? (J.Num(cfg["port"]) is double cp ? (int)cp : DefaultPort);
         return s;
     }
 
-    public string Token => J.Str(Cfg["token"]);
-    public bool Bool(string k, bool def = false) => Cfg.ContainsKey(k) ? J.Truthy(Cfg[k]) : def;
-    public int Int(string k, int def) => J.Num(Cfg[k]) is double d ? (int)d : def;
+    public string Token => J.Str(Get("token"));
+    public bool Bool(string k, bool def = false) { lock (cfgLock) return cfg.ContainsKey(k) ? J.Truthy(cfg[k]) : def; }
+    public int Int(string k, int def) => J.Num(Get(k)) is double d ? (int)d : def;
     public string Url => $"http://127.0.0.1:{Port}";
     public string File_(string name) => System.IO.Path.Combine(DataDir, name);
 }

@@ -18,7 +18,9 @@ Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/
 
 **Rules for every client (scripts, Claude, ChatGPT/Codex, PowerShell, curl):**
 - Write requests (`POST`/`DELETE`) MUST send header `X-TaskHub: 1` (CSRF guard). Browser requests from other origins are rejected.
-- If `config.json` has `"token"`, send `Authorization: Bearer <token>` (env `TASKHUB_TOKEN` for the Python client).
+- If `config.json` has `"token"`, send `Authorization: Bearer <token>` (env `TASKHUB_TOKEN` for the Python client; the
+  `taskhub` CLI and MCP server also read it from the hub's `config.json`). The token keeps out browsers and other users'
+  sessions; processes of your own account can read `config.json` (and the panel page) anyway.
 - Be fail-soft: if the hub is not reachable (`GET /api/health` fails), keep working without it.
 - Throttle updates to ≤ 2–4 per second. Chart points are appended per update, so batch them (see `chart`).
 - Always `finish` the task (done/failed/cancelled). If you pass `pid`, the hub marks the task `lost` when the process dies without finishing.
@@ -145,7 +147,8 @@ Thresholds: `warn`, `crit` (value ≥ → amber/red; `invert: true` → value �
 
 ## Controls
 Declared by the task, rendered as buttons. Fields: `id`, `label`, `kind`, `style` (default/primary/danger),
-`confirm` (dialog text), `hint`, `states` (when shown; default running/paused/stale), `input` (value prompt),
+`confirm` (question asked before the control runs - a dialog in the panel, a Yes / No notification for toast buttons, a Yes button
+in Telegram), `hint`, `states` (when shown; default running/paused/stale), `input` (value prompt),
 `toast: true` (C# hub: also show this control as a button in the task's Windows notifications; `input` becomes a text/combo box there).
 
 | kind | on click |
@@ -156,6 +159,8 @@ Declared by the task, rendered as buttons. Fields: `id`, `label`, `kind`, `style
 | `kill` | hub kills `pid` with its whole process tree; task → cancelled |
 
 `input`: `{"type": "text"|"number"|"select"|"bool", "label", "default", "options": [...], "min", "max", "step"}`.
+Values are checked by the hub for every surface (400 otherwise): a number within `min`/`max`, `true`/`false` for bool, one of
+`options` for select, text as a string.
 The value is sent only when the control's button is pressed, so give such controls an action label ("Set speed", "Apply", "Send"),
 and `input.label` for the field itself. The hub remembers the last sent value (`last_value` in the control) and pre-fills the panel form
 and the toast input with it.

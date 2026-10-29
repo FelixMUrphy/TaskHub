@@ -143,9 +143,12 @@ static class Runner
             if (line.Length == 0) return;
             lock (pending.L)
             {
-                if (line.StartsWith("::") && Directive(line, pending)) return;
+                // without a hub nobody sends the pending lines: keep only the last one (fail-soft, no growing buffer)
+                if (!useHub) { if (!line.StartsWith("::")) lastLine = line; return; }
+                if (line.StartsWith("::") && Directive(line, pending)) { TrimLog(pending); return; }
                 lastLine = line;
                 pending.Log.Add(JsonValue.Create(Cut(line, 2000)));
+                TrimLog(pending);
                 pending.Widgets["last"] = Cut(line, 300);
                 if (prog != null)
                 {
@@ -267,6 +270,12 @@ static class Runner
             }
         }
         return false;
+    }
+
+    /// <summary>Bounds the unsent lines (the hub keeps only its last few hundred anyway) while it is slow or unreachable.</summary>
+    static void TrimLog(Pending pd)
+    {
+        if (pd.Log.Count > 1000) pd.Log.RemoveRange(0, pd.Log.Count - 1000);
     }
 
     static void SenderLoop(Client c, string tid, Pending pd, CancellationToken ct)

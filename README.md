@@ -98,7 +98,8 @@ Scripted: `TaskHubHost.exe --integrations claude=on codex=on claude-mcp=on codex
 
 ### Telegram
 Tray menu → *Telegram…*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
-*Connect*, scan the QR code with your phone (or open the link on this PC) and press *Start*. To link another account
+*Connect*, scan the QR code with your phone (or open the link on this PC) and press *Start* (in a private chat with the bot:
+groups can't be linked, since every member could press the tasks' buttons). To link another account
 later (e.g. the one on your phone), leave the token field empty and press *Connect* again. From then on every notification TaskHub shows also arrives in
 that chat (only that chat can talk to the bot); a task's notification buttons become inline buttons — including
 select options and yes/no; number / text inputs: the bot asks for the value and your reply goes to the task — and presses
@@ -130,7 +131,7 @@ first and embedded) and `app\` for development. Sources: `src\Host` (Kestrel HTT
 WinRT toasts), `src\Cli`, `ui.html`, `clients\python`.
 
 Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no tray, no notifications) and runs
-`api_test.py` (API contract, agent hooks, CLI), `parallel_test.py` (8 concurrent workers + notification burst),
+`api_test.py` (API contract, agent hooks, CLI), `validation_test.py` (input validation: non-finite numbers, widget attributes, control values, shell controls), `parallel_test.py` (8 concurrent workers + notification burst),
 `integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder) and `mcp_test.py` (`taskhub mcp`).
 `tests\demo_long.py` is an interactive ~20 min demo against the main hub.
 

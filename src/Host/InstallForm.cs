@@ -19,7 +19,7 @@ sealed class InstallForm : Form
     {
         try
         {
-            if (L.S?.Cfg[Integrations.CfgKey(a, k)] is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<bool>(out var on)) return on;
+            if (L.S?.Get(Integrations.CfgKey(a, k)) is System.Text.Json.Nodes.JsonValue v && v.TryGetValue<bool>(out var on)) return on;
             return Integrations.Enabled(a, k) || Integrations.Detected(a);
         }
         catch { return false; }

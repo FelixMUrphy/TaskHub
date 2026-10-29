@@ -84,29 +84,38 @@ sealed class Hub
         catch (Exception e) { Log.W("state.json unreadable: " + e.Message); }
     }
 
+    readonly object saveLock = new();
+
     public void Save()
     {
-        string text;
-        lock (Lock)
+        lock (saveLock)   // watchdog and shutdown may save at the same time: one writer for state.json(.tmp)
         {
-            if (!dirty) return;
-            dirty = false;
-            var arr = new JsonArray();
-            foreach (var (id, t) in tasks)
+            string text;
+            lock (Lock)
             {
-                var d = (JsonObject)t.DeepClone();
-                if (internals.TryGetValue(id, out var it) && it.Ct is long ct) d["_ct"] = ct;
-                arr.Add(d);
+                if (!dirty) return;
+                dirty = false;
+            var arr = new JsonArray();
+                foreach (var (id, t) in tasks)
+                {
+                    var d = (JsonObject)t.DeepClone();
+                    if (internals.TryGetValue(id, out var it) && it.Ct is long ct) d["_ct"] = ct;
+                    arr.Add(d);
+                }
+                text = new JsonObject { ["muted"] = Muted, ["tasks"] = arr }.ToJsonString(J.Out);
             }
-            text = new JsonObject { ["muted"] = Muted, ["tasks"] = arr }.ToJsonString(J.Out);
+            try
+            {
+                var tmp = statePath + ".tmp";
+                File.WriteAllText(tmp, text);
+                File.Move(tmp, statePath, true);
+            }
+            catch (Exception e)
+            {
+                Log.W("save failed: " + e.Message);
+                lock (Lock) dirty = true;   // try again on the next round
+            }
         }
-        try
-        {
-            var tmp = statePath + ".tmp";
-            File.WriteAllText(tmp, text);
-            File.Move(tmp, statePath, true);
-        }
-        catch (Exception e) { Log.W("save failed: " + e.Message); }
     }
 
     public void MarkDirty() { lock (Lock) dirty = true; }
@@ -205,7 +214,7 @@ sealed class Hub
         }
         if (typ == "number")
             foreach (var k in new[] { "min", "max", "step" })
-                if (o[k] != null) r[k] = J.C(o[k]);
+                if (J.Num(o[k]) is double d) r[k] = d;
         return r;
     }
 
@@ -273,7 +282,7 @@ sealed class Hub
         };
         foreach (var k in new[] { "min", "max", "warn", "crit", "decimals", "invert", "mono", "color", "columns", "kind",
                      "series", "max_points", "y_min", "y_max", "total", "height", "text" })
-            if (w.ContainsKey(k)) r[k] = J.C(w[k]);
+            if (w.ContainsKey(k)) SetWidgetAttr(r, k, w[k]);
         if (typ == "chart")
         {
             var kind = J.Str(w["kind"]);
@@ -294,6 +303,37 @@ sealed class Hub
             r["value"] = J.C(w["value"]) ?? new JsonArray();
         }
         return r;
+    }
+
+    static readonly HashSet<string> WidgetNumAttrs = new()
+        { "min", "max", "warn", "crit", "decimals", "max_points", "y_min", "y_max", "total", "height" };
+    // a CSS colour the panel puts into style attributes: hex, a name, var(--x) or rgb()/hsl() with plain numbers
+    static readonly Regex ColorRx = new(@"^(#[0-9A-Fa-f]{3,8}|[A-Za-z]{1,30}|var\(--[A-Za-z0-9-]{1,30}\)|(rgb|rgba|hsl|hsla)\([0-9.,%\s/]{1,60}\))$");
+
+    /// <summary>Copies a widget attribute with its type enforced: numbers finite, colour a plain CSS colour, flags bool.
+    /// The panel renders these into HTML attributes, so nothing else may get through.</summary>
+    static void SetWidgetAttr(JsonObject w, string k, JsonNode v)
+    {
+        if (WidgetNumAttrs.Contains(k))
+        {
+            if (J.Num(v) is double d)
+            {
+                if (k == "decimals") d = Math.Clamp(Math.Round(d), 0, 10);
+                if (k == "height") d = Math.Clamp(d, 20, 400);
+                w[k] = d;
+            }
+            else w.Remove(k);
+        }
+        else if (k == "color")
+        {
+            var c = J.Str(v).Trim();
+            if (ColorRx.IsMatch(c)) w[k] = c; else w.Remove(k);
+        }
+        else if (k is "invert" or "mono") w[k] = J.Truthy(v);
+        else if (k is "label" or "kind") w[k] = J.Cut(J.Str(v), 80);
+        else if (k == "unit") w[k] = J.Cut(J.Str(v), 16);
+        else if (k == "text") w[k] = J.Cut(J.Str(v), 1000);
+        else w[k] = J.C(v);
     }
 
     static JsonNode NumOrNull(JsonNode x) => J.IsNum(x) ? JsonValue.Create(J.Num(x).Value) : null;
@@ -351,7 +391,7 @@ sealed class Hub
                      && (vo.ContainsKey("value") || vo.ContainsKey("label") || vo.ContainsKey("text") || vo.ContainsKey("total")))
             {
                 foreach (var k in new[] { "value", "label", "text", "total", "unit", "max", "color" })
-                    if (vo.ContainsKey(k)) w[k] = J.C(vo[k]);
+                    if (vo.ContainsKey(k)) SetWidgetAttr(w, k, vo[k]);
             }
             else if (typ == "stat" && J.IsNum(v) && J.IsNum(w["value"]))
             {
@@ -454,6 +494,10 @@ sealed class Hub
 
     public JsonObject Update(string tid, JsonObject b)
     {
+        // validate everything that can be rejected first: a 400 must not leave the task half-updated
+        var setControls = b["controls"] is JsonArray bc ? bc.Select(NormControl).ToArray<JsonNode>() : null;
+        var addControls = b["add_controls"] is JsonArray ac ? ac.Select(NormControl).ToList() : null;
+        var addWidgets = b["add_widgets"] is JsonArray aw ? aw.Select(NormWidget).ToList() : null;
         lock (Lock)
         {
             var t = Get(tid);
@@ -500,12 +544,11 @@ sealed class Hub
                 if (St(t) != bs) AddLog(t, "state -> " + bs, "sys");
                 t["state"] = bs;
             }
-            if (b["controls"] is JsonArray bc)
-                t["controls"] = new JsonArray(bc.Select(NormControl).ToArray<JsonNode>());
-            if (b["add_controls"] is JsonArray ac)
-                foreach (var c in ac)
+            if (setControls != null)
+                t["controls"] = new JsonArray(setControls);
+            if (addControls != null)
+                foreach (var nc in addControls)
                 {
-                    var nc = NormControl(c);
                     var cur = (t["controls"] as JsonArray ?? new JsonArray()).OfType<JsonObject>()
                         .Where(x => J.Str(x["id"]) != J.Str(nc["id"])).Select(x => (JsonNode)x.DeepClone()).ToList();
                     cur.Add(nc);
@@ -517,10 +560,9 @@ sealed class Hub
                 t["controls"] = new JsonArray((t["controls"] as JsonArray ?? new JsonArray()).OfType<JsonObject>()
                     .Where(x => !rm.Contains(J.Str(x["id"]))).Select(x => (JsonNode)x.DeepClone()).ToArray());
             }
-            if (b["add_widgets"] is JsonArray aw)
-                foreach (var w in aw)
+            if (addWidgets != null)
+                foreach (var nw in addWidgets)
                 {
-                    var nw = NormWidget(w);
                     var ws = t["widgets"] as JsonArray;
                     if (ws == null) t["widgets"] = ws = new JsonArray();
                     int i = -1;
@@ -596,7 +638,11 @@ sealed class Hub
         return $"{n / 3600}h {n % 3600 / 60:00}m";
     }
 
-    public JsonObject Finish(string tid, JsonObject b)
+    public JsonObject Finish(string tid, JsonObject b) => Finish(tid, b, null);
+
+    /// <param name="onlyGen">watchdog: finish only if the task is still active and still the same registration
+    /// (its Internal) - not one finished or re-registered with the same id meanwhile. Returns null if skipped.</param>
+    JsonObject Finish(string tid, JsonObject b, Internal onlyGen)
     {
         var state = J.Truthy(b["state"]) ? J.Str(b["state"]) : "done";
         if (!IsFinal(state)) throw new ApiError(400, "state must be one of " + string.Join(", ", Final));
@@ -606,6 +652,7 @@ sealed class Hub
         lock (Lock)
         {
             t = Get(tid);
+            if (onlyGen != null && (!internals.TryGetValue(tid, out var gen) || gen != onlyGen || !IsActive(St(t)))) return null;
             already = IsFinal(St(t));
             now = J.Now();
             t["state"] = state;
@@ -709,12 +756,8 @@ sealed class Hub
     {
         lang = (lang ?? "auto").Trim().ToLowerInvariant();
         if (lang != "auto" && !L.Langs.Contains(lang)) throw new ApiError(400, "language must be auto or one of " + string.Join(", ", L.Langs));
-        lock (Lock)
-        {
-            S.Cfg["language"] = lang;
-            Bump();
-        }
-        S.SaveCfg();
+        S.Set(("language", lang));
+        lock (Lock) Bump();
     }
 
     // ------------------------------------------------------------ controls & commands
@@ -723,6 +766,7 @@ sealed class Hub
         var value = J.C(b["value"]);
         JsonObject c;
         int? pid;
+        long? ct;
         lock (Lock)
         {
             var t = Get(tid);
@@ -730,6 +774,7 @@ sealed class Hub
             if (c == null) throw new ApiError(404, $"control '{cid}' not found");
             var states = (c["states"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x)).ToList();
             if (!states.Contains(St(t))) throw new ApiError(409, $"control '{cid}' not available in state '{St(t)}'");
+            value = CheckValue(c["input"] as JsonObject, value);
             var label = J.Str(c["label"]) + (value != null ? " = " + J.Dump(value) : "") + (via != null ? $" ({via})" : "");
             if (value != null)
             {
@@ -755,13 +800,14 @@ sealed class Hub
             AddLog(t, "⇢ " + label, "cmd");
             Bump();
             pid = J.Num(t["pid"]) is double pd ? (int)pd : null;
+            ct = In(tid).Ct;
             c = (JsonObject)c.DeepClone();
         }
         switch (J.Str(c["kind"]))
         {
             case "kill":
                 if (pid is not > 0) throw new ApiError(400, "task has no pid");
-                bool ok = KillTree(pid.Value);
+                bool ok = KillTree(pid.Value, ct);
                 Finish(tid, new JsonObject
                 {
                     ["state"] = "cancelled",
@@ -780,11 +826,45 @@ sealed class Hub
         throw new ApiError(400, "unknown kind");
     }
 
-    public static bool KillTree(int pid)
+    /// <summary>A control value checked against the control's input (same rules for the panel, toasts, Telegram and the
+    /// API): numbers finite and within min/max, bools real bools, select values one of the options, text a string.</summary>
+    static JsonNode CheckValue(JsonObject inp, JsonNode v)
+    {
+        if (inp == null || v == null) return v;
+        switch (J.Str(inp["type"]))
+        {
+            case "number":
+                if (J.Num(v) is not double d) throw new ApiError(400, "value must be a number");
+                if ((J.Num(inp["min"]) is double mn && d < mn) || (J.Num(inp["max"]) is double mx && d > mx))
+                    throw new ApiError(400, $"value {J.Fmt(d)} out of range");
+                return d;
+            case "bool":
+                if (!J.IsBool(v)) throw new ApiError(400, "value must be true or false");
+                return v;
+            case "select":
+                var s = J.Str(v);
+                if (!(inp["options"] as JsonArray ?? new JsonArray()).Any(o => J.Str(o) == s))
+                    throw new ApiError(400, $"'{J.Cut(s, 60)}' is not one of the options");
+                return s;
+            default:
+                return J.Cut(J.Str(v), 2000);
+        }
+    }
+
+    /// <summary>Kills pid and its children - only if it is still the process that registered (creation time ct, when
+    /// known): a pid reused by an unrelated process after the task's own one exited is left alone.</summary>
+    public static bool KillTree(int pid, long? ct = null)
     {
         try
         {
             using var p = Process.GetProcessById(pid);
+            // open and keep one handle: the identity check and the kill go through it, so the pid can't be reused in between
+            _ = p.SafeHandle;
+            if (ct is long want && Math.Abs(p.StartTime.ToFileTimeUtc() - want) > 10_000_000)
+            {
+                Log.W($"kill {pid}: pid now belongs to another process, not killed");
+                return false;
+            }
             p.Kill(entireProcessTree: true);
             p.WaitForExit(5000);
             return true;
@@ -793,6 +873,7 @@ sealed class Hub
         catch (Exception e)
         {
             Log.W($"kill {pid} failed: {e.Message}; trying taskkill");
+            if (!Native.PidAlive(pid, ct)) return false;
             try
             {
                 var psi = new ProcessStartInfo("taskkill.exe", $"/PID {pid} /T /F") { CreateNoWindow = true, UseShellExecute = false };
@@ -847,18 +928,26 @@ sealed class Hub
             psi.Environment["TASKHUB_URL"] = S.Url;
             if (J.Truthy(c["cwd"])) psi.WorkingDirectory = J.Str(c["cwd"]);
             using var p = Process.Start(psi);
-            var so = p.StandardOutput.ReadToEndAsync();
-            var se = p.StandardError.ReadToEndAsync();
-            var timeout = (int)((J.Num(c["timeout"]) ?? 300) * 1000);
-            if (!p.WaitForExit(timeout))
+            // only the last 25 lines go to the log: keep just those, however much the command prints
+            var tail = new Queue<string>();
+            async Task Drain(StreamReader r)
+            {
+                string l;
+                while ((l = await r.ReadLineAsync()) != null)
+                    if (l.Length > 0) lock (tail) { tail.Enqueue(J.Cut(l, 2000)); if (tail.Count > 25) tail.Dequeue(); }
+            }
+            var drained = Task.WhenAll(Drain(p.StandardOutput), Drain(p.StandardError));
+            var secs = Math.Clamp(J.Num(c["timeout"]) ?? 300, 1, 86400);
+            var deadline = DateTime.UtcNow.AddSeconds(secs);
+            if (!p.WaitForExit(TimeSpan.FromSeconds(secs)))
             {
                 try { p.Kill(true); } catch { }
-                throw new Exception($"timeout after {timeout / 1000}s");
+                throw new Exception($"timeout after {J.Fmt(secs)}s");
             }
-            p.WaitForExit();
-            var outp = (so.Result ?? "") + (se.Result ?? "");
-            lines = outp.Trim().Split('\n').Select(x => x.TrimEnd('\r')).Where(x => x.Length > 0).ToList();
-            lines = lines.Skip(Math.Max(0, lines.Count - 25)).Select(x => $"[{cid}] {x}").ToList();
+            // a child the command left running may keep the pipes open: wait for the rest of the output only up to the deadline
+            var left = deadline - DateTime.UtcNow;
+            drained.Wait(left > TimeSpan.FromSeconds(2) ? left : TimeSpan.FromSeconds(2));
+            lock (tail) lines = tail.Select(x => $"[{cid}] {x}").ToList();
             lines.Add($"[{cid}] exit {p.ExitCode}");
             level = p.ExitCode == 0 ? "info" : "error";
         }
@@ -887,7 +976,10 @@ sealed class Hub
             {
                 Get(tid);
                 var q = In(tid).CmdQ;
-                if (q.Count > 0 || DateTime.UtcNow >= deadline || ct.IsCancellationRequested)
+                // the client is gone: leave the queue alone, the commands go out with its next poll
+                if (ct.IsCancellationRequested)
+                    return new JsonObject { ["commands"] = new JsonArray(), ["state"] = J.Str(tasks[tid]["state"]) };
+                if (q.Count > 0 || DateTime.UtcNow >= deadline)
                 {
                     var outp = new JsonArray(q.Select(x => (JsonNode)x.DeepClone()).ToArray());
                     var t = tasks[tid];
@@ -1037,7 +1129,7 @@ sealed class Hub
             try { await Task.Delay(3000, ct); } catch { break; }
             try
             {
-                var lost = new List<string>();
+                var lost = new List<(string tid, Internal gen)>();
                 var stale = new List<JsonObject>();
                 lock (Lock)
                 {
@@ -1046,7 +1138,7 @@ sealed class Hub
                     {
                         if (!IsActive(St(t))) continue;
                         if (J.Num(t["pid"]) is double pd && pd > 0 && !Native.PidAlive((int)pd, In(tid).Ct))
-                            lost.Add(tid);
+                            lost.Add((tid, In(tid)));
                         else if (J.Num(t["heartbeat_timeout"]) is double hb && hb > 0 && St(t) == "running"
                                  && now - (J.Num(t["last_seen"]) ?? now) > hb)
                         {
@@ -1057,8 +1149,8 @@ sealed class Hub
                         }
                     }
                 }
-                foreach (var tid in lost)
-                    try { Finish(tid, new JsonObject { ["state"] = "lost", ["message"] = "process exited without reporting" }); } catch { }
+                foreach (var (tid, gen) in lost)
+                    try { Finish(tid, new JsonObject { ["state"] = "lost", ["message"] = "process exited without reporting" }, gen); } catch { }
                 foreach (var t in stale)
                     ToastFor(t, "⚠ " + J.Str(t["name"]), L.T("no_updates", FmtDur(J.Num(t["heartbeat_timeout"]) ?? 0)), "warn", "stale");
                 Save();

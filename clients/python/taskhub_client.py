@@ -232,6 +232,8 @@ class Task:
                             "progress_toast": progress_toast})
         if not kill_control:
             self._reg["kill_control"] = False
+        if progress_toast is False:     # _clean drops False, but here it overrides the hub's progress_toasts setting
+            self._reg["progress_toast"] = False
 
     # ---- plumbing
     def _call(self, method, path, body=None, timeout=5.0):
@@ -426,6 +428,9 @@ class Task:
             self._ensure() and self._call("POST", f"/api/tasks/{self.id}/log",
                                           {"msg": msg, "level": level, "toast": True})
         else:
+            with self._lock:     # one update carries one level: send the waiting lines before a line of another level
+                if self._pending.get("log") and self._pending.get("level", "info") != level:
+                    self._flush()
             self.update(log=msg, level=level) if level != "info" else self.update(log=msg)
 
     def heartbeat(self):

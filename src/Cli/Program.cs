@@ -23,22 +23,38 @@ sealed class Client
     {
         Url = (url ?? DefaultUrl()).TrimEnd('/');
         token = Environment.GetEnvironmentVariable("TASKHUB_TOKEN");
+        // the agents' MCP server and hooks run this exe without TASKHUB_TOKEN: use the hub's own token
+        if (string.IsNullOrEmpty(token) && HubConfig()?["token"] is JsonValue tv && tv.TryGetValue<string>(out var t)) token = t;
         http = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
-    /// <summary>TASKHUB_URL, else port from TaskHubHost.settings.json next to this exe, else 47800.</summary>
+    /// <summary>TASKHUB_URL, else the hub's port as the hub itself picks it: TaskHubHost.settings.json next to this exe,
+    /// then "port" in its config.json, else 47800.</summary>
     public static string DefaultUrl()
     {
         var env = Environment.GetEnvironmentVariable("TASKHUB_URL");
         if (!string.IsNullOrEmpty(env)) return env;
-        try
-        {
-            var p = Path.Combine(AppContext.BaseDirectory, "TaskHubHost.settings.json");
-            if (File.Exists(p) && JsonNode.Parse(File.ReadAllText(p)) is JsonObject o && o["port"] != null)
-                return "http://127.0.0.1:" + o["port"].ToJsonString();
-        }
-        catch { }
+        foreach (var o in new[] { ExeSettings(), HubConfig() })
+            if (o?["port"] is JsonValue pv && pv.TryGetValue<double>(out var port) && port is > 0 and < 65536)
+                return "http://127.0.0.1:" + (int)port;
         return "http://127.0.0.1:47800";
+    }
+
+    static JsonObject ReadJson(string path)
+    {
+        try { return File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path)) as JsonObject : null; }
+        catch { return null; }
+    }
+
+    /// <summary>TaskHubHost.settings.json next to this exe (installed next to the hub): {"port", "data"}.</summary>
+    static JsonObject ExeSettings() => ReadJson(Path.Combine(AppContext.BaseDirectory, "TaskHubHost.settings.json"));
+
+    /// <summary>The hub's config.json (data folder from TaskHubHost.settings.json, else %APPDATA%\TaskHub).</summary>
+    static JsonObject HubConfig()
+    {
+        var data = ExeSettings()?["data"] is JsonValue dv && dv.TryGetValue<string>(out var d) ? Environment.ExpandEnvironmentVariables(d)
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaskHub");
+        return ReadJson(Path.Combine(data, "config.json"));
     }
 
     public JsonNode Call(string method, string path, JsonNode body = null, double timeoutSec = 10)
@@ -325,7 +341,8 @@ Global option: --url URL";
         long ver = 0;
         while (true)
         {
-            var snap = c.Call("GET", $"/api/tasks?brief=1&since={ver}&wait=25", null, 70) as JsonObject;
+            var wait = Math.Clamp((deadline - DateTime.UtcNow).TotalSeconds, 0, 25);   // don't wait past --timeout
+            var snap = c.Call("GET", $"/api/tasks?brief=1&since={ver}&wait={wait.ToString("0.###", CultureInfo.InvariantCulture)}", null, 70) as JsonObject;
             ver = (long)Num(snap["version"]);
             var t = (snap["tasks"] as JsonArray).OfType<JsonObject>().FirstOrDefault(x => S(x["id"]) == args[0]);
             if (t == null) return Fail($"task {args[0]} not found");

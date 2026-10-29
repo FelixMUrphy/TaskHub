@@ -18,6 +18,7 @@ rem wait until the hub answers (up to 30 s)
 powershell -NoProfile -Command "for($i=0;$i -lt 60;$i++){ try{ Invoke-RestMethod http://127.0.0.1:47899/api/health -TimeoutSec 1 | Out-Null; exit 0 }catch{ Start-Sleep -Milliseconds 500 } }; exit 1" || (echo hub did not start & exit /b 2)
 set RC=0
 "%PYTHON%" api_test.py || set RC=1
+"%PYTHON%" validation_test.py || set RC=1
 "%PYTHON%" parallel_test.py 8 || set RC=1
 "%PYTHON%" integration_test.py "%EXE%" || set RC=1
 for %%D in ("%EXE%") do "%PYTHON%" mcp_test.py "%%~dpDtaskhub.exe" || set RC=1
