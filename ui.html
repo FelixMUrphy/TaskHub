@@ -404,7 +404,7 @@ async function send(tid,c,value,btn){
 function render(){
   if (!data) return;
   if ((data.lang && data.lang!==LANG) || (data.language && data.language!==LANG_SETTING)){ LANG=data.lang||LANG; LANG_SETTING=data.language||"auto"; applyLang(); }
-  const list=$("#list"), tasks=data.tasks.filter(t=> filt==="all" || ACTIVE.has(t.state) || (now()-(t.finished||0)<900));
+  const list=$("#list"), tasks=data.tasks.filter(t=> filt==="all" || ACTIVE.has(t.state));
   const nAct=data.tasks.filter(t=>ACTIVE.has(t.state)).length;
   $("#cnt").textContent = T("counts",nAct,data.tasks.length);
   $("#mute").textContent = data.muted ? "🔕" : "🔔";
