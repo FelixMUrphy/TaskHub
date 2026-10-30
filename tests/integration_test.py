@@ -96,6 +96,38 @@ check("config.toml: back to original", t2.rstrip("\r\n") == toml0.rstrip("\r\n")
 with open(codex_toml, "a", encoding="utf-8", newline="") as f:
     f.write("\r\n[mcp_servers.taskhub]\r\ncommand = 'someone-else.exe'\r\n")
 check("foreign [mcp_servers.taskhub]: error exit", run("codex-mcp=on") == 1)
+with open(codex_toml, "w", encoding="utf-8", newline="") as f:
+    f.write(toml0)
+
+# ---- Store edition uninstalled: its taskhub copy (store.json next to it) removes the entries when an agent starts it
+cli = os.path.join(os.path.dirname(os.path.abspath(exe)), "taskhub.exe")
+check("all four integrations on", run("claude=on", "codex=on", "claude-mcp=on", "codex-mcp=on") == 0)
+
+
+def agent_run(cli_exe, *a):
+    env = dict(os.environ, TASKHUB_TEST_HOME=home, TASKHUB_URL="http://127.0.0.1:9", TASKHUB_NO_AUTOSTART="1")
+    return subprocess.run([cli_exe, *a], env=env, input=b"", capture_output=True, timeout=30)
+
+
+p = agent_run(cli, "hook", "codex")
+check("regular CLI (no store.json): hook leaves the entries", p.returncode == 0 and "hooks" in load(codex)
+      and "taskhub" in load(claude_json).get("mcpServers", {}))
+store_bin = tempfile.mkdtemp(prefix="taskhub-storebin-")
+store_cli = os.path.join(store_bin, "taskhub.exe")
+shutil.copy(cli, store_cli)
+with open(os.path.join(store_bin, "store.json"), "w", encoding="utf-8") as f:
+    json.dump({"package_family": "TaskHub.NotInstalled_0000000000000"}, f)
+p = agent_run(store_cli, "hook", "codex")
+check("store copy, package gone: hook exits 0", p.returncode == 0, p.stderr)
+check("store copy: Claude hooks removed, user's own kept", load(claude) == original, load(claude))
+check("store copy: Codex hooks removed", "hooks" not in load(codex), load(codex))
+check("store copy: Claude MCP removed, other servers kept", load(claude_json) == cj, load(claude_json))
+with open(codex_toml, encoding="utf-8", newline="") as f:
+    check("store copy: Codex MCP table removed", f.read().rstrip("\r\n") == toml0.rstrip("\r\n"))
+p = agent_run(store_cli, "mcp")
+check("store copy: mcp after cleanup -> error exit with a message", p.returncode == 1 and b"uninstalled" in p.stderr, p.stderr)
+check("store copy: agent files unchanged by a second run", load(claude) == original and load(claude_json) == cj)
+shutil.rmtree(store_bin, ignore_errors=True)
 
 # broken JSON is never overwritten
 with open(claude, "w", encoding="utf-8") as f:

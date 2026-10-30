@@ -25,7 +25,10 @@ virtualization these changes would only be hidden from the package and the entri
 for Windows, and the user's tasks and settings would be split between two copies of the data folder. The package
 writes nowhere else outside its own install folder except %APPDATA%\TaskHub and, only when the user turns the AI agent
 connections on, the Claude Code and Codex settings files (%USERPROFILE%\.claude.json, %USERPROFILE%\.claude\settings.json,
-%USERPROFILE%\.codex\config.toml, %USERPROFILE%\.codex\hooks.json).
+%USERPROFILE%\.codex\config.toml, %USERPROFILE%\.codex\hooks.json) and a copy of the package's own taskhub.exe in
+%LOCALAPPDATA%\TaskHub\bin that those settings point to. Windows runs no app code on uninstall, so this copy is what
+cleans up: when an agent starts it after the package was removed, it removes TaskHub's entries from the agents'
+settings files, instead of leaving the agents with a command that no longer exists.
 
 ## How to test
 

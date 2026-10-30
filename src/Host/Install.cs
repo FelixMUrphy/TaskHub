@@ -78,6 +78,53 @@ static class Install
     public static string PackagedCli => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Microsoft", "WindowsApps", "taskhub.exe");
 
+    /// <summary>Store edition: the `taskhub` copy the AI agents' settings point to, outside the package. Windows runs
+    /// nothing of a package when it is removed, so this copy (with store.json naming the package next to it) is what
+    /// removes TaskHub's entries from the agents' settings afterwards: the next time an agent starts it and the package
+    /// is gone (src\Cli\StoreCleanup.cs). Refreshed from the package on every start, so it follows Store updates.</summary>
+    public static string StoreCliDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TaskHub", "bin");
+
+    public static string EnsureStoreCli()
+    {
+        var dir = StoreCliDir;
+        var src = Path.Combine(AppContext.BaseDirectory, "taskhub.exe");
+        var dst = Path.Combine(dir, "taskhub.exe");
+        Directory.CreateDirectory(dir);
+        var marker = Path.Combine(dir, "store.json");
+        var info = new System.Text.Json.Nodes.JsonObject { ["package_family"] = Package.Current.Id.FamilyName }.ToJsonString();
+        if (!File.Exists(marker) || File.ReadAllText(marker) != info) File.WriteAllText(marker, info);
+        if (!File.Exists(dst) || new FileInfo(dst).Length != new FileInfo(src).Length
+            || FileVersionInfo.GetVersionInfo(dst).FileVersion != FileVersionInfo.GetVersionInfo(src).FileVersion)
+        {
+            var tmp = dst + ".new";
+            File.Copy(src, tmp, true);
+            try { File.Move(tmp, dst, true); }
+            catch (IOException)   // running (an agent's MCP server): a running exe can still be renamed
+            {
+                File.Move(dst, dst + ".old-" + DateTime.UtcNow.Ticks);
+                File.Move(tmp, dst, true);
+            }
+        }
+        foreach (var f in Directory.GetFiles(dir, "taskhub.exe.old-*")) try { File.Delete(f); } catch { }
+        return dst;
+    }
+
+    /// <summary>Setup-exe edition: the Store edition's `taskhub` copy once its package is gone (the agents' settings
+    /// point to this edition again after Integrations.Ensure).</summary>
+    public static void RemoveStoreCliLeftover()
+    {
+        try
+        {
+            var marker = Path.Combine(StoreCliDir, "store.json");
+            if (!File.Exists(marker)) return;
+            var pfn = (System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(marker)) as System.Text.Json.Nodes.JsonObject)?["package_family"]?.GetValue<string>();
+            var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrEmpty(pfn) || Directory.Exists(Path.Combine(local, "Packages", pfn))) return;
+            Directory.Delete(StoreCliDir, true);
+        }
+        catch (Exception e) { Log.W("Store edition leftover: " + e.Message); }
+    }
+
     /// <summary>Version of the installed copy: the installed exe's file version (the uninstall entry's DisplayVersion can be
     /// stale if the files were replaced by hand), else DisplayVersion, else null.</summary>
     public static Version InstalledVersion

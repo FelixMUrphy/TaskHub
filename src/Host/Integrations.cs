@@ -24,15 +24,14 @@ static class Integrations
     public static readonly Agent[] All = { Agent.Claude, Agent.Codex };
     public static readonly Kind[] Kinds = { Kind.Hooks, Kind.Mcp };
 
-    static string Home => Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 } h
-        ? h : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);   // tests use a temp home
+    static string Home => AgentFiles.Home;
 
     public static string FileOf(Agent a, Kind k = Kind.Hooks) => (a, k) switch
     {
-        (Agent.Claude, Kind.Hooks) => Path.Combine(Home, ".claude", "settings.json"),
-        (Agent.Claude, Kind.Mcp) => Path.Combine(Home, ".claude.json"),
-        (Agent.Codex, Kind.Hooks) => Path.Combine(Home, ".codex", "hooks.json"),
-        _ => Path.Combine(Home, ".codex", "config.toml"),
+        (Agent.Claude, Kind.Hooks) => AgentFiles.ClaudeHooks,
+        (Agent.Claude, Kind.Mcp) => AgentFiles.ClaudeMcp,
+        (Agent.Codex, Kind.Hooks) => AgentFiles.CodexHooks,
+        _ => AgentFiles.CodexMcp,
     };
     public static string CfgKey(Agent a, Kind k = Kind.Hooks) =>
         (k == Kind.Hooks ? "integration_" : "mcp_") + (a == Agent.Claude ? "claude" : "codex");
@@ -68,8 +67,13 @@ static class Integrations
 
     static string CliPath()
     {
-        // Store edition: the package's `taskhub` command, not the versioned package folder (changes on every update)
-        var p = Install.IsPackaged ? Install.PackagedCli : Path.Combine(AppContext.BaseDirectory, "taskhub.exe");
+        // Store edition: its copy outside the package that cleans up after an uninstall (Install.EnsureStoreCli), else
+        // the package's `taskhub` command - never the versioned package folder (changes on every update)
+        string p;
+        if (Install.IsPackaged)
+            try { p = Install.EnsureStoreCli(); }
+            catch (Exception e) { Log.W("taskhub copy: " + e.Message); p = Install.PackagedCli; }
+        else p = Path.Combine(AppContext.BaseDirectory, "taskhub.exe");
         if (!p.Contains(' ')) return p;
         var sb = new StringBuilder(1024);   // 8.3 name: no quoting problems in whatever shell the agent uses
         return GetShortPathName(p, sb, sb.Capacity) > 0 ? sb.ToString() : p;
@@ -83,9 +87,9 @@ static class Integrations
     {
         try
         {
-            if (k == Kind.Hooks) return HookEntries(a, LoadJson(FileOf(a))).Count > 0;
-            if (a == Agent.Claude) return IsOurMcp((LoadJson(FileOf(a, k))["mcpServers"] as JsonObject)?["taskhub"] as JsonObject);
-            return TomlBlock(ReadText(FileOf(a, k))).ours;
+            if (k == Kind.Hooks) return AgentFiles.HasHooks(AgentFiles.LoadJson(FileOf(a)), a == Agent.Claude);
+            if (a == Agent.Claude) return AgentFiles.IsOurMcp((AgentFiles.LoadJson(FileOf(a, k))["mcpServers"] as JsonObject)?["taskhub"] as JsonObject);
+            return AgentFiles.TomlBlock(AgentFiles.ReadText(FileOf(a, k))).ours;
         }
         catch { return false; }
     }
@@ -151,14 +155,6 @@ static class Integrations
         return new() { ("Stop", null, C()), ("PermissionRequest", null, C()) };
     }
 
-    static bool IsOurHook(Agent a, JsonObject h)
-    {
-        if (a == Agent.Claude)
-            return J.Str(h["type"]) == "http" && J.Str(h["url"]).Contains("/api/hooks/claude");
-        var c = J.Str(h["command"]);
-        return J.Str(h["type"]) == "command" && c.Contains("hook codex") && c.Contains("taskhub", StringComparison.OrdinalIgnoreCase);
-    }
-
     static string Sig(string ev, string matcher, JsonObject h) => ev + "|" + (matcher ?? "") + "|" + h.ToJsonString();
 
     static List<string> HookEntries(Agent a, JsonObject root)
@@ -168,7 +164,7 @@ static class Integrations
         foreach (var (ev, arr) in hooks)
             foreach (var g in (arr as JsonArray ?? new JsonArray()).OfType<JsonObject>())
                 foreach (var h in (g["hooks"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
-                    if (IsOurHook(a, h)) r.Add(Sig(ev, J.Str(g["matcher"]), h));
+                    if (AgentFiles.IsOurHook(a == Agent.Claude, h)) r.Add(Sig(ev, J.Str(g["matcher"]), h));
         return r;
     }
 
@@ -176,25 +172,11 @@ static class Integrations
     {
         var path = FileOf(a);
         if (!on && !File.Exists(path)) return false;
-        var root = LoadJson(path);
+        var root = AgentFiles.LoadJson(path);
         var want = on ? DesiredHooks(a, s) : new();
         if (HookEntries(a, root).SequenceEqual(want.Select(w => Sig(w.ev, w.matcher, w.handler)))) return false;
 
-        if (root["hooks"] is JsonObject old)
-        {
-            foreach (var ev in old.Select(kv => kv.Key).ToList())
-            {
-                if (old[ev] is not JsonArray arr) continue;
-                foreach (var g in arr.OfType<JsonObject>().ToList())
-                {
-                    if (g["hooks"] is not JsonArray hs) continue;
-                    foreach (var h in hs.OfType<JsonObject>().Where(h => IsOurHook(a, h)).ToList()) hs.Remove(h);
-                    if (hs.Count == 0) arr.Remove(g);
-                }
-                if (arr.Count == 0) old.Remove(ev);
-            }
-            if (old.Count == 0) root.Remove("hooks");
-        }
+        AgentFiles.StripHooks(root, a == Agent.Claude);
         if (on)
         {
             if (root["hooks"] is not JsonObject hooks) root["hooks"] = hooks = new JsonObject();
@@ -207,7 +189,7 @@ static class Integrations
                 arr.Add(g);
             }
         }
-        SaveJson(path, root, pretty: true);
+        AgentFiles.SaveJson(path, root);
         return true;
     }
 
@@ -217,38 +199,23 @@ static class Integrations
         ["type"] = "stdio", ["command"] = CliPath(), ["args"] = new JsonArray("mcp", "--source", "claude"), ["env"] = new JsonObject(),
     };
 
-    static bool IsOurMcp(JsonObject server) =>
-        server != null && J.Str(server["command"]).Contains("taskhub", StringComparison.OrdinalIgnoreCase)
-        && (server["args"] as JsonArray)?.Any(x => J.Str(x) == "mcp") == true;
-
     static bool ApplyClaudeMcp(bool on)
     {
+        if (!on) return AgentFiles.RemoveClaudeMcp();
         var path = FileOf(Agent.Claude, Kind.Mcp);
-        if (!on && !File.Exists(path)) return false;
-        var root = LoadJson(path);
+        var root = AgentFiles.LoadJson(path);
         var servers = root["mcpServers"] as JsonObject;
         var cur = servers?["taskhub"] as JsonObject;
-        if (cur != null && !IsOurMcp(cur)) throw new InvalidOperationException("an MCP server named 'taskhub' that TaskHub did not add already exists");
-        if (on)
-        {
-            var want = DesiredClaudeMcp();
-            if (cur != null && cur.ToJsonString() == want.ToJsonString()) return false;
-            if (servers == null) root["mcpServers"] = servers = new JsonObject();
-            servers["taskhub"] = want;
-        }
-        else
-        {
-            if (cur == null) return false;
-            servers.Remove("taskhub");
-        }
-        SaveJson(path, root, pretty: true);
+        if (cur != null && !AgentFiles.IsOurMcp(cur)) throw new InvalidOperationException("an MCP server named 'taskhub' that TaskHub did not add already exists");
+        var want = DesiredClaudeMcp();
+        if (cur != null && cur.ToJsonString() == want.ToJsonString()) return false;
+        if (servers == null) root["mcpServers"] = servers = new JsonObject();
+        servers["taskhub"] = want;
+        AgentFiles.SaveJson(path, root);
         return true;
     }
 
     // ------------------------------------------------------------ MCP: Codex (~/.codex/config.toml)
-    static readonly Regex TomlHeader = new(@"^\s*\[\s*mcp_servers\s*\.\s*(?:taskhub|""taskhub""|'taskhub')\s*(?:\.[^\]]*)?\]\s*(?:#.*)?$", RegexOptions.IgnoreCase);
-    static readonly Regex AnyHeader = new(@"^\s*\[");
-
     static List<string> DesiredToml() => new()
     {
         "[mcp_servers.taskhub]",
@@ -269,82 +236,16 @@ static class Integrations
         return sb.Append('"').ToString();
     }
 
-    /// <summary>Lines of the [mcp_servers.taskhub] table (+ its sub-tables): start index, count, whether TaskHub owns it.</summary>
-    static (int start, int count, bool exists, bool ours, List<string> lines) TomlBlock(List<string> lines)
-    {
-        int start = lines.FindIndex(l => TomlHeader.IsMatch(l));
-        if (start < 0) return (-1, 0, false, false, new());
-        int end = start + 1;
-        while (end < lines.Count && (!AnyHeader.IsMatch(lines[end]) || TomlHeader.IsMatch(lines[end]))) end++;
-        while (end > start + 1 && string.IsNullOrWhiteSpace(lines[end - 1])) end--;
-        var block = lines.GetRange(start, end - start);
-        bool ours = block.Any(l => Regex.IsMatch(l, @"^\s*command\s*=.*taskhub", RegexOptions.IgnoreCase))
-                    && block.Any(l => Regex.IsMatch(l, @"^\s*args\s*=.*""mcp"""));
-        return (start, end - start, true, ours, block);
-    }
-
-    static List<string> ReadText(string path) =>
-        File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8).Replace("\r\n", "\n").Split('\n').ToList() : new List<string>();
-
     static bool ApplyCodexMcp(bool on)
     {
-        var path = FileOf(Agent.Codex, Kind.Mcp);
-        if (!on && !File.Exists(path)) return false;
-        var raw = File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8) : "";
-        var nl = raw.Contains("\r\n") ? "\r\n" : "\n";
-        var lines = ReadText(path);
-        var (start, count, exists, ours, block) = TomlBlock(lines);
+        if (!on) return AgentFiles.RemoveCodexMcp();
+        var lines = AgentFiles.ReadText(FileOf(Agent.Codex, Kind.Mcp));
+        var (start, count, exists, ours, block) = AgentFiles.TomlBlock(lines);
         if (exists && !ours) throw new InvalidOperationException("an MCP server [mcp_servers.taskhub] that TaskHub did not add already exists");
         var want = DesiredToml();
         static string Norm(IEnumerable<string> b) => string.Join("\n", b.Select(l => Regex.Replace(l.Trim(), @"\s+", " ")).Where(l => l.Length > 0).OrderBy(l => l));
-        if (on && exists && Norm(block) == Norm(want)) return false;
-        if (!on && !exists) return false;
-        if (exists)
-        {
-            lines.RemoveRange(start, count);
-            if (start < lines.Count && start > 0 && string.IsNullOrWhiteSpace(lines[start]) && string.IsNullOrWhiteSpace(lines[start - 1])) lines.RemoveAt(start);
-        }
-        if (on)
-        {
-            while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[^1])) lines.RemoveAt(lines.Count - 1);
-            if (lines.Count > 0) lines.Add("");
-            lines.AddRange(want);
-        }
-        while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[^1])) lines.RemoveAt(lines.Count - 1);
-        Backup(path);
-        WriteAtomic(path, string.Join(nl, lines) + nl);
+        if (exists && Norm(block) == Norm(want)) return false;
+        AgentFiles.WriteToml(lines, (start, count, exists), want, AgentFiles.TomlNewline());
         return true;
-    }
-
-    // ------------------------------------------------------------ file io
-    static JsonObject LoadJson(string path)
-    {
-        if (!File.Exists(path)) return new JsonObject();
-        var text = File.ReadAllText(path, Encoding.UTF8);
-        if (string.IsNullOrWhiteSpace(text)) return new JsonObject();
-        var n = JsonNode.Parse(text, null, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
-        return n as JsonObject ?? throw new InvalidDataException($"{path}: not a JSON object");
-    }
-
-    static readonly JsonSerializerOptions Pretty = new() { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-
-    static void SaveJson(string path, JsonObject root, bool pretty)
-    {
-        Backup(path);
-        WriteAtomic(path, root.ToJsonString(Pretty) + "\n");
-    }
-
-    static void Backup(string path)
-    {
-        var bak = path + ".taskhub.bak";
-        if (File.Exists(path) && !File.Exists(bak)) File.Copy(path, bak);   // the version from before TaskHub touched it
-    }
-
-    static void WriteAtomic(string path, string text)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var tmp = path + ".taskhub.tmp";
-        File.WriteAllText(tmp, text, new UTF8Encoding(false));
-        File.Move(tmp, path, true);
     }
 }

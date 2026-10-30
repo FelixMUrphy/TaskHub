@@ -140,6 +140,13 @@ Global option: --url URL";
         if (args.Count == 0 || args[0] is "-h" or "--help" or "help" or "/?") { Console.WriteLine(Help); return 0; }
         var cmd = args[0];
         args.RemoveAt(0);
+        // the agents start these: if this is the Store edition's copy and TaskHub was uninstalled, clean up instead
+        if (cmd is "hook" or "mcp" && StoreCleanup.Run())
+        {
+            if (cmd == "hook") return 0;
+            Console.Error.WriteLine("TaskHub has been uninstalled; its entries were removed from the AI agents' settings.");
+            return 1;
+        }
         var c = new Client(url);
         if (cmd == "hook") return Hook(c, args);
         if (cmd == "mcp") return Mcp.Run(c, args, () => EnsureHub(c));
@@ -325,10 +332,14 @@ Global option: --url URL";
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "TaskHub", "TaskHubHost.exe"),
         };
         var exe = candidates.FirstOrDefault(File.Exists);
-        if (exe == null) return;
+        var pfn = StoreCleanup.PackageFamily();   // the Store edition's copy: start the app from its package
+        if (exe == null && pfn == null) return;
         try
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, "--run") { UseShellExecute = true })?.Dispose();
+            var psi = exe != null ? new System.Diagnostics.ProcessStartInfo(exe, "--run")
+                : new System.Diagnostics.ProcessStartInfo("explorer.exe", $"shell:AppsFolder\\{pfn}!TaskHub");
+            psi.UseShellExecute = true;
+            System.Diagnostics.Process.Start(psi)?.Dispose();
             for (int i = 0; i < 30 && !c.Available(); i++) Thread.Sleep(500);
         }
         catch { }

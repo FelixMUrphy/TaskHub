@@ -205,6 +205,7 @@ static class Program
         Install.EnsurePayload();
         if (Install.IsPackaged) Install.CleanExeLeftover(S);
         if (Install.IsInstalledCopy || Install.IsPackaged) Integrations.Ensure(S);   // never from dev/test hubs
+        if (Install.IsInstalledCopy) Install.RemoveStoreCliLeftover();
         Application.ThreadException += (_, e) => Log.W("UI exception: " + e.Exception);
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.W("fatal: " + e.ExceptionObject);

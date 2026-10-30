@@ -8,8 +8,10 @@ it.
 - Programs on the same PC talk to TaskHub over a local HTTP API on `127.0.0.1`, which other computers cannot reach.
 - If you turn on the Claude Code or Codex connection, TaskHub adds its entries to those programs' settings files in your
   user profile and removes them when you turn the connection off. The version installed from GitHub also removes them
-  when it is uninstalled; Windows does not let the Microsoft Store version run anything on uninstall, so turn the
-  connections off in its tray menu (*AI agents*) before you remove it.
+  when it is uninstalled. Windows does not let the Microsoft Store version run anything on uninstall, so it points the
+  agents at a small copy of its `taskhub` command in `%LOCALAPPDATA%\TaskHub\bin`; the next time an agent starts that
+  copy after TaskHub was removed, the copy removes TaskHub's entries. To remove them right away, turn the connections
+  off in the tray menu (*AI agents*) before you uninstall.
 
 ## What leaves your PC, and only if you turn it on
 - **Telegram** (off by default). If you connect a Telegram bot, TaskHub sends your notifications, task progress and
@@ -25,7 +27,8 @@ nothing there.
 
 ## Removing your data
 Uninstalling TaskHub removes the program; your tasks and settings stay in `%APPDATA%\TaskHub`. To delete them as well,
-delete that folder (or uninstall the GitHub version with `TaskHubHost.exe --uninstall --purge`).
+delete that folder (or uninstall the GitHub version with `TaskHubHost.exe --uninstall --purge`). The Microsoft Store
+version also leaves its `taskhub` copy in `%LOCALAPPDATA%\TaskHub`, which you can delete.
 
 ## Contact
 Questions: open an issue at https://github.com/FelixMUrphy/TaskHub/issues.

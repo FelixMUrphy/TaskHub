@@ -88,7 +88,7 @@ The setup dialog (and later the tray menu → *AI agents*) has two independent o
 | **Notifications (hooks)** | a toast when the agent finishes a response or needs your permission | Claude Code: `~/.claude/settings.json` · Codex: `~/.codex/hooks.json` |
 | **TaskHub tools (MCP)** | the agent gets tools `notify`, `task_start/update/finish`, `task_commands`, `task_list` and shows its long jobs in the panel by itself | Claude Code: `~/.claude.json` · Codex: `~/.codex/config.toml` |
 
-TaskHub adds — and on uninstall removes — only its own entries and keeps everything else (backup of the original:
+TaskHub adds — and on uninstall removes (Store edition: see below) — only its own entries and keeps everything else (backup of the original:
 `*.taskhub.bak`). What to do in the agent afterwards:
 
 - **Claude Code** — start a new *local* session (desktop app → Code tab → environment *Local*, the CLI or VS Code).
@@ -145,6 +145,9 @@ has no setup or update check of its own, and autostart, `taskhub://` and the `ta
 Only one edition at a time: the Store edition offers to remove a setup-exe installation (or, with "Keep both", turns
 its own autostart off), and the setup exe offers to replace the Store edition. Both use the same data folder and agent
 connections; the package writes to the real `%APPDATA%` and `HKCU` (`unvirtualizedResources`).
+Windows runs nothing on a package uninstall, so the Store edition points the agents at a copy of `taskhub.exe` in
+`%LOCALAPPDATA%\TaskHub\bin` (with `store.json` naming the package): when an agent starts it after the package is gone,
+it removes TaskHub's entries from the agents' settings (the copy stays; the setup-exe edition removes it on start).
 
 Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no tray, no notifications) and runs
 `api_test.py` (API contract, agent hooks, CLI), `validation_test.py` (input validation: non-finite numbers, widget attributes, control values, shell controls), `parallel_test.py` (8 concurrent workers + notification burst),
