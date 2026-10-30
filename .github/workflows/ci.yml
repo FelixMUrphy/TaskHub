@@ -68,19 +68,16 @@ jobs:
         shell: pwsh
         run: Get-Content "$env:TEMP\taskhub-tests\taskhub.log" -Tail 200 -ErrorAction SilentlyContinue
 
-      # Microsoft Store edition. Identity from the repository variables STORE_NAME / STORE_PUBLISHER /
-      # STORE_PUBLISHER_DISPLAY (Partner Center → the app → Product identity); without them a placeholder identity
-      # (still checks that the package builds)
+      # Microsoft Store edition (Store ID 9N927QX1XM5H). Identity from Partner Center → the app → Product identity
+      # (public: it is in every published package); the repository variables STORE_NAME / STORE_PUBLISHER /
+      # STORE_PUBLISHER_DISPLAY override it
       - name: Package MSIX
         shell: pwsh
         env:
-          STORE_NAME: ${{ vars.STORE_NAME }}
-          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
-          STORE_PUBLISHER_DISPLAY: ${{ vars.STORE_PUBLISHER_DISPLAY }}
-        run: |
-          $id = @{}
-          if ($env:STORE_NAME) { $id = @{ Name = $env:STORE_NAME; Publisher = $env:STORE_PUBLISHER; PublisherDisplay = $env:STORE_PUBLISHER_DISPLAY } }
-          ./packaging/build-msix.ps1 @id
+          STORE_NAME: ${{ vars.STORE_NAME || 'FelixMurphy.TaskHubTaskMonitor' }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER || 'CN=CE4587E7-D287-4817-8A9F-515A2BBA4CF5' }}
+          STORE_PUBLISHER_DISPLAY: ${{ vars.STORE_PUBLISHER_DISPLAY || 'FelixMurphy' }}
+        run: ./packaging/build-msix.ps1 -Name $env:STORE_NAME -Publisher $env:STORE_PUBLISHER -PublisherDisplay $env:STORE_PUBLISHER_DISPLAY
 
       - name: Checksum
         if: github.ref_type == 'tag'
