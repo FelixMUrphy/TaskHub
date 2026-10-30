@@ -901,7 +901,8 @@ $("#sethost").addEventListener("click",e=>{
   if (t.dataset.do){ host({settings:"do",what:t.dataset.do}); return; }
   const k=t.dataset.k, on=!t.classList.contains("on");
   t.classList.toggle("on",on); t.setAttribute("aria-checked",on?"true":"false");   // at once; the host's reply confirms or reverts
-  if (k==="muted" && !NATIVE){ api("POST","/api/settings",{muted:on}).then(()=>setTimeout(renderSet,300)).catch(er=>snack(er.message)); return; }
+  e.currentTarget.__h=null;   // the next render (reply / poll) redraws even if the state did not change - a failed change flips back
+  if (k==="muted" && !NATIVE){ api("POST","/api/settings",{muted:on}).catch(er=>snack(er.message)).finally(()=>setTimeout(renderSet,300)); return; }
   if (k==="agent") host({settings:"set",agent:t.dataset.agent,kind:t.dataset.kind,on});
   else host({settings:"set",[k]:on});
 });
