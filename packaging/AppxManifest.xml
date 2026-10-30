@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Microsoft Store edition (MSIX). packaging\build-msix.ps1 fills in $NAME$, $PUBLISHER$, $PUBLISHER_DISPLAY$ and $VERSION$
+     (the identity values come from Partner Center → the app → Product identity). -->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+         xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+         xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+         xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap uap3 desktop desktop6 com rescap">
+  <Identity Name="$NAME$" Publisher="$PUBLISHER$" Version="$VERSION$" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>TaskHub</DisplayName>
+    <PublisherDisplayName>$PUBLISHER_DISPLAY$</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <!-- same data folder and registry as the setup-exe edition: switching editions (Install.RemoveExeEdition) deletes
+         its HKCU\Software entries, which a virtualized package would only hide from itself -->
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" /><Resource Language="uk-ua" /><Resource Language="es-es" /><Resource Language="de-de" />
+    <Resource Language="fr-fr" /><Resource Language="it-it" /><Resource Language="pt-br" /><Resource Language="pl-pl" />
+    <Resource Language="zh-cn" /><Resource Language="ja-jp" />
+  </Resources>
+  <Applications>
+    <!-- the hub: tray icon, panel, HTTP API -->
+    <Application Id="TaskHub" Executable="TaskHubHost.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="TaskHub" Description="Watch and control background jobs: progress, notifications, buttons."
+                          BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png"
+                          Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- Install.StartupTaskId; on after the first start, the user can turn it off in Settings → Apps → Startup -->
+        <desktop:Extension Category="windows.startupTask" Executable="TaskHubHost.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="TaskHubStartup" Enabled="true" DisplayName="TaskHub" />
+        </desktop:Extension>
+        <uap3:Extension Category="windows.protocol">
+          <uap3:Protocol Name="taskhub" Parameters="--open-url &quot;%1&quot;">
+            <uap:DisplayName>TaskHub</uap:DisplayName>
+          </uap3:Protocol>
+        </uap3:Extension>
+        <!-- clicks / buttons / inputs in Windows notifications come back through this COM class -->
+        <desktop:Extension Category="windows.toastNotificationActivation">
+          <desktop:ToastNotificationActivation ToastActivatorCLSID="891FE926-9080-4CCE-8340-3B3C6C4292D1" />
+        </desktop:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="TaskHubHost.exe" Arguments="-ToastActivated" DisplayName="TaskHub notifications">
+              <com:Class Id="891FE926-9080-4CCE-8340-3B3C6C4292D1" DisplayName="TaskHub notifications" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
+    </Application>
+    <!-- the `taskhub` command (CLI, MCP server, agent hooks); one execution alias per application, so it is its own app -->
+    <Application Id="Cli" Executable="taskhub.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="taskhub" Description="TaskHub command line" BackgroundColor="transparent"
+                          AppListEntry="none" Square150x150Logo="Assets\Square150x150Logo.png"
+                          Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <uap3:Extension Category="windows.appExecutionAlias" Executable="taskhub.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap3:AppExecutionAlias><desktop:ExecutionAlias Alias="taskhub.exe" /></uap3:AppExecutionAlias>
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+</Package>

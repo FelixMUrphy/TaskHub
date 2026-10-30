@@ -57,7 +57,7 @@ sealed class Api
             var (total, active) = hub.Counts();
             return V(new JsonObject
             {
-                ["ok"] = true, ["app"] = Settings.AppId, ["version"] = Settings.Version, ["impl"] = "dotnet",
+                ["ok"] = true, ["app"] = Settings.AppId, ["version"] = Settings.Version, ["impl"] = "dotnet", ["edition"] = Install.Edition,
                 ["pid"] = Environment.ProcessId, ["tasks"] = total, ["active"] = active,
             });
         });

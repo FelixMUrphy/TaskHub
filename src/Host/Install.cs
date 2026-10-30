@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Win32;
+using Windows.ApplicationModel;
 
 namespace TaskHub;
 
@@ -53,6 +55,29 @@ static class Install
     }
     public static bool IsInstalledCopy => IsInstalled && SameDir(ExeDir, InstallDir);
 
+    // ------------------------------------------------------------ Microsoft Store edition (MSIX package)
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    static extern int GetCurrentPackageFullName(ref int length, StringBuilder name);
+
+    /// <summary>Running from an MSIX package (Microsoft Store edition): Windows installs, updates and removes it, and
+    /// autostart, taskhub:// and the `taskhub` command come from the package manifest instead of the registry / PATH.</summary>
+    public static readonly bool IsPackaged = DetectPackage();
+    public static string Edition => IsPackaged ? "store" : "exe";
+    const string StartupTaskId = "TaskHubStartup";   // packaging\AppxManifest.xml
+
+    static bool DetectPackage()
+    {
+        try { int len = 0; return GetCurrentPackageFullName(ref len, null) != 15700; }   // APPMODEL_ERROR_NO_PACKAGE
+        catch { return false; }
+    }
+
+    static StartupTask PackageStartup() => StartupTask.GetAsync(StartupTaskId).AsTask().GetAwaiter().GetResult();
+
+    /// <summary>The `taskhub` command of the package (an app execution alias): stable across updates, unlike the
+    /// package folder, and starts the CLI inside the package.</summary>
+    public static string PackagedCli => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Microsoft", "WindowsApps", "taskhub.exe");
+
     /// <summary>Version of the installed copy: the installed exe's file version (the uninstall entry's DisplayVersion can be
     /// stale if the files were replaced by hand), else DisplayVersion, else null.</summary>
     public static Version InstalledVersion
@@ -85,6 +110,11 @@ static class Install
 
     public static bool AutostartEnabled(Settings s)
     {
+        if (IsPackaged)
+        {
+            try { return PackageStartup().State is StartupTaskState.Enabled or StartupTaskState.EnabledByPolicy; }
+            catch (Exception e) { Log.W("startup task: " + e.Message); return false; }
+        }
         using var k = Registry.CurrentUser.OpenSubKey(RunKey);
         var v = k?.GetValue(RunValueName(s)) as string;
         if (v == null || !v.Contains(HostExe, StringComparison.OrdinalIgnoreCase)) return false;
@@ -100,6 +130,15 @@ static class Install
 
     public static void SetAutostart(bool on, Settings s)
     {
+        if (IsPackaged)
+        {
+            var t = PackageStartup();
+            if (!on) { t.Disable(); return; }
+            // turned off by the user in Settings / Task Manager: only they can turn it on again there
+            if (t.RequestEnableAsync().AsTask().GetAwaiter().GetResult() == StartupTaskState.DisabledByUser)
+                throw new InvalidOperationException(L.T("startup_by_user"));
+            return;
+        }
         using var k = Registry.CurrentUser.CreateSubKey(RunKey);
         using var a = Registry.CurrentUser.CreateSubKey(ApprovedKey);
         if (on)
@@ -275,6 +314,99 @@ static class Install
         SetProtocol(false);
         SetPath(dir, false);
         SetUninstallEntry(false, dir);
+    }
+
+    // ------------------------------------------------------------ the other edition (setup exe <-> Microsoft Store)
+    /// <summary>Kill hub processes started from this folder (not this process).</summary>
+    static void StopHubsIn(string dir)
+    {
+        foreach (var p in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(HostExe)))
+        {
+            if (p.Id == Environment.ProcessId) continue;
+            try
+            {
+                if (SameDir(Path.GetDirectoryName(p.MainModule!.FileName), dir)) { p.Kill(true); p.WaitForExit(5000); }
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>Store edition switching over: remove the setup-exe installation (its hub, Run entry, taskhub://, PATH
+    /// entry, Apps &amp; features entry and files). Its data folder is the one this edition reads, so nothing is lost.
+    /// Works from inside the package: HKCU and these files are not virtualized for full-trust packages.</summary>
+    public static void RemoveExeEdition(Settings s)
+    {
+        var dir = InstallDir;
+        StopHubsIn(dir);
+        using (var k = Registry.CurrentUser.CreateSubKey(RunKey))
+        {
+            var v = k.GetValue(RunValueName(s)) as string;
+            if (v != null && v.Contains(HostExe, StringComparison.OrdinalIgnoreCase)) k.DeleteValue(RunValueName(s), false);
+        }
+        SetProtocol(false);
+        SetPath(dir, false);
+        SetUninstallEntry(false, dir);
+        RemoveFiles(dir);
+        // a taskhub.exe still running (an agent's MCP server) cannot be deleted yet: retried on later starts
+        if (Directory.Exists(dir)) s.Set(("exe_leftover", dir));
+        Log.W("setup-exe edition removed from " + dir);
+    }
+
+    /// <summary>Store edition: delete what RemoveExeEdition could not (files that were in use then).</summary>
+    public static void CleanExeLeftover(Settings s)
+    {
+        var dir = J.Str(s.Get("exe_leftover"));
+        if (string.IsNullOrEmpty(dir) || IsInstalled) return;
+        RemoveFiles(dir);
+        if (!Directory.Exists(dir)) s.Set(("exe_leftover", null));
+    }
+
+    public sealed record StorePackage(string FullName, string FamilyName, Version Version, string Dir);
+
+    /// <summary>The Store edition installed for this user, or null. Found by its files rather than its name, which
+    /// Partner Center assigns.</summary>
+    public static StorePackage FindStoreEdition()
+    {
+        try
+        {
+            foreach (var p in new Windows.Management.Deployment.PackageManager().FindPackagesForUser(string.Empty))
+            {
+                try
+                {
+                    if (p.IsFramework || p.IsResourcePackage) continue;
+                    var dir = p.InstalledLocation.Path;
+                    if (!File.Exists(Path.Combine(dir, HostExe)) || !File.Exists(Path.Combine(dir, "taskhub.exe"))) continue;
+                    var v = p.Id.Version;
+                    return new StorePackage(p.Id.FullName, p.Id.FamilyName, new Version(v.Major, v.Minor, v.Build), dir);
+                }
+                catch { }
+            }
+        }
+        catch (Exception e) { Log.W("package lookup failed: " + e.Message); }
+        return null;
+    }
+
+    /// <summary>Setup exe replacing the Store edition: take over the data the package wrote (it lives in the package's
+    /// private copy of %APPDATA%), then remove the package.</summary>
+    public static void ReplaceStoreEdition(StorePackage pkg, Settings s)
+    {
+        StopHubsIn(pkg.Dir);
+        var src = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Packages", pkg.FamilyName, "LocalCache", "Roaming", Settings.AppId);
+        if (Directory.Exists(src) && SameDir(s.DataDir, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Settings.AppId)))
+        {
+            foreach (var f in Directory.EnumerateFiles(src, "*", SearchOption.AllDirectories))
+            {
+                var rel = Path.GetRelativePath(src, f);
+                if (rel.StartsWith("webview", StringComparison.OrdinalIgnoreCase)) continue;   // browser cache, rebuilt
+                var dst = Path.Combine(s.DataDir, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+                File.Copy(f, dst, true);
+            }
+        }
+        var r = new Windows.Management.Deployment.PackageManager().RemovePackageAsync(pkg.FullName).AsTask().GetAwaiter().GetResult();
+        if (r.ExtendedErrorCode != null) throw new IOException(r.ErrorText);
+        Log.W($"Store edition {pkg.Version} removed");
     }
 
     /// <summary>Remove our files from the install folder after this process exits.</summary>

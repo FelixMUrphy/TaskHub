@@ -138,6 +138,14 @@ in the notification center.
 first and embedded) and `app\` for development. Sources: `src\Host` (Kestrel HTTP API, WinForms tray, WebView2 panel,
 WinRT toasts), `src\Cli`, `ui.html`, `clients\python`.
 
+Microsoft Store edition: after `build.cmd`, `packaging\build-msix.ps1` → `dist\TaskHub-<version>.msix` (unsigned; the
+Store signs it; `-Name` / `-Publisher` / `-PublisherDisplay` from Partner Center). Same code: in the package TaskHub
+has no setup or update check of its own, and autostart, `taskhub://` and the `taskhub` command come from
+`packaging\AppxManifest.xml`. `-Register` installs the build folder as a package for testing (Developer Mode).
+Only one edition at a time: the Store edition offers to remove a setup-exe installation (or, with "Keep both", turns
+its own autostart off), and the setup exe offers to replace the Store edition. Both use the same data folder and agent
+connections; the package writes to the real `%APPDATA%` and `HKCU` (`unvirtualizedResources`).
+
 Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no tray, no notifications) and runs
 `api_test.py` (API contract, agent hooks, CLI), `validation_test.py` (input validation: non-finite numbers, widget attributes, control values, shell controls), `parallel_test.py` (8 concurrent workers + notification burst),
 `integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder), `mcp_test.py` (`taskhub mcp`) and

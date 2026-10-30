@@ -28,6 +28,13 @@ static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
+        // Store edition: Windows installs, updates and removes the package - no setup of our own
+        if (Install.IsPackaged && (Has("--install") || Has("--register") || Has("--uninstall")))
+        {
+            if (!quiet) Msg(L.T("store_managed"));
+            return 0;
+        }
+
         if (Has("--uninstall"))
         {
             if (!quiet && MessageBox.Show(L.T("uninstall_q"), "TaskHub", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return 0;
@@ -97,14 +104,40 @@ static class Program
             }
         }
 
+        // Store edition next to a setup-exe installation: offer to switch over (on a plain start, until "keep both")
+        if (Install.IsPackaged && args.Length == 0 && Install.IsInstalled && J.Str(S.Get("other_edition")) != "keep"
+            && !ToastNotificationManagerCompat.WasCurrentProcessToastActivated())
+        {
+            var answer = Ask(L.T("store_found_exe", Install.InstalledVersion?.ToString(3) ?? "?", Install.InstallDir), L.T("store_switch"), L.T("store_keep"));
+            if (answer == true)
+            {
+                try { Install.RemoveExeEdition(S); }
+                catch (Exception e) { Log.W("switch to Store edition: " + e); Msg(L.T("edition_failed", e.Message)); }
+            }
+            else if (answer == false)   // closed without choosing: ask again next time
+            {
+                S.Set(("other_edition", "keep"));
+                try { Install.SetAutostart(false, S); } catch { }   // one autostart is enough: the setup-exe copy keeps its own
+            }
+        }
+
         // started by double-click from anywhere but the install folder (downloaded setup exe): setup dialog
         bool install = Has("--install");
+        bool setup = install || (args.Length == 0 && !Install.IsInstalledCopy && !Install.IsPackaged && Settings.ReadExeSettings() == null
+            && !ToastNotificationManagerCompat.WasCurrentProcessToastActivated());
+        // setup exe over the Store edition: only one of them at a time. Asked here, removed only once the install
+        // itself goes ahead (not on Cancel / Run in the setup dialog, not if the folder is not writable)
+        var storePkg = setup && !Install.IsPackaged ? Install.FindStoreEdition() : null;
+        if (storePkg != null)
+        {
+            if (quiet) { Log.W("setup: " + L.T("setup_store_quiet")); return 1; }   // scripted: exit code, no dialog
+            if (Ask(L.T("setup_store_found", storePkg.Version.ToString(3), Settings.Version), L.T("setup_store_replace"), L.T("setup_cancel")) != true) return 0;
+        }
         string installDir = Arg("--dir");
         bool optAuto = !Has("--no-autostart"), optPath = !Has("--no-path");
         string optAgents = string.Join("", Integrations.All.SelectMany(a => Integrations.Kinds.Select(k => Integrations.ArgName(a, k)))
             .SelectMany(n => new[] { "--" + n, "--no-" + n }).Where(Has).Select(x => " " + x));
-        if (!install && args.Length == 0 && !Install.IsInstalledCopy && Settings.ReadExeSettings() == null
-            && !ToastNotificationManagerCompat.WasCurrentProcessToastActivated())
+        if (setup && !install)
         {
             using var f = new InstallForm(Install.IsInstalled, Install.InstalledVersion, S);
             f.ShowDialog();
@@ -126,6 +159,11 @@ static class Program
                 installDir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(installDir));
                 var err = Install.CheckWritable(installDir);
                 if (err != null) { Msg(L.T("setup_no_access", installDir) + "\n\n" + err); return 1; }
+                if (storePkg != null)
+                {
+                    try { Install.ReplaceStoreEdition(storePkg, S); }
+                    catch (Exception e) { Log.W("replace Store edition: " + e); Msg(L.T("edition_failed", e.Message)); return 1; }
+                }
                 var exe = Install.InstallFiles(installDir);
                 var a2 = "--register" + (quiet ? " --quiet" : "") + (optAuto ? "" : " --no-autostart") + (optPath ? "" : " --no-path") + optAgents;
                 Process.Start(new ProcessStartInfo(exe, a2) { UseShellExecute = true })?.Dispose();
@@ -165,7 +203,8 @@ static class Program
         Log.W($"TaskHub {Settings.Version} (.NET) starting; exe={Environment.ProcessPath} data={S.DataDir} port={S.Port} args=[{string.Join(" ", args)}]");
         if (S.Bool("autostart", true)) Install.EnsureAutostart(S);
         Install.EnsurePayload();
-        if (Install.IsInstalledCopy) Integrations.Ensure(S);   // never from dev/test hubs
+        if (Install.IsPackaged) Install.CleanExeLeftover(S);
+        if (Install.IsInstalledCopy || Install.IsPackaged) Integrations.Ensure(S);   // never from dev/test hubs
         Application.ThreadException += (_, e) => Log.W("UI exception: " + e.Exception);
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.W("fatal: " + e.ExceptionObject);
@@ -206,11 +245,25 @@ static class Program
             return 0;
         }
 
-        Application.Run(new TrayApp(S, hub, api, notifier, openTask) { Updater = updater });
+        // Store edition: updates come from the Store, so no update check / menu
+        Application.Run(new TrayApp(S, hub, api, notifier, openTask) { Updater = Install.IsPackaged ? null : updater });
         hub.MarkDirty();
         hub.Save();
         Log.W("exit");
         return 0;
+    }
+
+    /// <summary>Two-button question (task dialog): true / false for the buttons, null if closed without choosing.</summary>
+    static bool? Ask(string text, string yes, string no)
+    {
+        TaskDialogButton by = new(yes), bn = new(no);
+        var page = new TaskDialogPage
+        {
+            Caption = "TaskHub", Text = text, Icon = TaskDialogIcon.Information, AllowCancel = true,
+            Buttons = { by, bn }, DefaultButton = by,
+        };
+        var r = TaskDialog.ShowDialog(page);
+        return r == by ? true : r == bn ? false : null;
     }
 
     static void Msg(string text)

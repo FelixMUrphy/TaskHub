@@ -74,7 +74,7 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 
 | Method | Path | Body / query | Purpose |
 |---|---|---|---|
-| GET | `/api/health` | | `{ok, app:"TaskHub", version, active}` |
+| GET | `/api/health` | | `{ok, app:"TaskHub", version, edition: "exe"\|"store", active}` |
 | GET | `/api/help` | | this document |
 | GET | `/api/tasks` | `?since=V&wait=25` long-poll, `?active=1`, `?brief=1` | all tasks + `version` |
 | POST | `/api/tasks` | Registration (below) | create / re-register → `{id}` |
