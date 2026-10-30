@@ -21,17 +21,17 @@ jobs:
       DOTNET_NOLOGO: 1
       PYTHONUTF8: 1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 8.0.x
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ hashFiles('src/**/*.csproj') }}
@@ -76,7 +76,7 @@ jobs:
           $h = (Get-FileHash "dist/$f" -Algorithm SHA256).Hash.ToLower()
           "$h  $f" | Out-File -Encoding ascii -NoNewline "dist/$f.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: github.ref_type == 'tag'
         with:
           name: setup
@@ -90,7 +90,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: setup
           path: dist

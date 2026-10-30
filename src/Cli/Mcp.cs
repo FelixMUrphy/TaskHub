@@ -80,7 +80,8 @@ static class Mcp
     static JsonObject Obj(params (string k, JsonNode v)[] p) { var o = new JsonObject(); foreach (var (k, v) in p) o[k] = v; return o; }
     static JsonObject Str(string d) => Obj(("type", "string"), ("description", d));
     static JsonObject Num(string d) => Obj(("type", "number"), ("description", d));
-    static JsonObject Tool(string name, string title, string desc, JsonObject props, params string[] required) => Obj(
+    // JsonNode (not JsonObject): JsonArray then uses Add(JsonNode), not the reflection-based Add<T> (trimming)
+    static JsonNode Tool(string name, string title, string desc, JsonObject props, params string[] required) => Obj(
         ("name", name), ("title", title), ("description", desc),
         ("inputSchema", Obj(("type", "object"), ("properties", props), ("required", new JsonArray(required.Select(r => (JsonNode)r).ToArray())))));
 
@@ -190,7 +191,7 @@ static class Mcp
                     var outp = new JsonArray();
                     foreach (var cmd in cmds.OfType<JsonObject>())
                     {
-                        outp.Add(new JsonObject { ["control"] = cmd["control"]?.DeepClone(), ["value"] = cmd["value"]?.DeepClone() });
+                        outp.Add((JsonNode)new JsonObject { ["control"] = cmd["control"]?.DeepClone(), ["value"] = cmd["value"]?.DeepClone() });
                         try { c.Call("POST", $"/api/tasks/{tid}/commands/{Program.S(cmd["id"])}/ack", new JsonObject { ["ok"] = true, ["message"] = "received" }); } catch { }
                     }
                     return Text(outp.Count == 0 ? "no pending commands" : outp.ToJsonString(Compact));
@@ -201,7 +202,7 @@ static class Mcp
                     var snap = c.Call("GET", "/api/tasks?brief=1" + (all ? "" : "&active=1")) as JsonObject;
                     var list = new JsonArray();
                     foreach (var t in (snap?["tasks"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
-                        list.Add(new JsonObject
+                        list.Add((JsonNode)new JsonObject
                         {
                             ["id"] = t["id"]?.DeepClone(), ["name"] = t["name"]?.DeepClone(), ["state"] = t["state"]?.DeepClone(),
                             ["progress"] = t["progress"]?.DeepClone(), ["status"] = t["status"]?.DeepClone(),

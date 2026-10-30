@@ -1,6 +1,7 @@
 namespace TaskHub;
 
-/// <summary>Setup dialog: install folder (with Browse), autostart, PATH; Install / Run without installing / Cancel.</summary>
+/// <summary>Setup dialog: install folder (with Browse), autostart, PATH; Install / Run without installing / Cancel.
+/// Over an existing install it shows the installed version and folder and offers Update / Reinstall / Install the older version.</summary>
 sealed class InstallForm : Form
 {
     public enum Choice { Cancel, Install, Run }
@@ -25,9 +26,22 @@ sealed class InstallForm : Form
         catch { return false; }
     }
 
-    public InstallForm(bool update)
+    public InstallForm(bool installed, Version installedVersion, Settings s)
     {
-        Text = "TaskHub " + Settings.Version + " — " + L.T(update ? "setup_update" : "setup_title");
+        var mine = Version.Parse(Settings.Version);
+        // -1: older one installed (update), 0: same (reinstall), 1: newer one installed (this setup is older)
+        // compared as major.minor.build (a missing part counts as 0)
+        var have = installedVersion == null ? null
+            : new Version(installedVersion.Major, installedVersion.Minor, Math.Max(installedVersion.Build, 0));
+        int cmp = have == null ? -1 : Math.Sign(have.CompareTo(mine));
+        string verText = have?.ToString() ?? "?";
+        string title = !installed ? "setup_title" : cmp < 0 ? "setup_update" : cmp == 0 ? "setup_reinstall" : "setup_downgrade";
+        string intro = !installed ? L.T("setup_intro")
+            : L.T("setup_installed", verText, Install.InstallDir) + "\n" + (cmp < 0 ? L.T("setup_will_update", Settings.Version)
+                : cmp == 0 ? L.T("setup_will_reinstall") : L.T("setup_will_downgrade", Settings.Version));
+        string button = !installed ? L.T("setup_install") : cmp < 0 ? L.T("setup_update_btn")
+            : cmp == 0 ? L.T("setup_reinstall_btn") : L.T("setup_downgrade_btn", Settings.Version);
+        Text = "TaskHub " + Settings.Version + " — " + L.T(title);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -40,13 +54,14 @@ sealed class InstallForm : Form
         var root = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Padding = new Padding(16), Dock = DockStyle.Fill };
         root.Controls.Add(new Label
         {
-            Text = L.T(update ? "setup_intro_update" : "setup_intro"), AutoSize = true, MaximumSize = new Size(520, 0),
+            Text = intro, AutoSize = true, MaximumSize = new Size(520, 0),
             Margin = new Padding(0, 0, 0, 12),
         });
         root.Controls.Add(new Label { Text = L.T("setup_folder"), AutoSize = true, Margin = new Padding(0, 0, 0, 4) });
 
         var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-        box = new TextBox { Width = 440, Text = Install.IsInstalled ? Install.InstallDir : Install.DefaultDir };
+        // over an existing install: its folder (from the uninstall entry), not the default
+        box = new TextBox { Width = 440, Text = installed ? Install.InstallDir : Install.DefaultDir };
         var browse = new Button { Text = "…", Width = 40, Height = box.Height + 2 };
         browse.Click += (_, _) =>
         {
@@ -64,8 +79,14 @@ sealed class InstallForm : Form
         row.Controls.Add(browse);
         root.Controls.Add(row);
 
-        cbAuto = new CheckBox { Text = L.T("setup_autostart"), Checked = true, AutoSize = true, Margin = new Padding(0, 12, 0, 0) };
-        cbPath = new CheckBox { Text = L.T("setup_path"), Checked = true, AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
+        // over an existing install: keep its current autostart / PATH choice
+        bool auto = true, path = true;
+        if (installed)
+        {
+            try { auto = Install.AutostartEnabled(s); path = Install.OnPath(Install.InstallDir); } catch { }
+        }
+        cbAuto = new CheckBox { Text = L.T("setup_autostart"), Checked = auto, AutoSize = true, Margin = new Padding(0, 12, 0, 0) };
+        cbPath = new CheckBox { Text = L.T("setup_path"), Checked = path, AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
         root.Controls.Add(cbAuto);
         root.Controls.Add(cbPath);
         foreach (var a in Integrations.All)
@@ -86,7 +107,7 @@ sealed class InstallForm : Form
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, Margin = new Padding(0, 16, 0, 0) };
         var bCancel = new Button { Text = L.T("setup_cancel"), AutoSize = true, DialogResult = DialogResult.Cancel };
         var bRun = new Button { Text = L.T("setup_run"), AutoSize = true };
-        var bInstall = new Button { Text = L.T(update ? "setup_update_btn" : "setup_install"), AutoSize = true };
+        var bInstall = new Button { Text = button, AutoSize = true };
         bRun.Click += (_, _) => { Result = Choice.Run; Close(); };
         bInstall.Click += (_, _) =>
         {

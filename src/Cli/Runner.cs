@@ -96,8 +96,8 @@ static class Runner
         {
             var controls = new JsonArray
             {
-                new JsonObject { ["id"] = "interrupt", ["label"] = "Ctrl+C", ["kind"] = "signal", ["confirm"] = "Надіслати Ctrl+C процесу?", ["toast"] = toastCtl },
-                new JsonObject { ["id"] = "stdin", ["label"] = "Send input", ["kind"] = "signal", ["input"] = new JsonObject { ["type"] = "text", ["label"] = "stdin" } },
+                (JsonNode)new JsonObject { ["id"] = "interrupt", ["label"] = "Ctrl+C", ["kind"] = "signal", ["confirm"] = "Надіслати Ctrl+C процесу?", ["toast"] = toastCtl },
+                (JsonNode)new JsonObject { ["id"] = "stdin", ["label"] = "Send input", ["kind"] = "signal", ["input"] = new JsonObject { ["type"] = "text", ["label"] = "stdin" } },
             };
             var reg = new JsonObject
             {
@@ -105,7 +105,7 @@ static class Runner
                 ["description"] = desc ?? Cut(cmdline, 300), ["pid"] = p.Id, ["cwd"] = psi.WorkingDirectory,
                 ["heartbeat_timeout"] = hb != null ? double.Parse(hb, CultureInfo.InvariantCulture) : 0,
                 ["controls"] = controls,
-                ["widgets"] = new JsonArray { new JsonObject { ["id"] = "last", ["type"] = "text", ["label"] = "Last line", ["mono"] = true, ["span"] = 2 } },
+                ["widgets"] = new JsonArray { (JsonNode)new JsonObject { ["id"] = "last", ["type"] = "text", ["label"] = "Last line", ["mono"] = true, ["span"] = 2 } },
                 ["progress_toast"] = ptoast,
             };
             if (ms != null)

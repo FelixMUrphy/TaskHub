@@ -106,7 +106,7 @@ static class Program
         if (!install && args.Length == 0 && !Install.IsInstalledCopy && Settings.ReadExeSettings() == null
             && !ToastNotificationManagerCompat.WasCurrentProcessToastActivated())
         {
-            using var f = new InstallForm(Install.IsInstalled);
+            using var f = new InstallForm(Install.IsInstalled, Install.InstalledVersion, S);
             f.ShowDialog();
             if (f.Result == InstallForm.Choice.Cancel) return 0;
             if (f.Result == InstallForm.Choice.Install)

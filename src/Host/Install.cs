@@ -53,6 +53,31 @@ static class Install
     }
     public static bool IsInstalledCopy => IsInstalled && SameDir(ExeDir, InstallDir);
 
+    /// <summary>Version of the installed copy: the installed exe's file version (the uninstall entry's DisplayVersion can be
+    /// stale if the files were replaced by hand), else DisplayVersion, else null.</summary>
+    public static Version InstalledVersion
+    {
+        get
+        {
+            try
+            {
+                var fv = FileVersionInfo.GetVersionInfo(InstalledExe);
+                if (fv.FileMajorPart > 0 || fv.FileMinorPart > 0) return new Version(fv.FileMajorPart, fv.FileMinorPart, fv.FileBuildPart);
+            }
+            catch { }
+            using var k = Registry.CurrentUser.OpenSubKey(UninstKey);
+            return Version.TryParse(k?.GetValue("DisplayVersion") as string, out var v) ? v : null;
+        }
+    }
+
+    /// <summary>The folder is on the user PATH.</summary>
+    public static bool OnPath(string dir)
+    {
+        using var k = Registry.CurrentUser.OpenSubKey("Environment");
+        var cur = k?.GetValue("Path", "", RegistryValueOptions.DoNotExpandEnvironmentNames) as string ?? "";
+        return cur.Split(';', StringSplitOptions.RemoveEmptyEntries).Any(p => SameDir(Environment.ExpandEnvironmentVariables(p), dir));
+    }
+
     // ------------------------------------------------------------ autostart
     /// <summary>"TaskHub" for the default port, "TaskHub-PORT" otherwise.</summary>
     public static string RunValueName(Settings s) => s.Port == Settings.DefaultPort ? Settings.AppId : $"{Settings.AppId}-{s.Port}";
