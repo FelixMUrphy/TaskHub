@@ -23,7 +23,7 @@ body:
     attributes:
       label: TaskHub version
       description: Output of `taskhub health` ("version"), or the setup file name.
-      placeholder: 2.6.3
+      placeholder: 2.7.0
     validations:
       required: true
   - type: input
