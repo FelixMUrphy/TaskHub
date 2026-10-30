@@ -18,7 +18,6 @@ sealed class TrayApp : ApplicationContext
     string lastIconKey;
     IntPtr lastHicon;
     readonly CancellationTokenSource cts = new();
-    ToolStripMenuItem miMute, miAuto;
     public TelegramBridge Telegram;
     public Updater Updater;
     public GitHubConnector GitHub;
@@ -59,6 +58,8 @@ sealed class TrayApp : ApplicationContext
         _ = Task.Run(() => hub.Watchdog(cts.Token));
         Ui(async () =>
         {
+            // here, not above: GitHub / Updater are set by the caller after the constructor
+            Panel.SettingsPage = new SettingsBridge(S, hub, Telegram, GitHub, () => Updater, Ui);
             try
             {
                 await Panel.InitAsync();
@@ -77,103 +78,37 @@ sealed class TrayApp : ApplicationContext
         try { if (ui.IsHandleCreated) ui.BeginInvoke(a); } catch { }
     }
 
+    // Only the quick actions; everything else (language, AI agents, Telegram, connectors, updates, data folder, API
+    // reference, test notification, autostart) is on the panel's settings page (SettingsBridge).
     ContextMenuStrip BuildMenu()
     {
         var m = new ContextMenuStrip();
-        var items = new List<(ToolStripItem item, string key)>();
-        ToolStripMenuItem Add(string key, Action a)
+        var look = new Win11Menu();
+        var items = new List<(ToolStripMenuItem item, string key)>();
+        ToolStripMenuItem Add(string key, string glyph, Action a)
         {
-            var it = new ToolStripMenuItem(key, null, (_, _) => a());
+            var it = new ToolStripMenuItem(key, null, (_, _) => a()) { Name = key, Tag = glyph };
             m.Items.Add(it);
             items.Add((it, key));
             return it;
         }
-        Add("open_panel", () => Panel.ShowPanel(null)).Font = new Font(m.Font, FontStyle.Bold);
-        miMute = Add("mute", () => hub.SetMuted(!hub.Muted));
-        Add("clear_done", () => hub.ClearFinished());
+        var miOpen = Add("open_panel", "", () => Panel.ShowPanel(null));
+        var miMute = Add("mute", "", () => hub.SetMuted(!hub.Muted));
+        Add("settings_menu", "", () => Panel.OpenSettings());
         m.Items.Add(new ToolStripSeparator());
-        miAuto = Add("autostart", () =>
-        {
-            try
-            {
-                bool on = !Install.AutostartEnabled(S);
-                Install.SetAutostart(on, S);
-                S.Set(("autostart", on));      // respected by the self-healing check on start
-            }
-            catch (Exception e) { MessageBox.Show(e.Message, "TaskHub"); }
-        });
-        var miInt = Add("integrations", () => { });
-        var intItems = new List<(ToolStripMenuItem, Integrations.Agent, Integrations.Kind)>();
-        foreach (var ag in Integrations.All)
-        {
-            if (miInt.DropDownItems.Count > 0) miInt.DropDownItems.Add(new ToolStripSeparator());
-            foreach (var kd in Integrations.Kinds)
-            {
-                var (a, k) = (ag, kd);
-                var it = new ToolStripMenuItem("", null, (_, _) =>
-                {
-                    bool on = !Integrations.Enabled(a, k);
-                    var err = Integrations.Set(a, k, on, S);
-                    if (err != null) MessageBox.Show(err, "TaskHub", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    else if (on)
-                        hub.Notify(new JsonObject { ["title"] = "TaskHub · " + Integrations.Name(a), ["message"] = Integrations.Hint(a, k), ["force"] = true, ["click"] = "dismiss" });
-                });
-                miInt.DropDownItems.Add(it);
-                intItems.Add((it, a, k));
-            }
-        }
-        Add("tg_menu", () => { if (Telegram != null) TelegramForm.ShowFor(Telegram); });
-        var miConn = Add("connectors", () => { });
-        miConn.DropDownItems.Add(new ToolStripMenuItem("GitHub Actions…", null, (_, _) => { if (GitHub != null) GitHubForm.ShowFor(GitHub); }));
-        var miLang = Add("language", () => { });
-        var langItems = new List<(ToolStripMenuItem, string)>();
-        foreach (var code in new[] { "auto" }.Concat(L.Langs))
-        {
-            var c = code;
-            var li = new ToolStripMenuItem(c == "auto" ? "auto" : L.Names[c], null, (_, _) => hub.SetLanguage(c));
-            miLang.DropDownItems.Add(li);
-            langItems.Add((li, c));
-        }
-        Add("test_toast", () => hub.Notify(new JsonObject { ["title"] = "TaskHub", ["message"] = L.T("test_toast") + " ✓", ["force"] = true }));
-        Add("data_folder", () => Hub.OpenTarget(S.DataDir));
-        Add("api_help", () =>
-        {
-            var p = Path.Combine(S.ExeDir, "API.md");
-            if (!File.Exists(p)) { p = S.File_("API.md"); File.WriteAllBytes(p, Res.Read("API.md")); }
-            Hub.OpenTarget(p);
-        });
-        m.Items.Add(new ToolStripSeparator());
-        var miUpdate = Add("update_to", () => Updater?.OpenPage());
-        var miUpd = Add("updates", () => { });
-        var miUpdNow = new ToolStripMenuItem("", null, (_, _) => { if (Updater != null) _ = Updater.Check(true); });
-        var miUpdAuto = new ToolStripMenuItem("", null, (_, _) => S.Set(("update_check", !S.Bool("update_check", true))));
-        miUpd.DropDownItems.Add(miUpdNow);
-        miUpd.DropDownItems.Add(miUpdAuto);
-        Add("support", () => Hub.OpenTarget(L.SupportUrl));
-        Add("quit", Quit);
+        Add("support", "", () => Hub.OpenTarget(L.SupportUrl));
+        Add("quit", "", Quit);
         m.Opening += (_, _) =>
         {
-            foreach (var (it, key) in items) it.Text = L.T(key);
-            foreach (var (li, c) in langItems)
-            {
-                if (c == "auto") li.Text = L.T("auto");
-                li.Checked = L.Setting == c;
-            }
-            foreach (var (it, a, k) in intItems)
-            {
-                it.Text = Integrations.Name(a) + " — " + L.T(k == Integrations.Kind.Hooks ? "menu_hooks" : "menu_mcp");
-                it.Checked = Integrations.Enabled(a, k);
-            }
-            miUpd.Visible = Updater != null;
-            var avail = Updater?.Available;
-            miUpdate.Visible = avail != null;
-            if (avail != null) miUpdate.Text = L.T("update_to", avail.Version);
-            miUpdNow.Text = L.T("update_check_now");
-            miUpdAuto.Text = L.T("update_auto");
-            miUpdAuto.Checked = S.Bool("update_check", true);
-            miMute.Checked = hub.Muted;
-            miAuto.Checked = Install.AutostartEnabled(S);
+            look.Dark = Panel.EffectiveDark();
+            foreach (var (it, key) in items) it.Text = L.T(key).TrimStart('❤', ' ', '️');
+            // state by shape and words, like the panel's bell: crossed bell + "Turn notifications on" while muted
+            miMute.Text = L.T(hub.Muted ? "unmute" : "mute");
+            miMute.Tag = hub.Muted ? "" : "";
+            look.Apply(m);
+            miOpen.Font = new Font(m.Font, FontStyle.Bold);
         };
+        m.Opened += (_, _) => look.StyleWindow(m);
         return m;
     }
 

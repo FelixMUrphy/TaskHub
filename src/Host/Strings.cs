@@ -260,6 +260,8 @@ static class L
             "TaskHub 已从 Microsoft Store 安装。请先删除它（设置 → 应用），或不带 --quiet 运行安装程序。",
             "TaskHub は Microsoft Store からインストールされています。先に削除する（設定 → アプリ）か、--quiet なしでセットアップを実行してください。" },
         ["edition_failed"] = new[] { "Could not finish: {0}", "Не вдалося завершити: {0}", "No se pudo completar: {0}", "Konnte nicht abgeschlossen werden: {0}", "Impossible de terminer : {0}", "Impossibile completare: {0}", "Não foi possível concluir: {0}", "Nie udało się dokończyć: {0}", "无法完成：{0}", "完了できませんでした: {0}" },
+        ["settings_menu"] = new[] { "Settings", "Налаштування", "Configuración", "Einstellungen", "Paramètres", "Impostazioni", "Configurações", "Ustawienia", "设置", "設定" },
+        ["unmute"] = new[] { "Turn notifications on", "Увімкнути сповіщення", "Activar notificaciones", "Benachrichtigungen einschalten", "Réactiver les notifications", "Riattiva le notifiche", "Ativar notificações", "Włącz powiadomienia", "开启通知", "通知をオンにする" },
         // ---- connectors / GitHub Actions
         ["connectors"] = new[] { "Connectors", "Конектори", "Conectores", "Konnektoren", "Connecteurs", "Connettori", "Conectores", "Konektory", "连接器", "コネクタ" },
         ["gh_title"] = new[] { "GitHub Actions", "GitHub Actions", "GitHub Actions", "GitHub Actions", "GitHub Actions", "GitHub Actions", "GitHub Actions", "GitHub Actions", "GitHub Actions", "GitHub Actions" },

@@ -11,7 +11,7 @@ it.
   when it is uninstalled. Windows does not let the Microsoft Store version run anything on uninstall, so it points the
   agents at a small copy of its `taskhub` command in `%LOCALAPPDATA%\TaskHub\bin`; the next time an agent starts that
   copy after TaskHub was removed, the copy removes TaskHub's entries. To remove them right away, turn the connections
-  off in the tray menu (*AI agents*) before you uninstall.
+  off before you uninstall: tray menu → *AI agents* (from TaskHub 2.9: Settings in the panel → *AI agents*).
 
 ## What leaves your PC, and only if you turn it on
 - **Telegram** (off by default). If you connect a Telegram bot, TaskHub sends your notifications, task progress and
@@ -27,9 +27,9 @@ it.
   privacy policy applies to these requests. Turning the connector off stops them; *Forget token* deletes the token.
 - **Update check** (only in the version installed from GitHub, not in the Microsoft Store version). Once a day TaskHub
   asks `api.github.com` for the latest release number. It sends no personal data, and you can turn the check off in the
-  tray menu (*Updates*).
+  tray menu (*Updates*; from TaskHub 2.9: Settings in the panel → *System*).
 
-*Support TaskHub* in the tray menu and the panel only opens GitHub Sponsors in your browser; TaskHub itself sends
+*Support TaskHub* in the tray menu, the panel and its settings only opens GitHub Sponsors in your browser; TaskHub itself sends
 nothing there.
 
 ## Removing your data

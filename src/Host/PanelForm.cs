@@ -93,7 +93,7 @@ sealed class PanelForm : Form
     }
 
     string Theme => J.Str(S.Get("theme"), "system");
-    bool EffectiveDark() => Theme == "dark" || (Theme == "system" && SystemDark());
+    public bool EffectiveDark() => Theme == "dark" || (Theme == "system" && SystemDark());
     static Color SolidBack(bool dark) => dark ? Color.FromArgb(0x20, 0x20, 0x20) : Color.FromArgb(0xf3, 0xf3, 0xf3);   // Windows 11 neutral greys, as --bg in ui.html
 
     /// <summary>Windows accent colour, in the shade Windows itself uses on this theme (darker on light, lighter on dark).</summary>
@@ -288,6 +288,21 @@ sealed class PanelForm : Form
         catch (Exception e) { Log.W("open failed: " + e.Message); }
     }
 
+    public SettingsBridge SettingsPage;
+
+    async Task ReplySettings(JsonObject o)
+    {
+        var r = await SettingsPage.Handle(o);
+        try { web.CoreWebView2?.PostWebMessageAsJson(r.ToJsonString(J.Out)); } catch { }
+    }
+
+    /// <summary>Tray menu -> Settings: the panel opens on its settings page.</summary>
+    public void OpenSettings()
+    {
+        ShowPanel(null);
+        try { web.CoreWebView2?.PostWebMessageAsJson("{\"open_settings\":1}"); } catch { }
+    }
+
     void OnWebMessage(object sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         string msg;
@@ -298,6 +313,9 @@ sealed class PanelForm : Form
             {
                 var o = J.Parse(e.WebMessageAsJson) as JsonObject;
                 if (o?["open"] != null) SafeOpen(J.Str(o["open"]));
+                // settings page: only from our own page (the panel never navigates elsewhere, but be sure)
+                if (o?["settings"] != null && SettingsPage != null && e.Source.StartsWith(S.Url + "/ui", StringComparison.OrdinalIgnoreCase))
+                    _ = ReplySettings(o);
             }
             catch { }
             return;

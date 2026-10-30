@@ -201,15 +201,39 @@ pre .warn{color:var(--amber)} pre .error{color:var(--red)} pre .cmd{color:var(--
 .dlg .row{display:flex;gap:6px;justify-content:flex-end}
 .pywebview-drag-region{cursor:default}
 .lng{font:inherit;font-size:12px;background:var(--track);color:var(--fg);border:0;border-radius:6px;padding:2px 4px;cursor:pointer;max-width:110px}
-/* settings popover */
-#set{display:none;position:fixed;right:10px;z-index:25;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;box-shadow:0 8px 24px #0004;min-width:230px;max-width:calc(100% - 20px)}
-#set.on{display:grid;grid-template-columns:auto 1fr;gap:8px 10px;align-items:center}
-#set label{color:var(--mut);font-size:12px;white-space:nowrap}
-#set select{font:inherit;font-size:12px;background:var(--track);color:var(--fg);border:0;border-radius:6px;padding:3px 4px;min-width:0}
-#set .rg{display:flex;align-items:center;gap:6px;min-width:0}
+/* settings page: replaces the header and the list while open (Windows 11 settings: sections of rounded cards, rows with
+   a title, a grey description and the control on the right, toggle switches) */
+body.setmode>header,body.setmode #srcf,body.setmode #list,body.setmode #sb{display:none}
+#set{display:none;flex:1;min-height:0;flex-direction:column}
+body.setmode #set{display:flex}
+#set .sh{flex:none;display:flex;align-items:center;gap:6px;padding:8px 12px 8px 8px;border-bottom:1px solid var(--ln);user-select:none}
+#set .sh h2{font-size:14px;font-weight:650;margin:0}
+#set .sc{flex:1;min-height:0;overflow-y:auto;outline:none;padding:4px 10px 16px;scrollbar-width:thin;overscroll-behavior:contain}
+#set h3{font-size:12.5px;font-weight:600;margin:14px 2px 6px}
+#set .scard{background:color-mix(in srgb,var(--card) var(--calpha),transparent);border:1px solid var(--ln);border-radius:8px}
+#set .srow{display:flex;align-items:center;gap:10px;padding:8px 12px;min-height:44px}
+#set .srow+.srow{border-top:1px solid var(--ln)}
+#set .sl{flex:1;min-width:0;overflow-wrap:anywhere}
+#set .sd{color:var(--mut);font-size:11.5px;margin-top:1px}
+#set .srow.sub .sl{padding-left:14px}
+#set select{font:inherit;font-size:12px;background:var(--o1);color:var(--fg);border:1px solid var(--ln);border-radius:5px;padding:3px 4px;min-width:0;max-width:52%}
+#set select:hover{background:var(--o2)}
+#set select option{background:var(--card);color:var(--fg)}
+#set .rg{display:flex;align-items:center;gap:6px;min-width:0;width:48%}
 #set input[type=range]{flex:1;min-width:0;accent-color:var(--acc)}
 #set .rv{font-variant-numeric:tabular-nums;color:var(--mut);font-size:12px;min-width:34px;text-align:right}
 #set .rg.off{opacity:.45}
+#set .btn{flex:none;padding:4px 12px}
+#set .btn.heart::before{content:"\EB51";font:normal 13px/1 "Segoe Fluent Icons","Segoe MDL2 Assets";margin-right:6px;vertical-align:-2px;color:color-mix(in srgb,#e0526b 55%,var(--fg))}
+/* Windows 11 toggle switch: outlined pill with a dot when off, filled with the accent when on */
+.tgl{flex:none;width:40px;height:20px;border-radius:10px;border:1px solid color-mix(in srgb,var(--fg) 55%,transparent);background:var(--o1);
+  position:relative;cursor:pointer;padding:0;transition:background .12s,border-color .12s}
+.tgl i{position:absolute;left:4px;top:4px;width:10px;height:10px;border-radius:50%;background:color-mix(in srgb,var(--fg) 80%,transparent);transition:left .12s,width .12s}
+.tgl:hover i{width:12px;height:12px;top:3px;left:3px}
+.tgl.on{background:var(--acc);border-color:var(--acc)}
+.tgl.on i{left:24px;background:var(--accfg)} .tgl.on:hover i{left:22px}
+html.acc-neutral .tgl.on{background:var(--fg);border-color:var(--fg)} html.acc-neutral .tgl.on i{background:var(--bg)}
+.tgl:disabled{opacity:.45;cursor:default}
 </style>
 </head>
 <body>
@@ -223,13 +247,20 @@ pre .warn{color:var(--amber)} pre .error{color:var(--red)} pre .cmd{color:var(--
   <button class="ib" id="cfg"><i>&#xE713;</i></button>
   <button class="ib" id="pin"><i>&#xE718;</i></button>
 </header>
-<div id="set">
-  <label for="lang" data-i="language"></label><select id="lang"></select>
-  <label for="theme" data-i="theme"></label><select id="theme"></select>
-  <label for="accent" data-i="accent"></label><select id="accent"></select>
-  <label for="transp" data-i="transparency" id="transpl"></label><div class="rg" id="transpr"><input type="range" id="transp" min="0" max="100" step="5"><span class="rv" id="transpv"></span></div>
-  <label for="grp" data-i="group_by"></label><select id="grp"></select>
-  <label for="ctransp" data-i="card_transparency" id="ctranspl"></label><div class="rg" id="ctranspr"><input type="range" id="ctransp" min="0" max="100" step="5"><span class="rv" id="ctranspv"></span></div>
+<div id="set" role="dialog" aria-labelledby="settitle">
+  <div class="sh"><button class="ib" id="setback"><i>&#xE72B;</i></button><h2 id="settitle" data-i="settings"></h2></div>
+  <div class="sc" tabindex="-1">
+    <h3 data-i="sec_look"></h3>
+    <div class="scard">
+      <div class="srow"><label class="sl" for="lang" data-i="language"></label><select id="lang"></select></div>
+      <div class="srow"><label class="sl" for="theme" data-i="theme"></label><select id="theme"></select></div>
+      <div class="srow"><label class="sl" for="accent" data-i="accent"></label><select id="accent"></select></div>
+      <div class="srow" id="transpl"><label class="sl" for="transp" data-i="transparency"></label><div class="rg" id="transpr"><input type="range" id="transp" min="0" max="100" step="5"><span class="rv" id="transpv"></span></div></div>
+      <div class="srow" id="ctranspl"><label class="sl" for="ctransp" data-i="card_transparency"></label><div class="rg" id="ctranspr"><input type="range" id="ctransp" min="0" max="100" step="5"><span class="rv" id="ctranspv"></span></div></div>
+      <div class="srow"><label class="sl" for="grp" data-i="group_by"></label><select id="grp"></select></div>
+    </div>
+    <div id="sethost"></div>
+  </div>
 </div>
 <div id="grip"></div>
 <div id="srcf"></div>
@@ -278,8 +309,9 @@ function applyLook(){
   const p=document.getElementById("pin"); $("i",p).textContent=PANEL.panel_pinned?"\uE841":"\uE718";   /* filled pin = pinned */ p.title=T(PANEL.panel_pinned?"unpin":"pin"); p.setAttribute("aria-label",p.title); p.setAttribute("aria-pressed",PANEL.panel_pinned?"true":"false"); p.style.display=NATIVE?"":"none";
 }
 let modal = false;   // confirm() dialog open -> don't auto-hide
-function ask(m){ return new Promise(res=>{ const d=document.getElementById("dlg"); d.querySelector(".t").textContent=m; d.classList.add("on"); modal=true;
-  const [ok,no]=d.querySelectorAll("button");
+// info: a message with OK only (no choice to make)
+function ask(m, info){ return new Promise(res=>{ const d=document.getElementById("dlg"); d.querySelector(".t").textContent=m; d.classList.add("on"); modal=true;
+  const [ok,no]=d.querySelectorAll("button"); no.style.display=info?"none":"";
   const k=e=>{ if(e.key==="Enter"){e.preventDefault();done(true);} else if(e.key==="Escape"){e.preventDefault();e.stopPropagation();done(false);} };
   const done=v=>{ d.classList.remove("on"); document.removeEventListener("keydown",k,true); setTimeout(()=>{modal=false;},50); res(v); };
   ok.onclick=()=>done(true); no.onclick=()=>done(false); document.addEventListener("keydown",k,true); ok.focus(); }); }
@@ -337,7 +369,19 @@ const I18N_LIST = {
  zh:{attention:"需要处理",history:"历史",ago:"{0}前",just_now:"刚刚",group_by:"任务分组",grp_project:"按项目",grp_source:"按来源",grp_none:"不分组",grp_other:"其他",src_other:"其他"},
  ja:{attention:"要対応",history:"履歴",ago:"{0}前",just_now:"たった今",group_by:"タスクのグループ化",grp_project:"プロジェクト別",grp_source:"ソース別",grp_none:"グループなし",grp_other:"その他",src_other:"その他"}
 };
-for (const k in I18N_UI) Object.assign(I18N[k], I18N_UI[k], I18N_LIST[k]);
+const I18N_SET = {
+ en:{"back":"Back","sec_look":"Appearance","sec_notif":"Notifications","sec_system":"System","sec_about":"About","s_send":"Send","s_setup":"Set up…","s_open":"Open","s_on":"On","s_off":"Off","s_linked":"linked","s_not_linked":"not linked yet","s_not_found":"not found on this PC","s_watching":"{0} repositories","s_conn_note":"More connectors will appear here.","s_version":"Version {0}","s_ed_store":"Microsoft Store","s_ed_github":"GitHub release","s_store_upd":"Updates come from the Microsoft Store","s_mute_off":"Notifications are shown","s_mute_on":"No notifications until you turn them on"},
+ uk:{"back":"Назад","sec_look":"Вигляд","sec_notif":"Сповіщення","sec_system":"Система","sec_about":"Про TaskHub","s_send":"Надіслати","s_setup":"Налаштувати…","s_open":"Відкрити","s_on":"Увімкнено","s_off":"Вимкнено","s_linked":"під’єднано","s_not_linked":"ще не під’єднано","s_not_found":"не знайдено на цьому ПК","s_watching":"{0} репозиторіїв","s_conn_note":"Тут з’являтимуться нові конектори.","s_version":"Версія {0}","s_ed_store":"Microsoft Store","s_ed_github":"Реліз з GitHub","s_store_upd":"Оновлення надходять з Microsoft Store","s_mute_off":"Сповіщення показуються","s_mute_on":"Сповіщень не буде, доки не ввімкнете"},
+ es:{"back":"Atrás","sec_look":"Apariencia","sec_notif":"Notificaciones","sec_system":"Sistema","sec_about":"Acerca de","s_send":"Enviar","s_setup":"Configurar…","s_open":"Abrir","s_on":"Activado","s_off":"Desactivado","s_linked":"vinculado","s_not_linked":"aún sin vincular","s_not_found":"no encontrado en este PC","s_watching":"{0} repositorios","s_conn_note":"Aquí aparecerán más conectores.","s_version":"Versión {0}","s_ed_store":"Microsoft Store","s_ed_github":"Versión de GitHub","s_store_upd":"Las actualizaciones llegan desde Microsoft Store","s_mute_off":"Las notificaciones se muestran","s_mute_on":"Sin notificaciones hasta que las active"},
+ de:{"back":"Zurück","sec_look":"Darstellung","sec_notif":"Benachrichtigungen","sec_system":"System","sec_about":"Info","s_send":"Senden","s_setup":"Einrichten…","s_open":"Öffnen","s_on":"Ein","s_off":"Aus","s_linked":"verbunden","s_not_linked":"noch nicht verbunden","s_not_found":"auf diesem PC nicht gefunden","s_watching":"{0} Repositorys","s_conn_note":"Weitere Konnektoren erscheinen hier.","s_version":"Version {0}","s_ed_store":"Microsoft Store","s_ed_github":"GitHub-Release","s_store_upd":"Updates kommen aus dem Microsoft Store","s_mute_off":"Benachrichtigungen werden angezeigt","s_mute_on":"Keine Benachrichtigungen, bis Sie sie einschalten"},
+ fr:{"back":"Retour","sec_look":"Apparence","sec_notif":"Notifications","sec_system":"Système","sec_about":"À propos","s_send":"Envoyer","s_setup":"Configurer…","s_open":"Ouvrir","s_on":"Activé","s_off":"Désactivé","s_linked":"associé","s_not_linked":"pas encore associé","s_not_found":"introuvable sur ce PC","s_watching":"{0} dépôts","s_conn_note":"D’autres connecteurs apparaîtront ici.","s_version":"Version {0}","s_ed_store":"Microsoft Store","s_ed_github":"Version GitHub","s_store_upd":"Les mises à jour viennent du Microsoft Store","s_mute_off":"Les notifications s’affichent","s_mute_on":"Aucune notification tant que vous ne les réactivez pas"},
+ it:{"back":"Indietro","sec_look":"Aspetto","sec_notif":"Notifiche","sec_system":"Sistema","sec_about":"Informazioni","s_send":"Invia","s_setup":"Configura…","s_open":"Apri","s_on":"Attivo","s_off":"Disattivato","s_linked":"collegato","s_not_linked":"non ancora collegato","s_not_found":"non trovato su questo PC","s_watching":"{0} repository","s_conn_note":"Qui compariranno altri connettori.","s_version":"Versione {0}","s_ed_store":"Microsoft Store","s_ed_github":"Release GitHub","s_store_upd":"Gli aggiornamenti arrivano dal Microsoft Store","s_mute_off":"Le notifiche vengono mostrate","s_mute_on":"Nessuna notifica finché non le riattivi"},
+ pt:{"back":"Voltar","sec_look":"Aparência","sec_notif":"Notificações","sec_system":"Sistema","sec_about":"Sobre","s_send":"Enviar","s_setup":"Configurar…","s_open":"Abrir","s_on":"Ativado","s_off":"Desativado","s_linked":"vinculado","s_not_linked":"ainda não vinculado","s_not_found":"não encontrado neste PC","s_watching":"{0} repositórios","s_conn_note":"Mais conectores aparecerão aqui.","s_version":"Versão {0}","s_ed_store":"Microsoft Store","s_ed_github":"Versão do GitHub","s_store_upd":"As atualizações vêm da Microsoft Store","s_mute_off":"As notificações são exibidas","s_mute_on":"Sem notificações até você ativá-las"},
+ pl:{"back":"Wstecz","sec_look":"Wygląd","sec_notif":"Powiadomienia","sec_system":"System","sec_about":"O programie","s_send":"Wyślij","s_setup":"Skonfiguruj…","s_open":"Otwórz","s_on":"Włączone","s_off":"Wyłączone","s_linked":"połączono","s_not_linked":"jeszcze nie połączono","s_not_found":"nie znaleziono na tym komputerze","s_watching":"Repozytoria: {0}","s_conn_note":"Tu pojawią się kolejne konektory.","s_version":"Wersja {0}","s_ed_store":"Microsoft Store","s_ed_github":"Wydanie z GitHub","s_store_upd":"Aktualizacje przychodzą ze Sklepu Microsoft","s_mute_off":"Powiadomienia są wyświetlane","s_mute_on":"Brak powiadomień, dopóki ich nie włączysz"},
+ zh:{"back":"返回","sec_look":"外观","sec_notif":"通知","sec_system":"系统","sec_about":"关于","s_send":"发送","s_setup":"设置…","s_open":"打开","s_on":"已开启","s_off":"已关闭","s_linked":"已关联","s_not_linked":"尚未关联","s_not_found":"此电脑上未找到","s_watching":"{0} 个仓库","s_conn_note":"更多连接器将显示在这里。","s_version":"版本 {0}","s_ed_store":"Microsoft Store","s_ed_github":"GitHub 发行版","s_store_upd":"更新来自 Microsoft Store","s_mute_off":"会显示通知","s_mute_on":"在你重新开启前不显示通知"},
+ ja:{"back":"戻る","sec_look":"外観","sec_notif":"通知","sec_system":"システム","sec_about":"バージョン情報","s_send":"送信","s_setup":"設定…","s_open":"開く","s_on":"オン","s_off":"オフ","s_linked":"連携済み","s_not_linked":"未連携","s_not_found":"この PC に見つかりません","s_watching":"{0} 個のリポジトリ","s_conn_note":"今後のコネクタはここに表示されます。","s_version":"バージョン {0}","s_ed_store":"Microsoft Store","s_ed_github":"GitHub リリース","s_store_upd":"更新は Microsoft Store から配信されます","s_mute_off":"通知を表示します","s_mute_on":"オンにするまで通知しません"}
+};
+for (const k in I18N_UI) Object.assign(I18N[k], I18N_UI[k], I18N_LIST[k], I18N_SET[k]);
 let LANG = (()=>{ const n=(navigator.language||"en").slice(0,2).toLowerCase(); return I18N[n]?n:"en"; })();
 let LANG_SETTING = "auto";
 function T(k, ...a){ const d=I18N[LANG]||I18N.en; let s=d[k]; if (s==null) s=I18N.en[k]; if (s==null) return k; return a.length? String(s).replace(/\{(\d)\}/g,(_,i)=>a[+i]) : s; }
@@ -354,6 +398,8 @@ function applyLang(){
   sel.innerHTML = `<option value="auto">🌐 ${esc(T("auto"))}</option>` + Object.entries(LANGS).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join("");
   sel.value = LANG_SETTING; sel.title = T("language");
   $("#cfg").title = T("settings"); $("#cfg").setAttribute("aria-label", T("settings"));
+  $("#setback").title = T("back"); $("#setback").setAttribute("aria-label", T("back"));
+  if (typeof renderSet==="function") renderSet();
   $("#theme").innerHTML = ["system","light","dark"].map(v=>`<option value="${v}">${esc(T("th_"+v))}</option>`).join("");
   $("#accent").innerHTML = ["system","taskhub"].map(v=>`<option value="${v}">${esc(T("acc_"+v))}</option>`).join("");
   $("#grp").innerHTML = ["project","source","none"].map(v=>`<option value="${v}">${esc(T("grp_"+v))}</option>`).join("");
@@ -733,6 +779,7 @@ function render(){
   $("#cnt").textContent = T("counts",nAct,data.tasks.length);
   $("#mute i").textContent = data.muted ? "\uE7ED" : "\uEA8F";   // bell crossed out = muted
   $("#mute").title = data.muted ? T("notif_off") : T("notif_on");
+  renderSet();
   place(list, layout());
   requestAnimationFrame(sbUpd);
   // focus request (tray/toast click)
@@ -799,14 +846,69 @@ setInterval(()=>{
 }, 300);
 if (!NATIVE) window.addEventListener("focus",()=>panelShown(true));
 document.addEventListener("visibilitychange",()=>{ if (!NATIVE) panelShown(document.visibilityState==="visible"); });
-document.addEventListener("keydown",e=>{ if(e.key==="Escape" && setBox.classList.contains("on")){ e.preventDefault(); closeSet(); return; } if(e.key==="Escape" && !modal && !Object.values(ui).some(u=>u.formFor)){ if (NATIVE) host("hide"); else api("POST","/api/ui/hide",{}).catch(()=>{}); } });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape" && setOpen() && !modal){ e.preventDefault(); closeSet(); return; } if(e.key==="Escape" && !modal && !Object.values(ui).some(u=>u.formFor)){ if (NATIVE) host("hide"); else api("POST","/api/ui/hide",{}).catch(()=>{}); } });
 // docked panel: resize by its left edge
 $("#grip").addEventListener("mousedown",e=>{ if(e.button!==0) return; e.preventDefault(); host("resize"); });
-// settings popover
+// settings page. Everything that used to be in the tray menu is here; the host's part (autostart, AI agents, Telegram,
+// connectors, updates, folders) goes through WebView2 messages only ({"settings":...} -> {"settings_state":...}).
 const setBox=$("#set");
-const closeSet=()=>setBox.classList.remove("on");
-$("#cfg").onclick=()=>{ setBox.style.top=($("header").getBoundingClientRect().bottom+4)+"px"; setBox.classList.toggle("on"); };
-document.addEventListener("mousedown",e=>{ if(!e.target.closest("#set,#cfg")) closeSet(); });
+let SET=null, setTimer=0;
+const setOpen=()=>document.body.classList.contains("setmode");
+function openSet(){ document.body.classList.add("setmode"); renderSet(); $("#set .sc").focus({preventScroll:true});   // keys scroll the page
+  if (NATIVE){ host({settings:"get"}); clearInterval(setTimer); setTimer=setInterval(()=>{ if (setOpen()) host({settings:"get"}); },3000); } }
+function closeSet(){ if (!setOpen()) return; document.body.classList.remove("setmode"); clearInterval(setTimer); }
+$("#cfg").onclick=()=>setOpen()? closeSet() : openSet();
+$("#setback").onclick=closeSet;
+const HL=(k,f)=>(SET && SET.labels && SET.labels[k]) || f || k;
+const tgl=(k,on,extra)=>`<button class="tgl${on?" on":""}" role="switch" aria-checked="${on?"true":"false"}" data-k="${k}"${extra||""}><i></i></button>`;
+const srow=(title,desc,ctl,cls)=>(ctl=(ctl||"").replace('<button class="tgl',`<button aria-label="${esc(title)}" class="tgl`),   // a switch is named by its row
+  `<div class="srow${cls?" "+cls:""}"><div class="sl"><div>${esc(title)}</div>${desc?`<div class="sd">${esc(desc)}</div>`:""}</div>${ctl}</div>`);
+const sbtn=(what,txt,cls)=>`<button class="btn${cls?" "+cls:""}" data-do="${what}">${esc(txt)}</button>`;
+const ckey=e=>[e.dataset.do,e.dataset.k,e.dataset.agent,e.dataset.kind].join("|");
+function renderSet(){
+  const box=$("#sethost"); if (!box || !setOpen()) return;
+  const s=NATIVE? SET : null, muted=data? !!data.muted : !!(s && s.muted);
+  const sec=(t,rows,note)=>`<h3>${esc(t)}</h3><div class="scard">${rows}</div>`+(note?`<div class="sd" style="margin:5px 4px 0">${esc(note)}</div>`:"");
+  const mute=srow(HL("mute",T("notif_off")), T(muted?"s_mute_on":"s_mute_off"), tgl("muted",muted));
+  let h;
+  if (!s) h=sec(T("sec_notif"),mute);   // the browser page: only what the HTTP API allows
+  else {
+    const tg=s.telegram, up=s.updates;
+    h=sec(T("sec_notif"), mute + srow(HL("test_toast"),"",sbtn("test_toast",T("s_send")))
+      + (tg? srow("Telegram", tg.linked? [tg.bot?"@"+tg.bot:"",T("s_linked")].filter(Boolean).join(" · ")
+          : tg.configured? (tg.status||T("s_not_linked")) : T("s_off"), sbtn("telegram",T("s_setup"))) : ""));
+    h+=sec(HL("connectors"), (s.connectors||[]).map(c=>srow(c.name, !c.enabled? T("s_off")
+        : [c.account, c.status && c.status!=="ok"? c.status : "", c.items? T("s_watching",c.items) : ""].filter(Boolean).join(" · ") || T("s_on"),
+        sbtn(c.id,T("s_setup")))).join(""), T("s_conn_note"));
+    h+=sec(HL("integrations"), (s.agents||[]).map(a=>srow(a.name, a.detected? "" : T("s_not_found"), "")
+        + ["hooks","mcp"].map(k=>srow(HL("menu_"+k),"",tgl("agent",a[k],` data-agent="${a.agent}" data-kind="${k}"`),"sub")).join("")).join(""));
+    h+=sec(T("sec_system"), srow(HL("autostart"),"",tgl("autostart",s.autostart))
+      + (up? srow(HL("updates"), "", up.available? sbtn("update_open",HL("update_to"),"primary") : sbtn("update_check_now",HL("update_check_now")))
+           + srow(HL("update_auto"),"",tgl("update_check",up.auto),"sub")
+           : srow(HL("updates"), T("s_store_upd"), ""))
+      + srow(HL("data_folder"),"",sbtn("data_folder",T("s_open")))
+      + srow(HL("api_help"),"",sbtn("api_help",T("s_open"))));
+    h+=sec(T("sec_about"), srow("TaskHub "+s.version, T(s.edition==="store"?"s_ed_store":"s_ed_github"), sbtn("support",HL("support"),"heart")));
+  }
+  if (box.__h===h) return;
+  // keep the focus on the same control across a re-render (the state comes back every few seconds)
+  const f=document.activeElement, fk=f && box.contains(f) ? ckey(f) : null;
+  box.innerHTML=h; box.__h=h;
+  if (fk) for (const e of box.querySelectorAll("button")) if (ckey(e)===fk){ e.focus({preventScroll:true}); break; }
+}
+$("#sethost").addEventListener("click",e=>{
+  const t=e.target.closest("button"); if (!t || t.disabled) return;
+  if (t.dataset.do){ host({settings:"do",what:t.dataset.do}); return; }
+  const k=t.dataset.k, on=!t.classList.contains("on");
+  t.classList.toggle("on",on); t.setAttribute("aria-checked",on?"true":"false");   // at once; the host's reply confirms or reverts
+  if (k==="muted" && !NATIVE){ api("POST","/api/settings",{muted:on}).then(()=>setTimeout(renderSet,300)).catch(er=>snack(er.message)); return; }
+  if (k==="agent") host({settings:"set",agent:t.dataset.agent,kind:t.dataset.kind,on});
+  else host({settings:"set",[k]:on});
+});
+function settingsReply(d){
+  SET=d.settings_state; renderSet();
+  if (d.error || d.note) ask(d.error || d.note, true);
+}
 const setPanel=b=>api("POST","/api/settings",b).then(r=>{ if(r.panel){ PANEL=r.panel; applyLook(); } }).catch(e=>snack(e.message));
 $("#theme").onchange=e=>setPanel({theme:e.target.value});
 $("#accent").onchange=e=>setPanel({accent:e.target.value});
@@ -860,6 +962,8 @@ try{ if(localStorage.th_f) filt=localStorage.th_f; }catch(e){}
 if (NATIVE){ document.documentElement.classList.add("native"); try{ window.chrome.webview.addEventListener("message",e=>{ const d=e.data; if(d && d.look){ LOOK=d.look; applyLook(); }
   if(d && d.shown) panelShown(true);
   if(d && d.paint){ requestAnimationFrame(()=>requestAnimationFrame(()=>host("painted"))); }
+  if(d && d.open_settings) openSet();
+  if(d && d.settings_state) settingsReply(d);
   if(d && d.hidden){ panelShown(false); closeSet(); const a=document.activeElement; if (a && a.closest && a.closest("header,#set")) a.blur(); } }); }catch(e){} host("look"); }
 else { for (const id of ["transpl","transpr","ctranspl","ctranspr"]) $("#"+id).style.display="none"; }
 applyLang();

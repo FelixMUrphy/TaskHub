@@ -18,7 +18,7 @@ loopback only.
 [API reference](API.md) · [Privacy](PRIVACY.md) · [❤ Sponsor](https://github.com/sponsors/FelixMUrphy)
 
 > **AI agent reading this?** Claude Code / Codex: use the TaskHub **MCP tools** (`task_start`, `notify`, …). If you don't
-> see them, don't use `curl` - ask the user to enable *TaskHub tools (MCP)* (tray → *AI agents*) and to start a new
+> see them, don't use `curl` - ask the user to enable *TaskHub tools (MCP)* (panel → ⚙ *Settings* → *AI agents*; before 2.9: tray → *AI agents*) and to start a new
 > session. Details: [API.md → AI agents](API.md#ai-agents-read-this-first).
 
 ## Why
@@ -47,11 +47,14 @@ loopback only.
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
   plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
-- **Update check**: a notification when a new version is released (once a day; tray → *Updates*).
+- **Update check**: a notification when a new version is released (once a day; switch and *Check now* in Settings → *System*, before 2.9 in the tray menu).
 - **Panel like the Windows notification center**: docked to the right edge of the screen at full height, slides in
   and out (instant if Windows animations are off), width by dragging its left edge, a pin to keep it open; blurred
   see-through background and cards (*Panel transparency*; *Card transparency* from 2.9 — in ⚙), light / dark theme and accent colour follow Windows
   (or set in ⚙).
+- **Settings in the panel** *(from 2.9)*: ⚙ in the panel (or *Settings* in the tray menu) opens one page with everything —
+  appearance, notifications and Telegram, connectors, AI agents, autostart, updates, data folder, API reference; the tray
+  menu keeps only the quick actions (open the panel, mute, settings, support, exit) in the Windows 11 style.
 - 10 UI languages (English, Українська, Español, Deutsch, Français, Italiano, Português, Polski, 中文, 日本語).
 - Per-user install, no admin rights, no .NET runtime needed; self-healing autostart.
 
@@ -88,7 +91,7 @@ agents (ChatGPT, scripts, any tool with a shell) — add one line to `AGENTS.md`
 > `taskhub run --name ... -- <cmd>`).
 
 ### Claude Code and Codex: one click
-The setup dialog (and later the tray menu → *AI agents*) has two independent options per agent:
+The setup dialog (and later Settings → *AI agents*; before 2.9 the tray menu) has two independent options per agent:
 
 | Option | What you get | Where TaskHub writes |
 |---|---|---|
@@ -107,7 +110,7 @@ Scripted: `TaskHubHost.exe --integrations claude=on codex=on claude-mcp=on codex
 [API.md → Claude Code hooks](API.md#claude-code-hooks), [Codex hooks](API.md#codex-hooks), [MCP server](API.md#mcp-server).
 
 ### Telegram
-Tray menu → *Telegram…*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
+Settings → *Notifications* → *Telegram* (before 2.9: tray menu → *Telegram…*): create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
 *Connect*, scan the QR code with your phone (or open the link on this PC) and press *Start* (in a private chat with the bot:
 groups can't be linked, since every member could press the tasks' buttons). To link another account
 later (e.g. the one on your phone), leave the token field empty and press *Connect* again. From then on every notification TaskHub shows also arrives in
@@ -120,7 +123,7 @@ when you are away from the PC (no keyboard / mouse for 5 min, `telegram_away_min
 is stored in `%APPDATA%\TaskHub\config.json`; messages go from your PC straight to Telegram's Bot API.
 
 ### GitHub Actions
-*From version 2.9; off until you turn it on.* Tray menu → *Connectors* → *GitHub Actions…*: list the repositories (`owner/repo`) and give access — your own
+*From version 2.9; off until you turn it on.* Settings → *Connectors* → *GitHub Actions*: list the repositories (`owner/repo`) and give access — your own
 [fine-grained token](https://github.com/settings/personal-access-tokens/new) limited to those repositories (Actions: Read and
 write, Contents: Read-only, Metadata: Read-only; kept in the Windows Credential Manager, never in `config.json`), or the token
 the Git Credential Manager already has (broad rights: all your repositories). Your workflows stay unchanged. Each run becomes a
@@ -139,13 +142,13 @@ install the setup shows the installed version and folder (the version is read fr
   [--codex|--no-codex] [--claude-mcp|--no-claude-mcp] [--codex-mcp|--no-codex-mcp] --quiet` (agent options not given stay unchanged)
 - Uninstall: *Apps & features* → TaskHub, or `TaskHubHost.exe --uninstall [--quiet] [--purge]`
   (`--purge` also deletes the data in `%APPDATA%\TaskHub`). Also removes TaskHub's entries from the Claude Code / Codex settings.
-- Autostart restores itself (also if disabled in Task Manager) unless you turn it off in the tray menu.
+- Autostart restores itself (also if disabled in Task Manager) unless you turn it off in Settings → *System* (before 2.9: the tray menu).
 - Requirements: Windows 10 1809+ / 11 x64, WebView2 runtime (preinstalled on current Windows).
 - Port 47800, `127.0.0.1` only, CSRF header + Host/Origin checks; optional bearer token (`"token"` in `config.json`).
 
 Updates: once a day the installed hub looks up the latest release on GitHub (one request to `api.github.com`, nothing is
-downloaded or installed) and shows a notification when a newer version is out; tray → *Updates* has *Check now* and the
-*Check daily* switch (`"update_check": false` in `config.json`). Run the new setup.exe to update.
+downloaded or installed) and shows a notification when a newer version is out; Settings → *System* has *Check now* and the
+*Check daily* switch (before 2.9: tray → *Updates*) (`"update_check": false` in `config.json`). Run the new setup.exe to update.
 
 Toast timing: `toast_seconds` / `toast_seconds_interactive` (4 s / 8 s) in `config.json`; afterwards notifications stay
 in the notification center.

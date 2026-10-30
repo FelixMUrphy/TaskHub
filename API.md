@@ -183,7 +183,7 @@ Python client built-ins: `stop` → `t.stop_requested`; `pause`/`resume` (`pausa
 Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in update/log, `/api/notify`. Global mute in tray or panel.
 
 ## Connectors: GitHub Actions
-Tray → Connectors → GitHub Actions… (or `POST /api/connectors/github`). Each workflow run of the chosen repositories is a task:
+Panel → ⚙ Settings → Connectors → GitHub Actions (or `POST /api/connectors/github`). Each workflow run of the chosen repositories is a task:
 id `gh-<run id>`, source `github`, project = repository name, description `owner/repo · branch · sha · @actor · event`;
 progress by the steps of all jobs, `stage` = job › step, ETA from the median duration of the workflow's last successful runs;
 on failure the message names the job › step, and (option `logs`) the last 30 lines of its log go to the task log.
@@ -204,7 +204,7 @@ going, slower near the rate limit. A notification warns 7 days before the token 
 `mcp` ([MCP server](#mcp-server)), `hook claude|codex` (agent hooks). `taskhub --help`.
 
 ## Claude Code hooks
-Easiest: setup dialog checkbox or tray → *AI agents* (or `TaskHubHost.exe --integrations claude=on codex=on`)
+Easiest: setup dialog checkbox or Settings → *AI agents* (before 2.9: tray → *AI agents*) (or `TaskHubHost.exe --integrations claude=on codex=on`)
 writes exactly these entries for you and removes them on uninstall. Manual setup:
 Notifications when Claude Code finishes a response (`Stop`, toast shows the first line of the answer and the project folder)
 or waits for a permission / your answer (`Notification`). Add to `~/.claude/settings.json` (or install the
@@ -239,7 +239,7 @@ trusted once in Codex (`/hooks`). Do **not** replace an existing `notify = [...]
 ## MCP server
 `taskhub mcp [--source NAME]` is a stdio [MCP](https://modelcontextprotocol.io) server for AI agents with the tools
 `notify`, `task_start`, `task_update`, `task_finish`, `task_commands` (button presses / input values, acknowledged on read)
-and `task_list`. It starts the hub on the first tool call. Enable it in the setup dialog / tray → *AI agents*, or by hand:
+and `task_list`. It starts the hub on the first tool call. Enable it in the setup dialog / Settings → *AI agents* (before 2.9: tray → *AI agents*), or by hand:
 - Claude Code (user scope, `~/.claude.json`): `"mcpServers": {"taskhub": {"type": "stdio", "command": "<install dir>\\taskhub.exe", "args": ["mcp", "--source", "claude"]}}`
   (or `claude mcp add --scope user taskhub -- "<install dir>\taskhub.exe" mcp --source claude`)
 - Codex (`~/.codex/config.toml`; TaskHub's setup writes the same and keeps the rest of the file):
