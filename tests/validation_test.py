@@ -98,7 +98,100 @@ check("shell: last line and exit code logged", "[big] line 3000" in msgs and "[b
 check("shell: output tail only (25 lines)", sum(m.startswith("[big] line ") for m in msgs) == 25, len(msgs))
 check("shell: timeout after 1s", "[slow] failed: timeout after 1s" in msgs, msgs[-5:])
 
-for tid in ("v-nan", "v-nan2", "v-xss", "v-val", "v-atom", "v-sh"):
+# ---- shell controls: a typed value is plain text for cmd.exe (2.9: TASKHUB_VALUE + delayed expansion), never extra commands
+import tempfile
+shdir = tempfile.mkdtemp(prefix="taskhub-shinj-")
+call("POST", "/api/tasks", {"id": "v-inj", "name": "inject", "controls": [
+    {"id": "plain", "kind": "shell", "command": "echo [{value}]", "cwd": shdir, "input": {"type": "text"}},
+    {"id": "quoted", "kind": "shell", "command": 'echo "[{value}]"', "cwd": shdir, "input": {"type": "text"}},
+    {"id": "lst", "kind": "shell", "cwd": shdir, "input": {"type": "text"},
+     "command": [sys.executable, "-c", "import os,sys;print('ARG', sys.argv[1], 'ENV', os.environ.get('TASKHUB_VALUE'))", "{value}"]}]})
+
+
+def run_ctl(cid, value):
+    """Presses a shell control and returns the log lines of that run."""
+    def ends(t):
+        return sum(l["msg"].startswith(f"[{cid}] exit") or l["msg"].startswith(f"[{cid}] failed") for l in t["log"])
+    _, t0 = call("GET", "/api/tasks/v-inj")
+    n0 = ends(t0)
+    s, r = call("POST", f"/api/tasks/v-inj/controls/{cid}", {"value": value})
+    if s != 200:
+        return [f"HTTP {s} {r}"]
+    for _ in range(80):
+        time.sleep(0.15)
+        _, t = call("GET", "/api/tasks/v-inj")
+        if ends(t) > n0:
+            msgs = [l["msg"] for l in t["log"]]
+            start = max(i for i, m in enumerate(msgs) if m.startswith("⇢ "))
+            return msgs[start + 1:]
+    return ["timeout"]
+
+
+evil = ["a & echo PWNED > pwn.txt", "%PATH%", '"quoted"', "^", "|", "<", ">", "!PATH!", 'x"&echo PWNED>pwn2.txt&"',
+        "a | echo PWNED > pwn3.txt", "^& echo PWNED > pwn4.txt"]
+for v in evil:
+    out = run_ctl("plain", v)
+    check(f"shell value as text: {v!r}", f"[plain] [{v}]" in out and "[plain] exit 0" in out, out)
+    out = run_ctl("quoted", v)
+    check(f"shell value in quotes as text: {v!r}", f'[quoted] "[{v}]"' in out and "[quoted] exit 0" in out, out)
+out = run_ctl("plain", "")
+check("shell: empty value -> nothing", "[plain] []" in out, out)
+out = run_ctl("lst", 'a & b "c" %PATH%')
+check("shell list: value is one argument + TASKHUB_VALUE", '[lst] ARG a & b "c" %PATH% ENV a & b "c" %PATH%' in out, out)
+check("shell: no injected command ran", not [f for f in os.listdir(shdir) if f.startswith("pwn")], os.listdir(shdir))
+
+# list form: {value} can't choose the program; .bat / .cmd programs can't take {value}
+for cmd in (["{value}"], ["x.bat", "{value}"], ["C:/t/run.CMD. ", "--x={value}"]):
+    s, r = call("POST", "/api/tasks", {"id": "v-inj2", "name": "x", "controls": [{"id": "c", "kind": "shell", "command": cmd}]})
+    check(f"shell list {cmd!r} -> 400", s == 400, (s, r))
+s, r = call("POST", "/api/tasks", {"id": "v-inj2", "name": "x", "controls": [{"id": "c", "kind": "shell", "command": ["x.bat", "fixed", "{task_id}"]}]})
+check("shell list .bat without {value} -> 200", s == 200, (s, r))
+
+# ---- links: only http / https / mailto / file or an absolute path (2.9); others -> 400, an update stays atomic
+good = ["https://example.com/x", "http://127.0.0.1:8080/", "mailto:a@example.com", "file:///E:/proj/out", "E:/proj/out",
+        "\\\\server\\share\\x", {"label": "r", "url": "file:///C:/Windows"}, {"label": "empty", "url": ""}]
+s, r = call("POST", "/api/tasks", {"id": "v-lnk", "name": "links", "links": good})
+check("links: allowed schemes -> 200", s == 200, (s, r))
+for bad in ("javascript:alert(1)", "ms-settings:privacy", "taskhub://x", "search-ms:query=x", "relative/path.exe",
+            {"label": "x", "url": "vbscript:x"}, 5):
+    s, r = call("POST", "/api/tasks", {"id": "v-lnk2", "name": "links", "links": [bad]})
+    check(f"links: {bad!r} -> 400", s == 400, (s, r))
+s, r = call("POST", "/api/tasks", {"id": "v-lnk2", "name": "links", "links": {"url": "https://x"}})
+check("links: not a list -> 400", s == 400, (s, r))
+s, _ = call("POST", "/api/tasks/v-lnk/update", {"status": "changed", "links": ["https://ok", "javascript:x"]})
+_, t = call("GET", "/api/tasks/v-lnk")
+check("links: bad update -> 400, nothing changed", s == 400 and t["status"] == "" and len(t["links"]) == len(good), (s, t["status"], t["links"]))
+s, _ = call("POST", "/api/tasks/v-lnk/update", {"links": ["https://example.org"]})
+_, t = call("GET", "/api/tasks/v-lnk")
+check("links: good update replaces", s == 200 and t["links"] == ["https://example.org"], t["links"])
+
+# ---- a pid whose start time can't be read (not a Windows pid, e.g. from WSL): no automatic Kill, a declared one refused
+s, r = call("POST", "/api/tasks", {"id": "v-pid", "name": "wsl pid", "pid": 99999996})
+_, t = call("GET", "/api/tasks/v-pid")
+check("unknown pid: no automatic Kill control", s == 200 and not any(c["id"] == "kill" for c in t["controls"]), t and t["controls"])
+call("POST", "/api/tasks", {"id": "v-pid2", "name": "wsl pid", "pid": 99999996, "controls": [{"id": "k", "kind": "kill"}]})
+s, r = call("POST", "/api/tasks/v-pid2/controls/k", {})
+_, t = call("GET", "/api/tasks/v-pid2")
+check("unknown pid: Kill refused (409), task not cancelled", s == 409 and "creation time" in str(r) and t["state"] != "cancelled", (s, r, t["state"]))
+call("POST", "/api/tasks", {"id": "v-pid3", "name": "own pid", "pid": os.getpid()})
+_, t = call("GET", "/api/tasks/v-pid3")
+check("Windows pid: automatic Kill control", any(c["id"] == "kill" for c in t["controls"]), t["controls"])
+
+# ---- python client: its own pid only on Windows Python (WSL / MSYS / Cygwin pids aren't Windows pids)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "clients", "python"))
+import taskhub_client
+real_platform = sys.platform
+try:
+    sys.platform = "linux"
+    t_l = taskhub_client.Task("x", poll=False)
+    sys.platform = "win32"
+    t_w = taskhub_client.Task("x", poll=False)
+finally:
+    sys.platform = real_platform
+check("python client: no pid outside Windows", "pid" not in t_l._reg, t_l._reg.get("pid"))
+check("python client: own pid on Windows", t_w._reg.get("pid") == os.getpid(), t_w._reg.get("pid"))
+
+for tid in ("v-nan", "v-nan2", "v-xss", "v-val", "v-atom", "v-sh", "v-inj", "v-inj2", "v-lnk", "v-lnk2", "v-pid", "v-pid2", "v-pid3"):
     call("DELETE", f"/api/tasks/{tid}?force=1")
 print("\n%d failure(s)" % fails)
 sys.exit(1 if fails else 0)

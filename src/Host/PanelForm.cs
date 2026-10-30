@@ -251,10 +251,26 @@ sealed class PanelForm : Form
         cw.Settings.IsPasswordAutosaveEnabled = false;
         cw.Settings.IsGeneralAutofillEnabled = false;
         cw.WebMessageReceived += OnWebMessage;
-        cw.NewWindowRequested += (_, e) => { e.Handled = true; SafeOpen(e.Uri); };
-        cw.NavigationStarting += (_, _) => { ready = false; lookSent = null; };
+        // the panel shows only its own page: new windows and any other navigation (a link, a script, a dropped file)
+        // are cancelled; web addresses go to the default browser instead, nothing else is opened
+        web.AllowExternalDrop = false;
+        cw.NewWindowRequested += (_, e) => { e.Handled = true; SafeOpen(e.Uri, false); };
+        cw.NavigationStarting += (_, e) =>
+        {
+            if (!IsPanelUrl(e.Uri))
+            {
+                e.Cancel = true;
+                cancelledNavs.Add(e.NavigationId);
+                Log.W("panel: navigation away cancelled");
+                SafeOpen(e.Uri, false);
+                return;
+            }
+            ready = false; lookSent = null;
+        };
+        cw.FrameNavigationStarting += (_, e) => { e.Cancel = true; };
         cw.NavigationCompleted += (_, e) =>
         {
+            if (cancelledNavs.Remove(e.NavigationId)) return;   // a navigation cancelled above: the page stays as it was
             ready = e.IsSuccess;
             if (!e.IsSuccess) { Log.W("panel navigation failed: " + e.WebErrorStatus); ReloadSoon(); return; }
             ApplyLook();
@@ -275,15 +291,35 @@ sealed class PanelForm : Form
         });
     }
 
-    static void SafeOpen(string url)
+    readonly HashSet<ulong> cancelledNavs = new();
+    static readonly string Explorer = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+
+    /// <summary>The panel's own page (any #fragment / ?query) on this hub.</summary>
+    bool IsPanelUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var u)
+        && string.Equals(u.GetLeftPart(UriPartial.Path), S.Url + "/ui", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Opens a link from the panel: http / https / mailto in the default handler. A local or network file
+    /// (file: URL or a plain path; only when <paramref name="local"/>, i.e. task links) is never run: a folder opens in
+    /// Explorer, a file is shown selected in its folder. Anything else is refused.</summary>
+    static void SafeOpen(string url, bool local)
     {
         try
         {
-            if (Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Scheme is "http" or "https" or "file" or "mailto")
-                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })?.Dispose();
-            else if (!url.Contains("://") && (File.Exists(url) || Directory.Exists(url)))
-                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })?.Dispose();
-            else Log.W("refused to open " + url);
+            if (!Hub.LinkOk(url, out var u)) { Log.W("refused to open " + J.Cut(url ?? "", 200)); return; }
+            if (!u.IsFile)
+            {
+                Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true })?.Dispose();
+                return;
+            }
+            if (!local) { Log.W("refused to open a local path from a page"); return; }
+            var path = u.LocalPath;
+            if (Directory.Exists(path))
+                Process.Start(new ProcessStartInfo(Explorer, "\"" + Path.TrimEndingDirectorySeparator(path) + "\"")
+                    { UseShellExecute = false })?.Dispose();
+            else if (File.Exists(path))
+                Process.Start(new ProcessStartInfo(Explorer, "/select,\"" + path + "\"") { UseShellExecute = false })?.Dispose();
+            else Log.W("open: path not found");
         }
         catch (Exception e) { Log.W("open failed: " + e.Message); }
     }
@@ -305,6 +341,10 @@ sealed class PanelForm : Form
 
     void OnWebMessage(object sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        // every message only from our own page (navigation elsewhere is cancelled, but be sure)
+        string src;
+        try { src = e.Source; } catch { src = null; }
+        if (!IsPanelUrl(src)) { Log.W("panel: message from another page ignored"); return; }
         string msg;
         try { msg = e.TryGetWebMessageAsString(); } catch { msg = null; }
         if (msg == null)
@@ -312,9 +352,8 @@ sealed class PanelForm : Form
             try
             {
                 var o = J.Parse(e.WebMessageAsJson) as JsonObject;
-                if (o?["open"] != null) SafeOpen(J.Str(o["open"]));
-                // settings page: only from our own page (the panel never navigates elsewhere, but be sure)
-                if (o?["settings"] != null && SettingsPage != null && e.Source.StartsWith(S.Url + "/ui", StringComparison.OrdinalIgnoreCase))
+                if (o?["open"] != null) SafeOpen(J.Str(o["open"]), true);
+                if (o?["settings"] != null && SettingsPage != null)
                     _ = ReplySettings(o);
             }
             catch { }

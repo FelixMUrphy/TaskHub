@@ -33,6 +33,8 @@ loopback only.
   stats with deltas, LEDs, key-value lists, tables, text.
 - **Controls declared by the task itself**: buttons, number/text/select inputs, confirmations, shell commands,
   open-file/folder, graceful stop, pause/resume, kill. Values go back to the process over long-polling.
+- **Task links** open in the browser; from 2.9 a file / folder link is shown in Explorer (never run), its address is
+  in the link's tooltip, and a shell command gets a typed value as plain text (no extra commands from `&`, `|`…).
 - **Windows notifications** on finish / failure / stall by default; start, milestone (plain) and log notifications on
   request; the task's buttons and input fields in notifications if it asks; a live progress notification; quiet while the
   panel is open.

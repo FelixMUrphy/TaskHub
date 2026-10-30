@@ -226,7 +226,9 @@ class Task:
         self._reg = _clean({"name": name, "total": total, "unit": unit,
                             "source": source or os.environ.get("TASKHUB_SOURCE", ""),
                             "description": description, "controls": ctr, "widgets": list(widgets),
-                            "pid": os.getpid() if pid is None else (pid or None),
+                            # own pid only on Windows Python: under WSL / MSYS / Cygwin it isn't a Windows pid, and the
+                            # hub would watch (and Kill could hit) an unrelated process
+                            "pid": (os.getpid() if sys.platform == "win32" else None) if pid is None else (pid or None),
                             "heartbeat_timeout": heartbeat_timeout, "notify": n, "meta": meta, "links": links,
                             "id": id, "kill_control": kill_control, "cwd": cwd or os.getcwd(),
                             "progress_toast": progress_toast})
@@ -515,7 +517,7 @@ def _cli_run(a):
         prog_rx = re.compile(r"(?P<pct>\d{1,3}(?:\.\d+)?)\s?%|(?P<cur>\d+)\s?/\s?(?P<tot>\d+)")
     stat_rx = re.compile(a.status_regex) if a.status_regex else None
     widgets = [W.text("last", "Last line", mono=True, span=2)]
-    t = Task(a.name or " ".join(cmd)[:80], source=a.source, pid=proc.pid, stoppable=False,
+    t = Task(a.name or " ".join(cmd)[:80], source=a.source, pid=proc.pid if is_win else 0, stoppable=False,
              description=a.description or " ".join(cmd)[:300], heartbeat_timeout=a.heartbeat,
              widgets=widgets, milestones=a.milestones, cwd=a.cwd or os.getcwd(),
              controls=[C.signal("interrupt", "Ctrl+C", confirm="Надіслати Ctrl+C / SIGINT?"),

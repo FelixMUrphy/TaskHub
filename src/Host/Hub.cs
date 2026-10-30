@@ -286,6 +286,7 @@ sealed class Hub
             var cmd = c["command"];
             bool ok = J.IsStr(cmd) || (cmd is JsonArray ca && ca.Count > 0 && ca.All(J.IsStr));
             if (!ok) throw new ApiError(400, "shell control needs command (string or list of strings)");
+            if (cmd is JsonArray la) ShellListCheck(la.Select(x => J.Str(x)).ToList());
             r["command"] = J.C(cmd);
             r["cwd"] = J.C(c["cwd"]);
             r["timeout"] = J.Num(c["timeout"]) is double to && to > 0 ? to : 300;
@@ -296,6 +297,29 @@ sealed class Hub
             r["target"] = J.Str(c["target"]);
         }
         return r;
+    }
+
+    /// <summary>A task link the panel may open: http / https / mailto, or a local / network path (file: URL or an
+    /// absolute path), which the panel only shows in Explorer, never runs.</summary>
+    public static bool LinkOk(string url, out Uri u)
+    {
+        u = null;
+        return !string.IsNullOrWhiteSpace(url) && Uri.TryCreate(url.Trim(), UriKind.Absolute, out u)
+            && u.Scheme is "http" or "https" or "mailto" or "file";
+    }
+
+    /// <summary>links: a list of URLs or {label, url}; any other scheme (javascript:, custom protocols...) -> 400.</summary>
+    static JsonArray NormLinks(JsonNode ln)
+    {
+        if (ln == null) return new JsonArray();
+        if (ln is not JsonArray la) throw new ApiError(400, "links must be a list");
+        foreach (var l in la)
+        {
+            var url = l is JsonObject lo ? J.Str(lo["url"]) : J.IsStr(l) ? J.Str(l) : throw new ApiError(400, "link must be a string or {label, url}");
+            if (url.Length > 0 && !LinkOk(url, out _))
+                throw new ApiError(400, $"link '{J.Cut(url, 60)}': only http, https, mailto and file links (or an absolute path)");
+        }
+        return (JsonArray)la.DeepClone();
     }
 
     JsonObject NormWidget(JsonNode wn)
@@ -453,8 +477,12 @@ sealed class Hub
             if (J.Num(b["pid"]) is double pd) pid = (int)pd;
             else throw new ApiError(400, "pid must be int");
         }
+        var links = NormLinks(b["links"]);
+        // the creation time tells the registered process from a later one with the same pid; without it (a pid that
+        // isn't a Windows process, e.g. from WSL / MSYS) Kill could hit an unrelated process, so no Kill control then
+        long? ct = pid is > 0 ? Native.CreateTime(pid.Value) : null;
         bool killCtl = !b.ContainsKey("kill_control") || J.Truthy(b["kill_control"]);
-        if (pid is > 0 && killCtl && !controls.Any(c => J.Str(c["id"]) == "kill"))
+        if (pid is > 0 && ct != null && killCtl && !controls.Any(c => J.Str(c["id"]) == "kill"))
             controls.Add(NormControl(new JsonObject
             {
                 ["id"] = "kill", ["label"] = "Kill", ["kind"] = "kill", ["style"] = "danger",
@@ -499,7 +527,7 @@ sealed class Hub
                 ["heartbeat_timeout"] = J.Num(b["heartbeat_timeout"]) ?? 0,
                 ["expected_duration"] = J.Num(b["expected_duration"]) is double ed && ed > 0 ? ed : null,
                 ["meta"] = J.C(b["meta"]) ?? new JsonObject(),
-                ["links"] = J.C(b["links"]) ?? new JsonArray(),
+                ["links"] = links,
                 ["result"] = null, ["message"] = "", ["seen"] = true,
                 ["milestones_hit"] = new JsonArray(),
                 ["commands"] = old != null ? J.C(old["commands"]) ?? new JsonArray() : new JsonArray(),
@@ -520,7 +548,7 @@ sealed class Hub
                 }
             }
             tasks[tid] = t;
-            internals[tid] = new Internal { Ct = pid is > 0 ? Native.CreateTime(pid.Value) : null };
+            internals[tid] = new Internal { Ct = ct };
             AddLog(t, (resumed ? "re-registered" : "registered") + (pid != null ? $" (pid {pid})" : ""), "sys");
             Prune();
             Bump();
@@ -540,6 +568,7 @@ sealed class Hub
         var setControls = b["controls"] is JsonArray bc ? bc.Select(c => NormControl(c, trusted)).ToArray<JsonNode>() : null;
         var addControls = b["add_controls"] is JsonArray ac ? ac.Select(c => NormControl(c, trusted)).ToList() : null;
         var addWidgets = b["add_widgets"] is JsonArray aw ? aw.Select(NormWidget).ToList() : null;
+        var setLinks = b["links"] is JsonArray ? NormLinks(b["links"]) : null;
         lock (Lock)
         {
             var t = Get(tid);
@@ -579,7 +608,7 @@ sealed class Hub
                 if (m == null) t["meta"] = m = new JsonObject();
                 foreach (var (k, v) in bmeta) m[k] = J.C(v);
             }
-            if (b["links"] is JsonArray bl) t["links"] = J.C(bl);
+            if (setLinks != null) t["links"] = setLinks;
             if (b.ContainsKey("expected_duration")) t["expected_duration"] = J.Num(b["expected_duration"]) is double ed && ed > 0 ? ed : null;
             var bs = J.Str(b["state"]);
             if (bs is "running" or "paused" && IsActive(St(t)))
@@ -882,6 +911,8 @@ sealed class Hub
             var t = Get(tid);
             c = (t["controls"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().FirstOrDefault(x => J.Str(x["id"]) == cid);
             if (c == null) throw new ApiError(404, $"control '{cid}' not found");
+            if (J.Str(c["kind"]) == "kill" && J.Num(t["pid"]) is double kp && kp > 0 && In(tid).Ct == null)
+                throw new ApiError(409, "kill refused: the process's creation time wasn't known at registration, so the pid can't be told from a reused one");
             var states = (c["states"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x)).ToList();
             if (!states.Contains(St(t))) throw new ApiError(409, $"control '{cid}' not available in state '{St(t)}'");
             value = CheckValue(c["input"] as JsonObject, value);
@@ -1004,17 +1035,22 @@ sealed class Hub
         Process.Start(new ProcessStartInfo(target) { UseShellExecute = true })?.Dispose();
     }
 
+    /// <summary>Shell control as a list: the value may not choose the program, and .bat / .cmd targets (run through
+    /// cmd.exe, where the argument quoting doesn't hold) can't take {value}. 400 otherwise.</summary>
+    static void ShellListCheck(List<string> parts)
+    {
+        if (parts.Count == 0) return;
+        if (parts[0].Contains("{value}")) throw new ApiError(400, "shell control: {value} can't be in the program (first item)");
+        var ext = Path.GetExtension(parts[0].TrimEnd(' ', '.')).ToLowerInvariant();
+        if (ext is ".bat" or ".cmd" && parts.Skip(1).Any(a => a.Contains("{value}")))
+            throw new ApiError(400, "shell control: a .bat / .cmd program can't take {value} in a list command (cmd.exe would parse it); use the string form");
+    }
+
     void RunShell(string tid, JsonObject c, JsonNode value, int? pid)
     {
-        var subs = new Dictionary<string, string>
-        {
-            ["value"] = value == null ? "" : J.Str(value), ["pid"] = pid?.ToString() ?? "", ["task_id"] = tid,
-        };
-        string Sub(string s)
-        {
-            foreach (var (k, v) in subs) s = s.Replace("{" + k + "}", v);
-            return s;
-        }
+        var val = value == null ? "" : J.Str(value);
+        // {pid} and {task_id} are digits / [A-Za-z0-9_.-]; only {value} comes from the user (panel, toast, Telegram)
+        string Sub(string s, string v) => s.Replace("{pid}", pid?.ToString() ?? "").Replace("{task_id}", tid).Replace("{value}", v);
         var cid = J.Str(c["id"]);
         List<string> lines;
         string level;
@@ -1024,14 +1060,24 @@ sealed class Hub
             var cmd = c["command"];
             if (cmd is JsonArray ca)
             {
-                var parts = ca.Select(x => Sub(J.Str(x))).ToList();
+                // each item is one argument (ArgumentList quotes it); see ShellListCheck for .bat / .cmd
+                var tpl = ca.Select(x => J.Str(x)).ToList();
+                ShellListCheck(tpl);
+                var parts = tpl.Select(x => Sub(x, val)).ToList();
                 psi = new ProcessStartInfo(parts[0]);
                 foreach (var a in parts.Skip(1)) psi.ArgumentList.Add(a);
             }
             else
             {
+                // the value never enters the command line cmd.exe parses: it goes in TASKHUB_VALUE and {value} becomes
+                // !TASKHUB_VALUE! with delayed expansion (/v:on), which cmd expands only after it has split the line into
+                // commands, pipes and redirections - so & | < > ^ % " ! in the value stay plain text (%VAR% would be
+                // expanded before parsing and is not safe). An empty value is substituted as nothing (an empty variable
+                // counts as undefined and would stay as the literal !TASKHUB_VALUE!).
+                var line = J.Str(cmd);
+                bool hasValue = line.Contains("{value}");
                 psi = new ProcessStartInfo("cmd.exe");
-                psi.Arguments = "/d /s /c \"" + Sub(J.Str(cmd)) + "\"";
+                psi.Arguments = (hasValue ? "/v:on " : "") + "/d /s /c \"" + Sub(line, val.Length > 0 ? "!TASKHUB_VALUE!" : "") + "\"";
             }
             psi.UseShellExecute = false;
             psi.CreateNoWindow = true;
@@ -1040,6 +1086,8 @@ sealed class Hub
             psi.Environment["PYTHONIOENCODING"] = "utf-8";
             psi.Environment["TASKHUB_TASK_ID"] = tid;
             psi.Environment["TASKHUB_URL"] = S.Url;
+            // both forms; the string form reads it via !TASKHUB_VALUE!
+            if (val.Length > 0) psi.Environment["TASKHUB_VALUE"] = val; else psi.Environment.Remove("TASKHUB_VALUE");
             if (J.Truthy(c["cwd"])) psi.WorkingDirectory = J.Str(c["cwd"]);
             using var p = Process.Start(psi);
             // only the last 25 lines go to the log: keep just those, however much the command prints

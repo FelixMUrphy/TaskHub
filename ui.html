@@ -602,9 +602,9 @@ function updCard(el, t){
   const meta=[];
   if (t.pid) meta.push("pid "+t.pid);
   if (t.cwd) meta.push(esc(t.cwd));
-  links.forEach((l,i)=>meta.push(`<a href="#" data-i="${i}">${esc(l.label||l.url)}</a>`));
+  links.forEach((l,i)=>meta.push(`<a href="#" data-i="${i}" title="${esc(l.url)}">${esc(l.label||l.url)}</a>`));   // the real target as a tooltip
   const mt=$(".meta",el), mh=meta.join("<span>·</span>");
-  if (mt.__h!==mh){ mt.innerHTML=mh; mt.__h=mh; mt.querySelectorAll("a").forEach(a=>a.onclick=e=>{e.preventDefault(); const u=links[+a.dataset.i].url; if (NATIVE) host({open:u}); else window.open(u,"_blank");}); }
+  if (mt.__h!==mh){ mt.innerHTML=mh; mt.__h=mh; mt.querySelectorAll("a").forEach(a=>a.onclick=e=>{e.preventDefault(); const u=links[+a.dataset.i].url; if (NATIVE) host({open:u}); else if (/^(https?|mailto):/i.test(u)) window.open(u,"_blank","noopener");}); }
 }
 async function onControl(el, tid, c, btn){
   if (!c.input){

@@ -106,7 +106,8 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
   "description": "…", "total": 200, "unit": "pts",
   "project": "shop-api",                  // panel groups (default: the folder name of "cwd")
   "attention": "Approve the deploy",      // the task waits for the user: shown on top of the panel ("" = no)
-  "pid": 12345,                           // lost-detection + automatic "Kill" control ("kill_control": false to disable)
+  "pid": 12345,                           // a Windows pid: lost-detection + automatic "Kill" control ("kill_control": false to disable);
+                                          // 2.9: no Kill when the hub can't read the process's start time (not a Windows pid)
   "heartbeat_timeout": 600,               // s without update -> "stale" + toast (0 = off)
   "expected_duration": 120,               // s it usually takes: the ETA comes from it (not from the pace) until overdue
   "notify": {"start": false, "finish": true, "fail": true, "stale": true, "milestones": []},
@@ -123,7 +124,10 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 `progress` 0..1 · `percent` 0..100 · `current` (+`total`) · `status` · `stage` · `log` (str or [str]) + `level` (info/warn/error) ·
 `toast`: true or string → Windows notification now · `metrics`: `{k: v}` (null deletes; key-value list) ·
 `widgets`: `{widget_id: value}` · `state`: running/paused · `project` · `attention` (string; `""` clears, also cleared on finish) · `add_widgets` / `remove_widgets` · `add_controls` / `remove_controls` / `controls` (replace) · `links` · `meta` · `expected_duration`.
-An update with an invalid entry in `controls` / `add_controls` / `add_widgets` is rejected as a whole (400, nothing changed). Numbers must be finite:
+`links` (register and update): a list of URLs or `{"label", "url"}`. 2.9: only `http`, `https`, `mailto` and `file` URLs or an absolute
+path (`E:/proj/out`, `\\server\share\x`) - anything else is rejected with 400. The panel opens web links in the browser and shows
+a file or folder link in Explorer (a folder opens, a file is selected in its folder) - it never runs a linked program.
+An update with an invalid entry in `controls` / `add_controls` / `add_widgets` / `links` is rejected as a whole (400, nothing changed). Numbers must be finite:
 `NaN` / `Infinity` (also as strings) are ignored.
 
 ## Widgets
@@ -164,10 +168,10 @@ in Telegram), `hint`, `states` (when shown; default running/paused/stale), `inpu
 | kind | on click |
 |---|---|
 | `signal` | queued for the process → it receives via `GET /commands?wait=25` → replies with `ack` |
-| `shell` | hub runs `command` (list or string; placeholders `{value}` `{pid}` `{task_id}`), the last 25 output lines and the exit code → task log; `cwd`, `timeout` (s, default 300, 1–86400) |
+| `shell` | hub runs `command` (list or string; placeholders `{value}` `{pid}` `{task_id}`; see *Shell values* below), the last 25 output lines and the exit code → task log; `cwd`, `timeout` (s, default 300, 1–86400) |
 | `open` | hub opens `target` (file, folder, URL) |
 | `connector` | only on tasks of a built-in connector (not accepted from API clients): the connector does it (e.g. cancel / re-run on GitHub) |
-| `kill` | hub kills `pid` with its whole process tree (only if it is still the process the task registered, never a reused pid); task → cancelled |
+| `kill` | hub kills `pid` with its whole process tree (only if it is still the process the task registered, never a reused pid); task → cancelled. 2.9: refused (409) when the process's start time couldn't be read at registration |
 
 `input`: `{"type": "text"|"number"|"select"|"bool", "label", "default", "options": [...], "min", "max", "step"}`.
 Values are checked by the hub for every surface (400 otherwise): a number within `min`/`max`, `true`/`false` for bool, one of
@@ -175,6 +179,16 @@ Values are checked by the hub for every surface (400 otherwise): a number within
 The value is sent only when the control's button is pressed, so give such controls an action label ("Set speed", "Apply", "Send"),
 and `input.label` for the field itself. The hub remembers the last sent value (`last_value` in the control) and pre-fills the panel form
 and the toast input with it.
+**Shell values** (2.9). The value (from the panel, a notification or Telegram) is never pasted into a command line as text:
+- every form: the hub also passes it in the environment variable `TASKHUB_VALUE` (absent when the value is empty);
+- string `command` (run by `cmd.exe /d /s /c`): `{value}` becomes `!TASKHUB_VALUE!` and cmd runs with delayed expansion (`/v:on`),
+  which expands it only after the line is split into commands, pipes and redirections - `& | < > ^ % " !` in the value stay plain
+  text (an empty value becomes nothing). Because of `/v:on`, `!` and `^` written in such a template itself are special to cmd (write `^!` for a literal `!`). The value still
+  reaches the program as words: a value with spaces is several arguments unless the template quotes it (`"{value}"`) - for exact
+  arguments use the list form;
+- list `command`: each item is one argument (quoted for the program). `{value}` can't be in the first item (the program), and a
+  `.bat` / `.cmd` program can't take `{value}` in a list (cmd.exe would parse it) - both rejected with 400.
+
 Command delivered to the process: `{"id": "a1b2c3", "control": "lr", "value": 0.001, "t": 1793240199.6}`.
 Python client built-ins: `stop` → `t.stop_requested`; `pause`/`resume` (`pausable=True`) → `t.paused`, `t.wait_if_paused()`.
 
