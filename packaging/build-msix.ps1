@@ -8,13 +8,14 @@ Run build.cmd first (it makes app\TaskHubHost.exe and obj\cli\taskhub.exe).
                                                                   # (Developer Mode; replaces an earlier registration)
   powershell -File packaging\build-msix.ps1 -Unregister           # dev: remove that registration again
 
-Identity: -Name / -Publisher / -PublisherDisplay from Partner Center (the app → Product identity); the defaults are
+Identity: -Name / -Publisher / -PublisherDisplay / -DisplayName from Partner Center (the app → Product identity); the defaults are
 placeholders for local tests and must not be uploaded.
 #>
 param(
     [string]$Name = "TaskHub.Dev",
     [string]$Publisher = "CN=TaskHubDev",
     [string]$PublisherDisplay = "TaskHub",
+    [string]$DisplayName = "TaskHub",   # the package name in the Store and Settings → Apps: one reserved in Partner Center
     [string]$MakeAppx,                  # path to makeappx.exe if the Windows SDK is not installed
     [switch]$Register,
     [switch]$Unregister
@@ -40,7 +41,7 @@ Copy-Item "$PSScriptRoot\Assets\*.png" "$layout\Assets"
 $x = [Security.SecurityElement]
 $manifest = (Get-Content "$PSScriptRoot\AppxManifest.xml" -Raw -Encoding UTF8).
     Replace('$NAME$', $x::Escape($Name)).Replace('$PUBLISHER$', $x::Escape($Publisher)).
-    Replace('$PUBLISHER_DISPLAY$', $x::Escape($PublisherDisplay)).Replace('$VERSION$', "$version.0")   # the Store wants x.y.z.0
+    Replace('$PUBLISHER_DISPLAY$', $x::Escape($PublisherDisplay)).Replace('$DISPLAY_NAME$', $x::Escape($DisplayName)).Replace('$VERSION$', "$version.0")   # the Store wants x.y.z.0
 [IO.File]::WriteAllText("$layout\AppxManifest.xml", $manifest, (New-Object Text.UTF8Encoding $false))
 
 if ($Register) {

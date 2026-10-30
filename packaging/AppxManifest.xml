@@ -11,7 +11,7 @@
          IgnorableNamespaces="uap uap3 desktop desktop6 com rescap">
   <Identity Name="$NAME$" Publisher="$PUBLISHER$" Version="$VERSION$" ProcessorArchitecture="x64" />
   <Properties>
-    <DisplayName>TaskHub</DisplayName>
+    <DisplayName>$DISPLAY_NAME$</DisplayName>
     <PublisherDisplayName>$PUBLISHER_DISPLAY$</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <!-- same data folder and registry as the setup-exe edition: switching editions (Install.RemoveExeEdition) deletes
