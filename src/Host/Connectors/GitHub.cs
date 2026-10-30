@@ -417,6 +417,7 @@ sealed class GitHubConnector : IConnector
         var sha = J.Str(j["head_sha"]);
         var title = J.Str(j["display_title"]);
         var wf = J.Str(j["name"], "workflow");
+        if (title.Length == 0 || title == wf) title = J.Str(j["head_branch"]);   // manual runs have no title of their own
         var desc = string.Join(" · ", new[]
         {
             repo, J.Str(j["head_branch"]), sha.Length >= 7 ? sha[..7] : sha,
