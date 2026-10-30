@@ -91,7 +91,7 @@ static class Secrets
             var c = new CREDENTIAL
             {
                 Type = 1, TargetName = Target(s, name), UserName = Environment.UserName, Persist = 2 /* LOCAL_MACHINE */,
-                CredentialBlob = mem, CredentialBlobSize = (uint)blob.Length, Comment = "TaskHub connector",
+                CredentialBlob = mem, CredentialBlobSize = (uint)blob.Length, Comment = "TaskHub",
             };
             if (!CredWrite(ref c, 0)) throw new Exception("Credential Manager: error " + Marshal.GetLastWin32Error());
         }

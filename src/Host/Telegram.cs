@@ -13,7 +13,7 @@ namespace TaskHub;
 /// notification buttons as inline buttons (presses come back as control triggers). Commands: /tasks /mute /unmute /help.
 /// Setup: the user creates a bot with @BotFather, pastes its token; TaskHub shows a t.me deep link with a one-time code,
 /// the user presses Start and that chat becomes the only one the bot talks to.
-/// Config: telegram_token, telegram_chat, telegram_away_only (+ telegram_away_minutes), telegram_api (tests).
+/// Config: telegram_chat, telegram_away_only (+ telegram_away_minutes), telegram_api (tests).
 /// </summary>
 sealed class TelegramBridge
 {
@@ -35,11 +35,30 @@ sealed class TelegramBridge
     public TelegramBridge(Settings s, Hub h)
     {
         S = s; hub = h;
+        token = LoadToken();
         new Thread(SendWorker) { IsBackground = true, Name = "telegram-send" }.Start();
         new Thread(ProgressWorker) { IsBackground = true, Name = "telegram-progress" }.Start();
     }
 
-    string Token => J.Str(S.Get("telegram_token"));
+    /// <summary>The bot token lives in the Credential Manager (like connector secrets), never in config.json.</summary>
+    volatile string token;
+    string Token => token;
+    const string Secret = "telegram";
+
+    /// <summary>Reads the token; before 2.9 it was in config.json ("telegram_token"): moved once to the Credential Manager
+    /// and removed from config.json (kept there if the Credential Manager refuses, so nothing is lost).</summary>
+    string LoadToken()
+    {
+        var old = J.Str(S.Get("telegram_token"));
+        if (old.Length > 0)
+        {
+            try { Secrets.Write(S, Secret, old); S.Set(("telegram_token", null)); Log.W("telegram: token moved to the Credential Manager"); }
+            catch (Exception e) { Log.W("telegram: token not moved: " + e.Message); }
+            return old;
+        }
+        try { return Secrets.Read(S, Secret) ?? ""; }
+        catch (Exception e) { Log.W("telegram: token not read: " + e.Message); return ""; }
+    }
     long Chat => J.Num(S.Get("telegram_chat")) is double d ? (long)d : 0;
     string Api(string method) => (J.Str(S.Get("telegram_api")) is { Length: > 0 } b ? b.TrimEnd('/') : "https://api.telegram.org")
                                  + "/bot" + Token + "/" + method;
@@ -63,7 +82,9 @@ sealed class TelegramBridge
         token = (token ?? "").Trim();
         if (!System.Text.RegularExpressions.Regex.IsMatch(token, @"^\d{5,}:[A-Za-z0-9_-]{30,}$"))
             throw new ApiError(400, "this does not look like a bot token from @BotFather (123456789:AA...)");
-        S.Set(("telegram_token", token), ("telegram_chat", 0));
+        Secrets.Write(S, Secret, token);
+        this.token = token;
+        S.Set(("telegram_token", null), ("telegram_chat", 0));
         PairCode = Convert.ToHexString(RandomNumberGenerator.GetBytes(5)).ToLowerInvariant();
         BotName = null;
         Start();
@@ -81,6 +102,8 @@ sealed class TelegramBridge
 
     public void Disconnect()
     {
+        try { Secrets.Delete(S, Secret); } catch (Exception e) { Log.W("telegram: token not deleted: " + e.Message); }
+        token = "";
         S.Set(("telegram_token", null), ("telegram_chat", null));
         PairCode = null;
         Start();

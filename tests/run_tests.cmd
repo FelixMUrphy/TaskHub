@@ -23,7 +23,7 @@ set RC=0
 "%PYTHON%" parallel_test.py 8 || set RC=1
 "%PYTHON%" integration_test.py "%EXE%" || set RC=1
 for %%D in ("%EXE%") do "%PYTHON%" mcp_test.py "%%~dpDtaskhub.exe" || set RC=1
-"%PYTHON%" telegram_test.py || set RC=1
+"%PYTHON%" telegram_test.py "%EXE%" || set RC=1
 "%PYTHON%" github_test.py || set RC=1
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='TaskHubHost.exe'\" | Where-Object { $_.CommandLine -like '*47899*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
 if %RC%==0 (echo ALL TESTS PASSED) else (echo TESTS FAILED)

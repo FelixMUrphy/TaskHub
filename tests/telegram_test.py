@@ -1,8 +1,10 @@
 """Telegram bridge against a mock Bot API (127.0.0.1:47897; the test hub's config.json points telegram_api there)."""
-import json, os, re, threading, time, urllib.request, urllib.error
+import ctypes, hashlib, json, os, re, subprocess, sys, tempfile, threading, time, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 URL = os.environ.get("TASKHUB_URL", "http://127.0.0.1:47899")
+DATA = os.environ.get("TASKHUB_DATA", "")
+EXE = sys.argv[1] if len(sys.argv) > 1 else None
 TOKEN = "123456789:" + "A" * 35
 fails = 0
 sent, answers, updates, edits, photos = [], [], [], [], []
@@ -98,8 +100,28 @@ def wait_sent(pred, timeout=8):
 op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def call(method, path, body=None):
-    req = urllib.request.Request(URL + path, json.dumps(body).encode() if body is not None else None, method=method,
+def cred_target(data):
+    """The hub's Credential Manager name for the bot token of a hub with this data folder (Secrets.Target)."""
+    tag = hashlib.sha256(os.path.abspath(data).rstrip("\\").lower().encode()).hexdigest().upper()[:10]
+    return "TaskHub/telegram@" + tag
+
+
+def cred_exists(target):
+    adv = ctypes.WinDLL("advapi32")
+    p = ctypes.c_void_p()
+    ok = adv.CredReadW(ctypes.c_wchar_p(target), 1, 0, ctypes.byref(p))
+    if ok:
+        adv.CredFree(p)
+    return bool(ok)
+
+
+def config(data):
+    with open(os.path.join(data, "config.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def call(method, path, body=None, url=None):
+    req = urllib.request.Request((url or URL) + path, json.dumps(body).encode() if body is not None else None, method=method,
                                  headers={"Content-Type": "application/json", "X-TaskHub": "1"})
     try:
         with op.open(req, timeout=20) as r:
@@ -260,12 +282,50 @@ n2 = len(sent)
 call("POST", "/api/notify", {"title": "to the phone"})
 m = wait_sent(lambda m: "to the phone" in m["text"])
 check("after relink only the new chat gets notifications", m is not None and m["chat_id"] == 888, sent[n2:])
+if DATA:
+    check("token in the Credential Manager, not in config.json",
+          cred_exists(cred_target(DATA)) and "telegram_token" not in config(DATA), config(DATA).keys())
 s, r = call("POST", "/api/telegram", {"disconnect": True})
+if DATA:
+    check("disconnect removes the token from the Credential Manager", not cred_exists(cred_target(DATA)))
 check("disconnect", s == 200 and r.get("configured") is False and r.get("linked") is False, r)
 n1 = len(sent)
 call("POST", "/api/notify", {"title": "after disconnect"})
 time.sleep(1.5)
 check("nothing sent after disconnect", len(sent) == n1, sent[n1:])
+# a config.json from before 2.9 (token in plain text): moved to the Credential Manager on start, removed from config.json
+if EXE:
+    data2 = tempfile.mkdtemp(prefix="taskhub-tgmigrate-")
+    with open(os.path.join(data2, "config.json"), "w", encoding="utf-8") as f:
+        json.dump({"toasts": False, "autostart": False, "telegram_api": "http://127.0.0.1:47897",
+                   "telegram_token": TOKEN, "telegram_chat": 999}, f)
+    url2 = "http://127.0.0.1:47894"
+    hub2 = subprocess.Popen([EXE, "--port", "47894", "--data", data2, "--no-tray"])
+    try:
+        up = False
+        for _ in range(60):
+            try:
+                up = call("GET", "/api/health", url=url2)[0] == 200
+            except OSError:
+                pass
+            if up:
+                break
+            time.sleep(0.5)
+        check("migration hub started", up)
+        s, r = call("GET", "/api/telegram", url=url2)
+        check("old token still works after the move", s == 200 and r.get("configured") and r.get("linked"), r)
+        check("old token moved: in the Credential Manager, gone from config.json",
+              cred_exists(cred_target(data2)) and "telegram_token" not in config(data2), config(data2))
+        n3 = len(sent)
+        call("POST", "/api/notify", {"title": "after the move"}, url=url2)
+        m = wait_sent(lambda m: "after the move" in m["text"])
+        check("notifications still reach the linked chat", m is not None and m["chat_id"] == 999, sent[n3:])
+        call("POST", "/api/telegram", {"disconnect": True}, url=url2)
+        check("migrated token removed on disconnect", not cred_exists(cred_target(data2)))
+    finally:
+        hub2.kill()
+        hub2.wait(10)
+
 srv.shutdown()
 print(f"{fails} failure(s)")
 raise SystemExit(1 if fails else 0)

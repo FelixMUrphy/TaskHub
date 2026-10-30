@@ -16,7 +16,9 @@ it.
 ## What leaves your PC, and only if you turn it on
 - **Telegram** (off by default). If you connect a Telegram bot, TaskHub sends your notifications, task progress and
   charts from your PC straight to Telegram's Bot API, to the chat you linked, and receives your button presses and
-  replies from it. The bot token and chat ID are stored in `%APPDATA%\TaskHub\config.json`. Telegram's own privacy policy
+  replies from it. The chat ID is stored in `%APPDATA%\TaskHub\config.json`; the bot token is kept in the Windows Credential
+  Manager of your user account (TaskHub 2.9 and later; earlier versions keep it in `config.json`, and 2.9 moves it on its
+  first start). Telegram's own privacy policy
   applies to these messages. Disconnecting the bot in TaskHub stops this.
 - **GitHub Actions connector** (TaskHub 2.9 and later; off by default, earlier versions don't have it). If you turn it
   on and list repositories, TaskHub asks `api.github.com` about the workflow runs of those repositories, with the GitHub

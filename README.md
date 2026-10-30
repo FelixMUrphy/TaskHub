@@ -122,7 +122,7 @@ go back to the task. A task with progress gets one silent message with a progres
 buttons that is edited in place (no new message per update); when the task finishes, its charts arrive
 as one picture (option *Progress and charts*, `telegram_progress`). Commands: `/tasks`, `/mute`, `/unmute`. Option: send only
 when you are away from the PC (no keyboard / mouse for 5 min, `telegram_away_minutes` in `config.json`). The bot token
-is stored in `%APPDATA%\TaskHub\config.json`; messages go from your PC straight to Telegram's Bot API.
+is kept in the Windows Credential Manager (2.9; before: `config.json`); messages go from your PC straight to Telegram's Bot API.
 
 ### GitHub Actions
 *From version 2.9; off until you turn it on.* Settings → *Connectors* → *GitHub Actions*: list the repositories (`owner/repo`) and give access — your own

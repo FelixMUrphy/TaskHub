@@ -117,7 +117,7 @@ static class Program
                 try { Install.RemoveExeEdition(S); }
                 catch (Exception e) { Log.W("switch to Store edition: " + e); Msg(L.T("edition_failed", e.Message)); }
             }
-            else if (answer == false)   // closed without choosing: ask again next time
+            else if (answer == false)   // "keep both": don't ask again (closed without choosing = null: ask again next time)
             {
                 S.Set(("other_edition", "keep"));
                 try { Install.SetAutostart(false, S); } catch { }   // one autostart is enough: the setup-exe copy keeps its own
