@@ -41,7 +41,7 @@ loopback only.
 - **Telegram**: the same notifications on your phone through your own bot, with the task's buttons; a live progress
   bar per task and its charts when it finishes; `/tasks`, `/mute` (optionally only when you are away from the PC) —
   see [Telegram](#telegram).
-- **GitHub Actions**: the workflow runs of your repositories as tasks — progress by jobs / steps, ETA from earlier runs,
+- **GitHub Actions** *(from 2.9)*: the workflow runs of your repositories as tasks — progress by jobs / steps, ETA from earlier runs,
   the failed step and the end of its log, cancel / re-run buttons, artifact and release links — see
   [GitHub Actions](#github-actions).
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
@@ -50,7 +50,7 @@ loopback only.
 - **Update check**: a notification when a new version is released (once a day; tray → *Updates*).
 - **Panel like the Windows notification center**: docked to the right edge of the screen at full height, slides in
   and out (instant if Windows animations are off), width by dragging its left edge, a pin to keep it open; blurred
-  see-through background and cards (*Panel transparency* and *Card transparency* in ⚙), light / dark theme and accent colour follow Windows
+  see-through background and cards (*Panel transparency*; *Card transparency* from 2.9 — in ⚙), light / dark theme and accent colour follow Windows
   (or set in ⚙).
 - 10 UI languages (English, Українська, Español, Deutsch, Français, Italiano, Português, Polski, 中文, 日本語).
 - Per-user install, no admin rights, no .NET runtime needed; self-healing autostart.
@@ -120,7 +120,7 @@ when you are away from the PC (no keyboard / mouse for 5 min, `telegram_away_min
 is stored in `%APPDATA%\TaskHub\config.json`; messages go from your PC straight to Telegram's Bot API.
 
 ### GitHub Actions
-Tray menu → *Connectors* → *GitHub Actions…*: list the repositories (`owner/repo`) and give access — your own
+*From version 2.9; off until you turn it on.* Tray menu → *Connectors* → *GitHub Actions…*: list the repositories (`owner/repo`) and give access — your own
 [fine-grained token](https://github.com/settings/personal-access-tokens/new) limited to those repositories (Actions: Read and
 write, Contents: Read-only, Metadata: Read-only; kept in the Windows Credential Manager, never in `config.json`), or the token
 the Git Credential Manager already has (broad rights: all your repositories). Your workflows stay unchanged. Each run becomes a

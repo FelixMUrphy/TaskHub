@@ -18,6 +18,13 @@ it.
   charts from your PC straight to Telegram's Bot API, to the chat you linked, and receives your button presses and
   replies from it. The bot token and chat ID are stored in `%APPDATA%\TaskHub\config.json`. Telegram's own privacy policy
   applies to these messages. Disconnecting the bot in TaskHub stops this.
+- **GitHub Actions connector** (TaskHub 2.9 and later; off by default, earlier versions don't have it). If you turn it
+  on and list repositories, TaskHub asks `api.github.com` about the workflow runs of those repositories, with the GitHub
+  token you give it, and shows them as tasks; its buttons can cancel or re-run a run on GitHub when you press them. If you
+  also turn on the log option, the end of a failed job's log is downloaded from GitHub's log storage through the one-time
+  link GitHub returns, without the token. The token is kept in the Windows Credential Manager of your user account, not in
+  TaskHub's files (or, if you choose so, TaskHub uses the token the Git Credential Manager already keeps). GitHub's own
+  privacy policy applies to these requests. Turning the connector off stops them; *Forget token* deletes the token.
 - **Update check** (only in the version installed from GitHub, not in the Microsoft Store version). Once a day TaskHub
   asks `api.github.com` for the latest release number. It sends no personal data, and you can turn the check off in the
   tray menu (*Updates*).
