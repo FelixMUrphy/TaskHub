@@ -225,7 +225,9 @@ static class Program
         notifier.Init(iconPng);
         var telegram = new TelegramBridge(S, hub);
         notifier.Telegram = telegram;
-        var api = new Api(S, hub) { Telegram = telegram };
+        var connectors = new Connectors(S, hub);
+        var github = connectors.Add(new GitHubConnector(S, hub));
+        var api = new Api(S, hub) { Telegram = telegram, Conns = connectors };
         try { api.Start().GetAwaiter().GetResult(); }
         catch (Exception e)
         {
@@ -235,6 +237,7 @@ static class Program
         }
 
         telegram.Start();
+        connectors.StartAll();
         var updater = new Updater(S, hub, notifier);
         notifier.UpdateClicked = updater.OpenPage;
         // dev / test hubs never call GitHub on their own
@@ -247,7 +250,8 @@ static class Program
         }
 
         // Store edition: updates come from the Store, so no update check / menu
-        Application.Run(new TrayApp(S, hub, api, notifier, openTask) { Updater = Install.IsPackaged ? null : updater });
+        Application.Run(new TrayApp(S, hub, api, notifier, openTask) { Updater = Install.IsPackaged ? null : updater, GitHub = github });
+        connectors.StopAll();
         hub.MarkDirty();
         hub.Save();
         Log.W("exit");

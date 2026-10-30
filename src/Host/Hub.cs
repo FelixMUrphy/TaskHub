@@ -167,7 +167,7 @@ sealed class Hub
     {
         var s = it.Pace;
         double? cur = J.Num(t["current"]), p = J.Num(t["progress"]);
-        if (St(t) != "running" || (cur == null && p == null)) { s.Clear(); t.Remove("rate"); t.Remove("eta_at"); return; }
+        if (St(t) != "running" || (cur == null && p == null && t["expected_duration"] == null)) { s.Clear(); t.Remove("rate"); t.Remove("eta_at"); return; }
         if (s.Count > 0 && (cur < s[^1].Cur || p < s[^1].P)) s.Clear();   // went back: a new run of the job
         s.Add((now, cur, p));
         while (s.Count > 2 && now - s[1].T >= PaceWindow) s.RemoveAt(0);
@@ -183,6 +183,9 @@ sealed class Hub
             }
             if (eta == null && a.P is double p0 && z.P is double p1 && p1 > p0) eta = (1 - p1) * dt / (p1 - p0);
         }
+        // a known usual duration (e.g. earlier runs of the same CI workflow) says more than uneven steps; none once overdue
+        if (J.Num(t["expected_duration"]) is double exp && J.Num(t["started"]) is double st)
+            eta = st + exp > now ? st + exp - now : null;
         if (rate is double r) t["rate"] = Math.Round(r, 6); else t.Remove("rate");
         if (eta is double e && double.IsFinite(e)) t["eta_at"] = Math.Round(now + e, 1); else t.Remove("eta_at");
     }
@@ -249,13 +252,15 @@ sealed class Hub
         return r;
     }
 
-    static JsonObject NormControl(JsonNode cn)
+    /// <param name="trusted">a built-in connector: may use kind "connector" (the press goes back to the connector)</param>
+    static JsonObject NormControl(JsonNode cn, bool trusted)
     {
         if (cn is not JsonObject c) throw new ApiError(400, "control must be an object");
         var cid = J.Str(c["id"]).Trim();
         if (!CidRx.IsMatch(cid)) throw new ApiError(400, $"bad control id '{cid}'");
         var kind = J.Str(c["kind"], "signal");
-        if (kind is not ("signal" or "shell" or "open" or "kill")) throw new ApiError(400, $"bad control kind '{kind}'");
+        if (kind is not ("signal" or "shell" or "open" or "kill") && !(trusted && kind == "connector"))
+            throw new ApiError(400, $"bad control kind '{kind}'");
         var statesN = c["states"];
         List<string> states;
         if (J.IsStr(statesN)) states = new() { J.Str(statesN) };
@@ -434,12 +439,13 @@ sealed class Hub
     }
 
     // ------------------------------------------------------------ API operations
-    public JsonObject Register(JsonObject b)
+    /// <param name="trusted">from a built-in connector: "connector" controls, "started" (when the job really began)</param>
+    public JsonObject Register(JsonObject b, bool trusted = false)
     {
         var name = J.Cut(J.Truthy(b["name"]) ? J.Str(b["name"]) : "task", 200);
         var tid = J.Truthy(b["id"]) ? J.Str(b["id"]) : Guid.NewGuid().ToString("N")[..8];
         if (!IdRx.IsMatch(tid)) throw new ApiError(400, "id must match [A-Za-z0-9_.-]{1,64}");
-        var controls = (b["controls"] as JsonArray ?? new JsonArray()).Select(NormControl).ToList();
+        var controls = (b["controls"] as JsonArray ?? new JsonArray()).Select(c => NormControl(c, trusted)).ToList();
         var widgets = (b["widgets"] as JsonArray ?? new JsonArray()).Select(NormWidget).Take(40).ToList();
         int? pid = null;
         if (b["pid"] != null)
@@ -453,7 +459,7 @@ sealed class Hub
             {
                 ["id"] = "kill", ["label"] = "Kill", ["kind"] = "kill", ["style"] = "danger",
                 ["confirm"] = L.T("kill_confirm", pid),
-            }));
+            }, false));
         var notify = new JsonObject
         {
             ["start"] = false, ["finish"] = true, ["fail"] = true, ["stale"] = true, ["milestones"] = new JsonArray(),
@@ -477,7 +483,8 @@ sealed class Hub
                 ["attention"] = J.Cut(J.Str(b["attention"]), 300),
                 ["state"] = "running",
                 ["created"] = old != null ? J.C(old["created"]) : now,
-                ["started"] = old == null || IsFinal(St(old)) ? now : J.C(old["started"]),
+                ["started"] = trusted && J.Num(b["started"]) is double st0 && st0 <= now ? st0
+                    : old == null || IsFinal(St(old)) ? now : J.C(old["started"]),
                 ["updated"] = now, ["last_seen"] = now, ["finished"] = null,
                 ["progress"] = null, ["current"] = null,
                 ["total"] = J.C(b["total"]), ["unit"] = J.Cut(J.Str(b["unit"]), 20),
@@ -490,6 +497,7 @@ sealed class Hub
                 ["notify"] = notify,
                 ["progress_toast"] = progressToast,
                 ["heartbeat_timeout"] = J.Num(b["heartbeat_timeout"]) ?? 0,
+                ["expected_duration"] = J.Num(b["expected_duration"]) is double ed && ed > 0 ? ed : null,
                 ["meta"] = J.C(b["meta"]) ?? new JsonObject(),
                 ["links"] = J.C(b["links"]) ?? new JsonArray(),
                 ["result"] = null, ["message"] = "", ["seen"] = true,
@@ -526,11 +534,11 @@ sealed class Hub
 
     static double Clamp01(double x) => Math.Max(0, Math.Min(1, x));
 
-    public JsonObject Update(string tid, JsonObject b)
+    public JsonObject Update(string tid, JsonObject b, bool trusted = false)
     {
         // validate everything that can be rejected first: a 400 must not leave the task half-updated
-        var setControls = b["controls"] is JsonArray bc ? bc.Select(NormControl).ToArray<JsonNode>() : null;
-        var addControls = b["add_controls"] is JsonArray ac ? ac.Select(NormControl).ToList() : null;
+        var setControls = b["controls"] is JsonArray bc ? bc.Select(c => NormControl(c, trusted)).ToArray<JsonNode>() : null;
+        var addControls = b["add_controls"] is JsonArray ac ? ac.Select(c => NormControl(c, trusted)).ToList() : null;
         var addWidgets = b["add_widgets"] is JsonArray aw ? aw.Select(NormWidget).ToList() : null;
         lock (Lock)
         {
@@ -572,6 +580,7 @@ sealed class Hub
                 foreach (var (k, v) in bmeta) m[k] = J.C(v);
             }
             if (b["links"] is JsonArray bl) t["links"] = J.C(bl);
+            if (b.ContainsKey("expected_duration")) t["expected_duration"] = J.Num(b["expected_duration"]) is double ed && ed > 0 ? ed : null;
             var bs = J.Str(b["state"]);
             if (bs is "running" or "paused" && IsActive(St(t)))
             {
@@ -858,12 +867,16 @@ sealed class Hub
     }
 
     // ------------------------------------------------------------ controls & commands
+    /// <summary>A "connector" control pressed: (source, task, control, value) -> the connector that made the task.</summary>
+    public Func<string, string, string, JsonNode, JsonObject> ConnectorControl;
+
     public JsonObject Trigger(string tid, string cid, JsonObject b, string via = null)
     {
         var value = J.C(b["value"]);
         JsonObject c;
         int? pid;
         long? ct;
+        string source;
         lock (Lock)
         {
             var t = Get(tid);
@@ -899,9 +912,13 @@ sealed class Hub
             pid = J.Num(t["pid"]) is double pd ? (int)pd : null;
             ct = In(tid).Ct;
             c = (JsonObject)c.DeepClone();
+            source = J.Str(t["source"]);
         }
         switch (J.Str(c["kind"]))
         {
+            case "connector":
+                if (ConnectorControl == null) throw new ApiError(503, "connectors not available");
+                return ConnectorControl(source, tid, cid, value);
             case "kill":
                 if (pid is not > 0) throw new ApiError(400, "task has no pid");
                 bool ok = KillTree(pid.Value, ct);

@@ -41,6 +41,9 @@ loopback only.
 - **Telegram**: the same notifications on your phone through your own bot, with the task's buttons; a live progress
   bar per task and its charts when it finishes; `/tasks`, `/mute` (optionally only when you are away from the PC) —
   see [Telegram](#telegram).
+- **GitHub Actions**: the workflow runs of your repositories as tasks — progress by jobs / steps, ETA from earlier runs,
+  the failed step and the end of its log, cancel / re-run buttons, artifact and release links — see
+  [GitHub Actions](#github-actions).
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
   plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
@@ -115,6 +118,16 @@ buttons that is edited in place (no new message per update); when the task finis
 as one picture (option *Progress and charts*, `telegram_progress`). Commands: `/tasks`, `/mute`, `/unmute`. Option: send only
 when you are away from the PC (no keyboard / mouse for 5 min, `telegram_away_minutes` in `config.json`). The bot token
 is stored in `%APPDATA%\TaskHub\config.json`; messages go from your PC straight to Telegram's Bot API.
+
+### GitHub Actions
+Tray menu → *Connectors* → *GitHub Actions…*: list the repositories (`owner/repo`) and give access — your own
+[fine-grained token](https://github.com/settings/personal-access-tokens/new) limited to those repositories (Actions: Read and
+write, Contents: Read-only, Metadata: Read-only; kept in the Windows Credential Manager, never in `config.json`), or the token
+the Git Credential Manager already has (broad rights: all your repositories). Your workflows stay unchanged. Each run becomes a
+task with the repository, workflow, branch / tag, commit and actor; failures always notify (Windows and Telegram), successes
+if you want. TaskHub talks only to `api.github.com`; the optional log tail is fetched from GitHub's log storage through the
+one-time link GitHub gives, without the token. A notification warns a week before the token expires. Details:
+[API.md → Connectors](API.md#connectors-github-actions).
 
 ## Install details
 The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or any folder you choose), unpacks the

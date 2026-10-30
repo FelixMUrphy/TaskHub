@@ -91,6 +91,8 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/hooks/claude`, `/api/hooks/codex` | agent hook input (as sent) | `Stop` / `Notification` / `PermissionRequest` → toast; always `{}` (below) |
 | GET | `/api/telegram` | | Telegram bridge state `{configured, linked, bot, status, away_only, progress, link}` |
 | POST | `/api/telegram` | `{token}` (start pairing, returns the t.me `link`) · `{test: true}` · `{relink: true}` (new code for another chat, same bot) · `{away_only: bool}` · `{progress: bool}` (live progress bar + charts at the end) · `{disconnect: true}` | Telegram setup |
+| GET | `/api/connectors`, `/api/connectors/github` | | connector state: `{enabled, repos, interval, notify_success, logs, auth, token_set, login, token_expires, status, repo_status, rate_remaining, active_runs}` (the token itself is never returned) |
+| POST | `/api/connectors/github` | `{enabled?, repos?: ["owner/repo"], interval?: 15-3600, notify_success?, logs?, auth?: "token"\|"gcm", token?, forget_token?}` | GitHub Actions connector (below) |
 | POST | `/api/clear` | | remove finished tasks |
 | POST | `/api/settings` | `{muted?: bool, seen?: true | [task ids], language?, theme?: "system"\|"light"\|"dark", accent?: "system"\|"taskhub", panel_transparency?: 0-100, card_transparency?: 0-100, panel_group?: "project"\|"source"\|"none", panel_pinned?: bool}` | mute toasts; panel look (also in `GET /api/tasks` → `panel`) |
 | POST | `/api/ui/open` | `{task?}` | open panel (focus a task) |
@@ -106,6 +108,7 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
   "attention": "Approve the deploy",      // the task waits for the user: shown on top of the panel ("" = no)
   "pid": 12345,                           // lost-detection + automatic "Kill" control ("kill_control": false to disable)
   "heartbeat_timeout": 600,               // s without update -> "stale" + toast (0 = off)
+  "expected_duration": 120,               // s it usually takes: the ETA comes from it (not from the pace) until overdue
   "notify": {"start": false, "finish": true, "fail": true, "stale": true, "milestones": []},
                                           // milestones: e.g. [50] -> one toast at 50 % - only if the user asked for it;
                                           // milestone toasts are plain, "milestone_controls": true adds the task's toast controls
@@ -119,7 +122,7 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 ## Update `POST /api/tasks/{id}/update` (all fields optional)
 `progress` 0..1 · `percent` 0..100 · `current` (+`total`) · `status` · `stage` · `log` (str or [str]) + `level` (info/warn/error) ·
 `toast`: true or string → Windows notification now · `metrics`: `{k: v}` (null deletes; key-value list) ·
-`widgets`: `{widget_id: value}` · `state`: running/paused · `project` · `attention` (string; `""` clears, also cleared on finish) · `add_widgets` / `remove_widgets` · `add_controls` / `remove_controls` / `controls` (replace) · `links` · `meta`.
+`widgets`: `{widget_id: value}` · `state`: running/paused · `project` · `attention` (string; `""` clears, also cleared on finish) · `add_widgets` / `remove_widgets` · `add_controls` / `remove_controls` / `controls` (replace) · `links` · `meta` · `expected_duration`.
 An update with an invalid entry in `controls` / `add_controls` / `add_widgets` is rejected as a whole (400, nothing changed). Numbers must be finite:
 `NaN` / `Infinity` (also as strings) are ignored.
 
@@ -163,6 +166,7 @@ in Telegram), `hint`, `states` (when shown; default running/paused/stale), `inpu
 | `signal` | queued for the process → it receives via `GET /commands?wait=25` → replies with `ack` |
 | `shell` | hub runs `command` (list or string; placeholders `{value}` `{pid}` `{task_id}`), the last 25 output lines and the exit code → task log; `cwd`, `timeout` (s, default 300, 1–86400) |
 | `open` | hub opens `target` (file, folder, URL) |
+| `connector` | only on tasks of a built-in connector (not accepted from API clients): the connector does it (e.g. cancel / re-run on GitHub) |
 | `kill` | hub kills `pid` with its whole process tree (only if it is still the process the task registered, never a reused pid); task → cancelled |
 
 `input`: `{"type": "text"|"number"|"select"|"bool", "label", "default", "options": [...], "min", "max", "step"}`.
@@ -177,6 +181,20 @@ Python client built-ins: `stop` → `t.stop_requested`; `pause`/`resume` (`pausa
 ## States
 `running` · `paused` · `stale` (no update for `heartbeat_timeout`) · `done` · `failed` · `cancelled` · `lost` (pid died without finish).
 Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in update/log, `/api/notify`. Global mute in tray or panel.
+
+## Connectors: GitHub Actions
+Tray → Connectors → GitHub Actions… (or `POST /api/connectors/github`). Each workflow run of the chosen repositories is a task:
+id `gh-<run id>`, source `github`, project = repository name, description `owner/repo · branch · sha · @actor · event`;
+progress by the steps of all jobs, `stage` = job › step, ETA from the median duration of the workflow's last successful runs;
+on failure the message names the job › step, and (option `logs`) the last 30 lines of its log go to the task log.
+Buttons: open on GitHub, cancel (running), re-run failed jobs (failed), re-run all (finished), each with a confirmation; links to
+the artifacts and to the release of a tag after a successful run. Failures always notify (Windows + Telegram), successes if
+`notify_success`. Runs that finished before TaskHub started are not shown; a re-run (also one started on github.com) shows the task again.
+Access: your own fine-grained token (Actions: Read and write, Contents: Read-only, Metadata: Read-only; only these repositories),
+kept in the Windows Credential Manager - or `auth: "gcm"`, the Git Credential Manager's github.com token (broad rights).
+Requests go only to api.github.com (with the token) and, for logs, to GitHub's log storage through the one-time link GitHub gives
+(without the token). Polling uses ETags (unchanged = free): every `interval` s (default 60) when idle, every 10 s while a run is
+going, slower near the rate limit. A notification warns 7 days before the token expires.
 
 ## Native CLI `taskhub` (no Python needed; starts the hub if it is not running, disable with `TASKHUB_NO_AUTOSTART=1`)
 `taskhub run --name "<what>" --source <agent> [--auto-progress] [--heartbeat N] -- <cmd args>` wraps any command

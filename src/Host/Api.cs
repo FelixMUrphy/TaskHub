@@ -17,6 +17,7 @@ sealed class Api
     public Func<string, bool> UiOpen;    // task -> ok
     public Func<bool> UiHide;            // -> hidden
     public TelegramBridge Telegram;
+    public Connectors Conns;
     WebApplication app;
 
     delegate Task<JsonNode> Handler(HttpContext ctx, Dictionary<string, string> q, string[] g);
@@ -109,6 +110,19 @@ sealed class Api
             if (J.Truthy(b["test"])) Telegram.Test();
             return Telegram.State();
         });
+        R("GET", "/api/connectors", (c, q, g) =>
+        {
+            var o = new JsonObject();
+            foreach (var k in Conns?.All ?? Enumerable.Empty<IConnector>()) o[k.Id] = k.State();
+            return V(o);
+        });
+        R("GET", "/api/connectors/(github)", (c, q, g) => V(Conn(g[0]).State()));
+        R("POST", "/api/connectors/(github)", async (c, q, g) =>
+        {
+            var b = await Body(c);
+            var gh = Conn(g[0]) as GitHubConnector;
+            return await Task.Run(() => (JsonNode)gh.Configure(b));
+        });
         R("POST", "/api/settings", async (c, q, g) =>
         {
             var b = await Body(c);
@@ -131,6 +145,8 @@ sealed class Api
             return new JsonObject { ["ok"] = UiOpen?.Invoke(tid) ?? false };
         });
     }
+
+    IConnector Conn(string id) => Conns?.Get(id) ?? throw new ApiError(503, $"connector '{id}' not available");
 
     static bool Flag(Dictionary<string, string> q, string k) => q.TryGetValue(k, out var v) && v is "1" or "true";
 

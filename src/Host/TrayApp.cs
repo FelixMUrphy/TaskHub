@@ -21,6 +21,7 @@ sealed class TrayApp : ApplicationContext
     ToolStripMenuItem miMute, miAuto;
     public TelegramBridge Telegram;
     public Updater Updater;
+    public GitHubConnector GitHub;
 
     public TrayApp(Settings s, Hub h, Api a, Notifier n, string openTask)
     {
@@ -122,6 +123,8 @@ sealed class TrayApp : ApplicationContext
             }
         }
         Add("tg_menu", () => { if (Telegram != null) TelegramForm.ShowFor(Telegram); });
+        var miConn = Add("connectors", () => { });
+        miConn.DropDownItems.Add(new ToolStripMenuItem("GitHub Actions…", null, (_, _) => { if (GitHub != null) GitHubForm.ShowFor(GitHub); }));
         var miLang = Add("language", () => { });
         var langItems = new List<(ToolStripMenuItem, string)>();
         foreach (var code in new[] { "auto" }.Concat(L.Langs))
