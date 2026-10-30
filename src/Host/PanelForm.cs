@@ -509,6 +509,8 @@ sealed class PanelForm : Form
         animating = false;
         Hide();
         shownPx = 0;
+        // nothing stays open in a hidden panel (settings popover etc.)
+        try { web.CoreWebView2?.PostWebMessageAsJson("{\"hidden\":1}"); } catch { }
     }
 
     public void Toggle()

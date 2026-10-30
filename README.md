@@ -47,7 +47,7 @@ loopback only.
 - **Update check**: a notification when a new version is released (once a day; tray → *Updates*).
 - **Panel like the Windows notification center**: docked to the right edge of the screen at full height, slides in
   and out (instant if Windows animations are off), width by dragging its left edge, a pin to keep it open; blurred
-  see-through background (*Background transparency* in ⚙), light / dark theme and accent colour follow Windows
+  see-through background and cards (*Panel transparency* and *Card transparency* in ⚙), light / dark theme and accent colour follow Windows
   (or set in ⚙).
 - 10 UI languages (English, Українська, Español, Deutsch, Français, Italiano, Português, Polski, 中文, 日本語).
 - Per-user install, no admin rights, no .NET runtime needed; self-healing autostart.

@@ -58,6 +58,7 @@ sealed class Settings
         ["panel_pinned"] = false,           // pin button: the panel stays open when it loses focus
         ["panel_topmost"] = true,
         ["panel_transparency"] = 30,        // background transparency 0-100 % (Windows 11 acrylic behind it)
+        ["card_transparency"] = 30,         // the cards' own background, 0-100 %
         ["theme"] = "system",               // system | light | dark
         ["accent"] = "system",              // system (Windows accent colour) | taskhub
         ["toast_controls"] = true,

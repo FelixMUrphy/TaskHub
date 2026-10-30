@@ -760,12 +760,13 @@ sealed class Hub
         lock (Lock) Bump();
     }
 
-    /// <summary>The panel's look and behaviour (config.json): theme, accent, background transparency, pin.</summary>
+    /// <summary>The panel's look and behaviour (config.json): theme, accent, panel and card transparency, pin.</summary>
     public JsonObject PanelSettings() => new()
     {
         ["theme"] = J.Str(S.Get("theme"), "system"),
         ["accent"] = J.Str(S.Get("accent"), "system"),
         ["panel_transparency"] = Math.Clamp(S.Int("panel_transparency", 30), 0, 100),
+        ["card_transparency"] = Math.Clamp(S.Int("card_transparency", 30), 0, 100),
         ["panel_pinned"] = S.Bool("panel_pinned", false),
     };
 
@@ -787,11 +788,12 @@ sealed class Hub
             if (v is not ("system" or "taskhub")) throw new ApiError(400, "accent must be system or taskhub");
             kv.Add(("accent", v));
         }
-        if (b.ContainsKey("panel_transparency"))
+        foreach (var key in new[] { "panel_transparency", "card_transparency" })
         {
-            if (J.Num(b["panel_transparency"]) is not double d || !double.IsFinite(d) || d < 0 || d > 100)
-                throw new ApiError(400, "panel_transparency must be a number from 0 to 100");
-            kv.Add(("panel_transparency", (int)Math.Round(d)));
+            if (!b.ContainsKey(key)) continue;
+            if (J.Num(b[key]) is not double d || !double.IsFinite(d) || d < 0 || d > 100)
+                throw new ApiError(400, key + " must be a number from 0 to 100");
+            kv.Add((key, (int)Math.Round(d)));
         }
         if (b.ContainsKey("panel_pinned")) kv.Add(("panel_pinned", J.Truthy(b["panel_pinned"])));
         if (kv.Count == 0) return;

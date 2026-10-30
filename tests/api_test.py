@@ -235,26 +235,29 @@ s, r = call("POST", "/api/settings", {"muted": True})
 check("mute", r.get("muted") is True, r)
 s, r = call("POST", "/api/settings", {"muted": False})
 check("unmute", r.get("muted") is False, r)
-# panel look: theme / accent / background transparency / pin (config.json, shown in the snapshot)
+# panel look: theme / accent / panel and card transparency / pin (config.json, shown in the snapshot)
 s, snap = call("GET", "/api/tasks")
 check("panel settings: defaults in the snapshot", snap.get("panel") == {"theme": "system", "accent": "system", "panel_transparency": 30,
-      "panel_pinned": False}, snap.get("panel"))
-s, r = call("POST", "/api/settings", {"theme": "dark", "accent": "taskhub", "panel_transparency": 72.4, "panel_pinned": True})
+      "card_transparency": 30, "panel_pinned": False}, snap.get("panel"))
+s, r = call("POST", "/api/settings", {"theme": "dark", "accent": "taskhub", "panel_transparency": 72.4, "card_transparency": "55", "panel_pinned": True})
 check("panel settings: set", s == 200 and r.get("panel") == {"theme": "dark", "accent": "taskhub", "panel_transparency": 72,
-      "panel_pinned": True}, r)
+      "card_transparency": 55, "panel_pinned": True}, r)
 cfg_path = os.path.join(os.environ.get("TEMP", ""), "taskhub-tests", "config.json")
 if os.path.exists(cfg_path):
     with open(cfg_path, encoding="utf-8") as f:
         cfg = json.load(f)
-    check("panel settings: saved in config.json", (cfg.get("theme"), cfg.get("accent"), cfg.get("panel_transparency"), cfg.get("panel_pinned"))
-          == ("dark", "taskhub", 72, True), cfg)
-for bad in ({"theme": "blue"}, {"accent": "red"}, {"panel_transparency": 101}, {"panel_transparency": -1}, {"panel_transparency": "abc"}):
+    check("panel settings: saved in config.json", (cfg.get("theme"), cfg.get("accent"), cfg.get("panel_transparency"), cfg.get("card_transparency"),
+           cfg.get("panel_pinned")) == ("dark", "taskhub", 72, 55, True), cfg)
+for bad in ({"theme": "blue"}, {"accent": "red"}, {"panel_transparency": 101}, {"panel_transparency": -1}, {"panel_transparency": "abc"}, {"card_transparency": 101}, {"card_transparency": "x"}):
     s, r = call("POST", "/api/settings", bad)
     check(f"panel settings: {bad} -> 400", s == 400, (s, r))
 s, snap = call("GET", "/api/tasks")
-check("panel settings: invalid values change nothing", snap["panel"]["theme"] == "dark" and snap["panel"]["panel_transparency"] == 72, snap["panel"])
-s, r = call("POST", "/api/settings", {"theme": "system", "accent": "system", "panel_transparency": 30, "panel_pinned": False})
-check("panel settings: back to defaults", r.get("panel") == {"theme": "system", "accent": "system", "panel_transparency": 30, "panel_pinned": False}, r)
+check("panel settings: invalid values change nothing", snap["panel"]["theme"] == "dark" and snap["panel"]["panel_transparency"] == 72
+      and snap["panel"]["card_transparency"] == 55, snap["panel"])
+s, r = call("POST", "/api/settings", {"theme": "system", "accent": "system", "panel_transparency": 30, "card_transparency": 30,
+                                      "panel_pinned": False})
+check("panel settings: back to defaults", r.get("panel") == {"theme": "system", "accent": "system", "panel_transparency": 30,
+      "card_transparency": 30, "panel_pinned": False}, r)
 s, r = call("GET", "/api/help", raw=True)
 check("help served", s == 200 and b"TaskHub API" in r, s)
 s, r = call("GET", "/ui", raw=True)
