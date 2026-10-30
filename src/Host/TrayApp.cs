@@ -95,8 +95,8 @@ sealed class TrayApp : ApplicationContext
         var miOpen = Add("open_panel", "", () => Panel.ShowPanel(null));
         var miMute = Add("mute", "", () => hub.SetMuted(!hub.Muted));
         Add("settings_menu", "", () => Panel.OpenSettings());
-        m.Items.Add(new ToolStripSeparator());
         Add("support", "", () => Hub.OpenTarget(L.SupportUrl));
+        m.Items.Add(new ToolStripSeparator());
         Add("quit", "", Quit);
         m.Opening += (_, _) =>
         {
@@ -105,8 +105,8 @@ sealed class TrayApp : ApplicationContext
             // state by shape and words, like the panel's bell: crossed bell + "Turn notifications on" while muted
             miMute.Text = L.T(hub.Muted ? "unmute" : "mute");
             miMute.Tag = hub.Muted ? "" : "";
+            miOpen.Font = new Font(m.Font, FontStyle.Bold);   // the default item, as in the system menus (the renderer uses its own font)
             look.Apply(m);
-            miOpen.Font = new Font(m.Font, FontStyle.Bold);
         };
         m.Opened += (_, _) => look.StyleWindow(m);
         return m;

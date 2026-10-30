@@ -1,80 +1,186 @@
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using System.Runtime.InteropServices;
 
 namespace TaskHub;
 
 /// <summary>
-/// The tray menu drawn like a Windows 11 context menu: rounded window (DWM), neutral greys of the panel's theme, rounded
-/// hover, icons from the system icon font (Segoe Fluent Icons) - one colour, state by shape.
+/// The tray menu drawn like a Windows 11 menu: rounded window (DWM), the panel's neutral greys, a soft rounded plate under
+/// the hovered row, icons from the system icon font (Segoe Fluent Icons) - one colour, state by shape. The layout is ours,
+/// not WinForms': sizes of the system menus (menu font, ~23.5 px rows at 100 %), icon and text centred on the same line
+/// (the icon by its drawn outline, the text by the middle of its capitals / small letters), at any scale and in any language.
 /// </summary>
 sealed class Win11Menu : ToolStripRenderer
 {
     public bool Dark;
-    Color Back => Dark ? Color.FromArgb(0x2c, 0x2c, 0x2c) : Color.FromArgb(0xf9, 0xf9, 0xf9);
-    Color Fore => Dark ? Color.White : Color.FromArgb(0x1a, 0x1a, 0x1a);
-    Color Hover => Dark ? Color.FromArgb(0x3a, 0x3a, 0x3a) : Color.FromArgb(0xec, 0xec, 0xec);
-    Color Line => Dark ? Color.FromArgb(0x40, 0x40, 0x40) : Color.FromArgb(0xe2, 0xe2, 0xe2);
-    public Color Border => Dark ? Color.FromArgb(0x48, 0x48, 0x48) : Color.FromArgb(0xd8, 0xd8, 0xd8);
+    float s = 1;   // scale of the monitor the menu opens on (1 = 100 %)
+
+    // the panel's colours (ui.html: --fg, --mut; the support heart = #e0526b mixed 55 % into the text colour)
+    static Color Back(bool dark) => dark ? Color.FromArgb(0x2c, 0x2c, 0x2c) : Color.FromArgb(0xf9, 0xf9, 0xf9);
+    static Color Fore(bool dark) => dark ? Color.FromArgb(0xf3, 0xf3, 0xf3) : Color.FromArgb(0x1a, 0x1a, 0x1a);
+    static Color Hover(bool dark) => dark ? Color.FromArgb(0x3a, 0x3a, 0x3a) : Color.FromArgb(0xeb, 0xeb, 0xeb);
+    static Color Line(bool dark) => dark ? Color.FromArgb(0x40, 0x40, 0x40) : Color.FromArgb(0xe0, 0xe0, 0xe0);
+    static Color Border(bool dark) => dark ? Color.FromArgb(0x48, 0x48, 0x48) : Color.FromArgb(0xd6, 0xd6, 0xd6);
+    public static Color Heart(bool dark) => Mix(Color.FromArgb(0xe0, 0x52, 0x6b), Fore(dark), 0.55f);
 
     public static readonly string IconFont = FontFamily.Families.Any(f => f.Name == "Segoe Fluent Icons") ? "Segoe Fluent Icons" : "Segoe MDL2 Assets";
-    public static readonly string TextFont = FontFamily.Families.Any(f => f.Name == "Segoe UI Variable Text") ? "Segoe UI Variable Text" : "Segoe UI";
 
+    // ------------------------------------------------------------ layout (in 100 % pixels, times the scale)
+    public const float Row = 23.5f, Sep = 7.5f, PadY = 3, IconX = 20, TextX = 38, PadRight = 26, Icon = 16, PlateX = 4, PlateY = 1.5f, Radius = 4;
+
+    /// <summary>The system menu font (follows Windows' text size) in pixels at this scale.</summary>
+    public static Font TextFont(float scale, bool bold) =>
+        new(SystemFonts.MenuFont.FontFamily, SystemFonts.MenuFont.SizeInPoints * 96f / 72f * scale, bold ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Pixel);
+
+    public static int Px(float v, float scale) => (int)Math.Round(v * scale);
+
+    /// <summary>Paints one row: the hover plate, the icon and the text, both centred on the row's middle line.</summary>
+    public static void PaintRow(Graphics g, Rectangle r, string glyph, string text, bool bold, bool hover, bool heart, float scale, bool dark)
+    {
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        if (hover)
+        {
+            var pr = new RectangleF(r.X + PlateX * scale, r.Y + PlateY * scale, r.Width - 2 * PlateX * scale, r.Height - 2 * PlateY * scale);
+            using var path = Round(pr, Radius * scale);
+            using var b = new SolidBrush(Hover(dark));
+            g.FillPath(b, path);
+        }
+        float cy = r.Y + r.Height / 2f;
+        if (!string.IsNullOrEmpty(glyph))
+        {
+            // the icon by its drawn outline: exactly centred whatever the font's ascent / descent
+            using var fam = new FontFamily(IconFont);
+            using var path = new GraphicsPath();
+            path.AddString(glyph, fam, 0, Icon * scale, PointF.Empty, StringFormat.GenericTypographic);
+            var bb = path.GetBounds();
+            if (bb.Width > 0)
+            {
+                using var m = new Matrix();
+                m.Translate(r.X + IconX * scale - (bb.X + bb.Width / 2), cy - (bb.Y + bb.Height / 2));
+                path.Transform(m);
+                using var b = new SolidBrush(heart ? Heart(dark) : Fore(dark));
+                g.FillPath(b, path);
+            }
+        }
+        if (!string.IsNullOrEmpty(text))
+        {
+            // the text by the middle between its capitals and small letters (what the eye takes for the middle of a word),
+            // not by its line box, which has more room above than below and makes the text look high
+            using var f = TextFont(scale, bold);
+            var ff = f.FontFamily;
+            float em = f.Size, unit = em / ff.GetEmHeight(f.Style);
+            float ascent = ff.GetCellAscent(f.Style) * unit;
+            float baseline = cy + em * 0.31f;                  // Segoe UI: capitals 0.70 em, small letters 0.50 em -> 0.30-0.31
+            int top = (int)Math.Round(baseline - ascent);
+            var tr = new Rectangle(r.X + Px(TextX, scale), top, r.Width - Px(TextX + PadRight / 2, scale), (int)Math.Ceiling(ascent + ff.GetCellDescent(f.Style) * unit) + 1);
+            g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+            TextRenderer.DrawText(g, text, f, tr, Fore(dark),
+                TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix
+                | TextFormatFlags.PreserveGraphicsTranslateTransform | TextFormatFlags.PreserveGraphicsClipping);
+        }
+    }
+
+    public static void PaintSeparator(Graphics g, Rectangle r, float scale, bool dark)
+    {
+        using var p = new Pen(Line(dark), Math.Max(1, (int)scale));
+        int y = r.Y + r.Height / 2;
+        g.SmoothingMode = SmoothingMode.None;
+        g.DrawLine(p, r.X + PlateX * scale, y, r.Right - PlateX * scale, y);
+    }
+
+    /// <summary>Width of the menu for these texts.</summary>
+    public static int Width(IEnumerable<(string text, bool bold)> items, float scale)
+    {
+        int w = 0;
+        foreach (var (t, b) in items)
+        {
+            using var f = TextFont(scale, b);
+            w = Math.Max(w, TextRenderer.MeasureText(t, f, Size.Empty, TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width);
+        }
+        return Px(TextX + PadRight, scale) + w;
+    }
+
+    // ------------------------------------------------------------ ToolStrip glue
     protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
     {
-        using var b = new SolidBrush(Back);
+        using var b = new SolidBrush(Back(Dark));
         e.Graphics.FillRectangle(b, e.AffectedBounds);
     }
 
     protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e) { }   // DWM draws the rounded border
-
     protected override void OnRenderImageMargin(ToolStripRenderEventArgs e) { }
+    protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e) { }
+    protected override void OnRenderItemImage(ToolStripItemImageRenderEventArgs e) { }
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e) { }   // drawn with the row below
 
     protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
     {
-        if (!e.Item.Selected || !e.Item.Enabled) return;
-        var g = e.Graphics;
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        float s = e.ToolStrip.DeviceDpi / 96f;
-        var r = new RectangleF(4 * s, 1 * s, e.Item.Width - 8 * s, e.Item.Height - 2 * s);
-        using var path = Round(r, 4 * s);
-        using var b = new SolidBrush(Hover);
-        g.FillPath(b, path);
+        var it = e.Item;
+        PaintRow(e.Graphics, new Rectangle(Point.Empty, it.Size), it.Tag as string, it.Text, it.Font.Bold,
+            it.Selected && it.Enabled, it.Name == "support", s, Dark);
     }
 
-    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+    protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e) =>
+        PaintSeparator(e.Graphics, new Rectangle(Point.Empty, e.Item.Size), s, Dark);
+
+    /// <summary>Lays the menu out for the monitor under the cursor (where the tray menu opens).
+    /// ToolStripDropDownMenu sizes itself from the measured text and resets its Padding on every layout, so the menu gets
+    /// an explicit size (AutoSize off) and the gap above the first / below the last row comes from two empty spacer rows.</summary>
+    public void Apply(ContextMenuStrip m)
     {
-        e.TextColor = Fore;
-        e.Graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
-        base.OnRenderItemText(e);
+        s = ScaleAt(Cursor.Position);
+        m.Renderer = this;
+        m.ShowCheckMargin = false;
+        m.ShowImageMargin = false;
+        m.BackColor = Back(Dark);
+        if (m.Items.Count == 0 || m.Items[0].Name != "pad")
+        {
+            m.Items.Insert(0, new ToolStripLabel { Name = "pad" });
+            m.Items.Add(new ToolStripLabel { Name = "pad" });
+        }
+        var rows = m.Items.OfType<ToolStripMenuItem>().ToList();
+        int w = Width(rows.Select(i => (i.Text, i.Font.Bold)), s);
+        int h = 0;
+        foreach (ToolStripItem it in m.Items)
+        {
+            it.AutoSize = false;
+            it.Margin = Padding.Empty;
+            it.Padding = Padding.Empty;
+            int ih = it.Name == "pad" ? Math.Max(0, Px(PadY, s) - m.Padding.Top) : Px(it is ToolStripSeparator ? Sep : Row, s);
+            it.Size = new Size(w, ih);
+            h += ih;
+        }
+        m.AutoSize = false;
+        m.Size = new Size(w, h + m.Padding.Vertical);
     }
 
-    protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e) { }   // state is in the icon's shape
-
-    protected override void OnRenderItemImage(ToolStripItemImageRenderEventArgs e)
+    /// <summary>Rounded corners and a thin border from DWM (Windows 11; ignored on Windows 10).</summary>
+    public void StyleWindow(ToolStripDropDown m)
     {
-        if (e.Item.Tag is not string glyph) return;
-        var g = e.Graphics;
-        g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-        float s = e.ToolStrip.DeviceDpi / 96f;
-        using var font = new Font(IconFont, 16 * s, GraphicsUnit.Pixel);
-        var col = e.Item.Name == "support" ? Mix(Color.FromArgb(0xe0, 0x52, 0x6b), Fore, 0.55f) : Fore;
-        using var b = new SolidBrush(col);
-        var r = e.ImageRectangle;
-        using var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-        // a little further from the edge than WinForms puts images, as in the Windows 11 menus
-        g.DrawString(glyph, font, b, new RectangleF(r.X + 4 * s, r.Y - 2 * s, r.Width + 4 * s, r.Height + 4 * s), fmt);
+        try
+        {
+            int round = 2;   // DWMWCP_ROUND
+            Native.DwmSetWindowAttribute(m.Handle, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
+            var c = Border(Dark);
+            int col = c.R | c.G << 8 | c.B << 16;
+            Native.DwmSetWindowAttribute(m.Handle, Native.DWMWA_BORDER_COLOR, ref col, sizeof(int));
+        }
+        catch { }
     }
 
-    protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(Point pt, uint flags);
+    [DllImport("shcore.dll")] static extern int GetDpiForMonitor(IntPtr mon, int type, out uint dpiX, out uint dpiY);
+
+    static float ScaleAt(Point p)
     {
-        float s = e.ToolStrip.DeviceDpi / 96f;
-        int y = e.Item.Height / 2;
-        using var p = new Pen(Line, Math.Max(1, s));
-        e.Graphics.DrawLine(p, 4 * s, y, e.Item.Width - 4 * s, y);
+        try { if (GetDpiForMonitor(MonitorFromPoint(p, 2 /*nearest*/), 0, out var x, out _) == 0 && x > 0) return x / 96f; }
+        catch { }
+        return 1;
     }
 
     static Color Mix(Color a, Color b, float t) =>
-        Color.FromArgb((int)(a.R * t + b.R * (1 - t)), (int)(a.G * t + b.G * (1 - t)), (int)(a.B * t + b.B * (1 - t)));
+        Color.FromArgb((int)Math.Round(a.R * t + b.R * (1 - t)), (int)Math.Round(a.G * t + b.G * (1 - t)), (int)Math.Round(a.B * t + b.B * (1 - t)));
 
     static GraphicsPath Round(RectangleF r, float rad)
     {
@@ -86,39 +192,5 @@ sealed class Win11Menu : ToolStripRenderer
         p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
         p.CloseFigure();
         return p;
-    }
-
-    /// <summary>Rounded corners and a thin border from DWM (Windows 11; ignored on Windows 10).</summary>
-    public void StyleWindow(ToolStripDropDown m)
-    {
-        try
-        {
-            int round = 2;   // DWMWCP_ROUND
-            Native.DwmSetWindowAttribute(m.Handle, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
-            int col = Border.R | Border.G << 8 | Border.B << 16;
-            Native.DwmSetWindowAttribute(m.Handle, Native.DWMWA_BORDER_COLOR, ref col, sizeof(int));
-        }
-        catch { }
-    }
-
-    /// <summary>Sizes like the Windows 11 menus: 14 px text, ~32 px rows, a little room around the items.</summary>
-    public void Apply(ContextMenuStrip m)
-    {
-        float s = m.DeviceDpi / 96f;
-        m.Renderer = this;
-        m.Font = new Font(TextFont, 10.5f);
-        m.ShowCheckMargin = false;
-        m.ShowImageMargin = true;
-        m.ImageScalingSize = new Size((int)(16 * s), (int)(16 * s));
-        m.Padding = new Padding(0, (int)(4 * s), 0, (int)(4 * s));
-        m.BackColor = Back;
-        foreach (ToolStripItem it in m.Items)
-        {
-            if (it is ToolStripSeparator) { it.Margin = new Padding(0, (int)(2 * s), 0, (int)(2 * s)); continue; }
-            it.Padding = new Padding((int)(4 * s), (int)(7 * s), (int)(24 * s), (int)(7 * s));
-            it.ForeColor = Fore;
-            // a placeholder image gives the icon its place; OnRenderItemImage draws the glyph
-            it.Image ??= new Bitmap(1, 1);
-        }
     }
 }
