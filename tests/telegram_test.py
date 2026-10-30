@@ -108,6 +108,7 @@ def call(method, path, body=None):
         return e.code, json.loads(e.read() or b"{}")
 
 
+ThreadingHTTPServer.request_queue_size = 64   # the hub opens several connections at once (default 5 -> refused on Windows)
 srv = ThreadingHTTPServer(("127.0.0.1", 47897), Bot)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 

@@ -323,6 +323,7 @@ sealed class TelegramBridge
     {
         long offset = 0;
         bool first = true;
+        int failures = 0;
         while (!ct.IsCancellationRequested)
         {
             try
@@ -347,6 +348,7 @@ sealed class TelegramBridge
                 }, 70, ct);
                 if (c2 is 401 or 404) { Status = "invalid token"; return; }
                 if (c2 == 409) { Status = "another program uses this bot (webhook / getUpdates)"; await Task.Delay(30000, ct); continue; }
+                failures = 0;
                 foreach (var u in (r?["result"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
                 {
                     offset = Math.Max(offset, (long)(J.Num(u["update_id"]) ?? 0) + 1);
@@ -357,7 +359,9 @@ sealed class TelegramBridge
             catch (Exception e)
             {
                 Status = "offline: " + e.GetBaseException().Message;
-                try { await Task.Delay(15000, ct); } catch { return; }
+                // a dropped connection is usually gone at once: retry soon, back off only if it keeps failing
+                var wait = TimeSpan.FromSeconds(Math.Min(30, 2 << Math.Min(failures++, 4)));
+                try { await Task.Delay(wait, ct); } catch { return; }
             }
         }
     }
