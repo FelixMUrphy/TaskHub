@@ -15,7 +15,7 @@ loopback only.
 </p>
 
 [**⬇ Download the latest setup.exe**](https://github.com/FelixMUrphy/TaskHub/releases/latest) ·
-[API reference](API.md) · [❤ Sponsor](https://github.com/sponsors/FelixMUrphy)
+[API reference](API.md) · [Privacy](PRIVACY.md) · [❤ Sponsor](https://github.com/sponsors/FelixMUrphy)
 
 > **AI agent reading this?** Claude Code / Codex: use the TaskHub **MCP tools** (`task_start`, `notify`, …). If you don't
 > see them, don't use `curl` - ask the user to enable *TaskHub tools (MCP)* (tray → *AI agents*) and to start a new
