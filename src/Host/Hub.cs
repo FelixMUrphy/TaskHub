@@ -1155,7 +1155,7 @@ sealed class Hub
             return tasks.Values.Select(t =>
             {
                 var o = new JsonObject();
-                foreach (var k in new[] { "id", "name", "state", "progress", "current", "total", "unit", "status", "stage", "started", "finished", "controls" })
+                foreach (var k in new[] { "id", "name", "state", "progress", "current", "total", "unit", "status", "stage", "started", "finished", "controls", "eta_at" })
                     o[k] = J.C(t[k]);
                 return o;
             }).ToList();
