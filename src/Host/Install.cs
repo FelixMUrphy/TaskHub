@@ -316,6 +316,99 @@ static class Install
         SetUninstallEntry(false, dir);
     }
 
+    // ------------------------------------------------------------ the other edition (setup exe <-> Microsoft Store)
+    /// <summary>Kill hub processes started from this folder (not this process).</summary>
+    static void StopHubsIn(string dir)
+    {
+        foreach (var p in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(HostExe)))
+        {
+            if (p.Id == Environment.ProcessId) continue;
+            try
+            {
+                if (SameDir(Path.GetDirectoryName(p.MainModule!.FileName), dir)) { p.Kill(true); p.WaitForExit(5000); }
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>Store edition switching over: remove the setup-exe installation (its hub, Run entry, taskhub://, PATH
+    /// entry, Apps &amp; features entry and files). Its data folder is the one this edition reads, so nothing is lost.
+    /// Works from inside the package: HKCU and these files are not virtualized for full-trust packages.</summary>
+    public static void RemoveExeEdition(Settings s)
+    {
+        var dir = InstallDir;
+        StopHubsIn(dir);
+        using (var k = Registry.CurrentUser.CreateSubKey(RunKey))
+        {
+            var v = k.GetValue(RunValueName(s)) as string;
+            if (v != null && v.Contains(HostExe, StringComparison.OrdinalIgnoreCase)) k.DeleteValue(RunValueName(s), false);
+        }
+        SetProtocol(false);
+        SetPath(dir, false);
+        SetUninstallEntry(false, dir);
+        RemoveFiles(dir);
+        // a taskhub.exe still running (an agent's MCP server) cannot be deleted yet: retried on later starts
+        if (Directory.Exists(dir)) s.Set(("exe_leftover", dir));
+        Log.W("setup-exe edition removed from " + dir);
+    }
+
+    /// <summary>Store edition: delete what RemoveExeEdition could not (files that were in use then).</summary>
+    public static void CleanExeLeftover(Settings s)
+    {
+        var dir = J.Str(s.Get("exe_leftover"));
+        if (string.IsNullOrEmpty(dir) || IsInstalled) return;
+        RemoveFiles(dir);
+        if (!Directory.Exists(dir)) s.Set(("exe_leftover", null));
+    }
+
+    public sealed record StorePackage(string FullName, string FamilyName, Version Version, string Dir);
+
+    /// <summary>The Store edition installed for this user, or null. Found by its files rather than its name, which
+    /// Partner Center assigns.</summary>
+    public static StorePackage FindStoreEdition()
+    {
+        try
+        {
+            foreach (var p in new Windows.Management.Deployment.PackageManager().FindPackagesForUser(string.Empty))
+            {
+                try
+                {
+                    if (p.IsFramework || p.IsResourcePackage) continue;
+                    var dir = p.InstalledLocation.Path;
+                    if (!File.Exists(Path.Combine(dir, HostExe)) || !File.Exists(Path.Combine(dir, "taskhub.exe"))) continue;
+                    var v = p.Id.Version;
+                    return new StorePackage(p.Id.FullName, p.Id.FamilyName, new Version(v.Major, v.Minor, v.Build), dir);
+                }
+                catch { }
+            }
+        }
+        catch (Exception e) { Log.W("package lookup failed: " + e.Message); }
+        return null;
+    }
+
+    /// <summary>Setup exe replacing the Store edition: take over the data the package wrote (it lives in the package's
+    /// private copy of %APPDATA%), then remove the package.</summary>
+    public static void ReplaceStoreEdition(StorePackage pkg, Settings s)
+    {
+        StopHubsIn(pkg.Dir);
+        var src = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Packages", pkg.FamilyName, "LocalCache", "Roaming", Settings.AppId);
+        if (Directory.Exists(src) && SameDir(s.DataDir, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Settings.AppId)))
+        {
+            foreach (var f in Directory.EnumerateFiles(src, "*", SearchOption.AllDirectories))
+            {
+                var rel = Path.GetRelativePath(src, f);
+                if (rel.StartsWith("webview", StringComparison.OrdinalIgnoreCase)) continue;   // browser cache, rebuilt
+                var dst = Path.Combine(s.DataDir, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+                File.Copy(f, dst, true);
+            }
+        }
+        var r = new Windows.Management.Deployment.PackageManager().RemovePackageAsync(pkg.FullName).AsTask().GetAwaiter().GetResult();
+        if (r.ExtendedErrorCode != null) throw new IOException(r.ErrorText);
+        Log.W($"Store edition {pkg.Version} removed");
+    }
+
     /// <summary>Remove our files from the install folder after this process exits.</summary>
     public static void ScheduleRemoveFiles(string dir)
     {
