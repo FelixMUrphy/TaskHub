@@ -54,8 +54,13 @@ header .sp{flex:1}
 .tabs button{border:0;background:none;color:var(--mut);padding:3px 9px;border-radius:5px;font:inherit;font-size:12px;cursor:pointer}
 .tabs button.on{background:var(--o3);color:var(--fg)}
 .tabs button:not(.on):hover{background:var(--o1);color:var(--fg)}
-.ib{border:0;background:none;color:var(--mut);cursor:pointer;font-size:15px;padding:3px 6px;border-radius:6px}
-.ib:hover{background:var(--o2);color:var(--fg)}
+.ib{border:0;background:none;color:var(--fg);cursor:pointer;width:32px;height:30px;padding:0;border-radius:5px;flex:none;
+  display:inline-flex;align-items:center;justify-content:center}
+.ib:hover{background:var(--o2)} .ib:active{background:var(--o1)}
+/* header icons: the Windows 11 system icon font (Segoe Fluent Icons; Segoe MDL2 Assets on Windows 10) - one colour, one size;
+   states by shape (bell / crossed bell, outline / filled pin), the support heart only slightly warmer than the rest */
+.ib i{font:normal 16px/1 "Segoe Fluent Icons","Segoe MDL2 Assets";speak:none}
+#sup i{color:color-mix(in srgb,#e0526b 55%,var(--fg))}
 #off{display:none;background:var(--red);color:#fff;font-size:12px;padding:4px 12px}
 main{padding:10px;display:flex;flex-direction:column;gap:9px}
 #off{flex:none}
@@ -196,8 +201,6 @@ pre .warn{color:var(--amber)} pre .error{color:var(--red)} pre .cmd{color:var(--
 .dlg .row{display:flex;gap:6px;justify-content:flex-end}
 .pywebview-drag-region{cursor:default}
 .lng{font:inherit;font-size:12px;background:var(--track);color:var(--fg);border:0;border-radius:6px;padding:2px 4px;cursor:pointer;max-width:110px}
-.ib.on{background:var(--o2);box-shadow:inset 0 0 0 1.5px var(--acc)}
-#pin{font-size:13px}
 /* settings popover */
 #set{display:none;position:fixed;right:10px;z-index:25;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;box-shadow:0 8px 24px #0004;min-width:230px;max-width:calc(100% - 20px)}
 #set.on{display:grid;grid-template-columns:auto 1fr;gap:8px 10px;align-items:center}
@@ -214,11 +217,11 @@ pre .warn{color:var(--amber)} pre .error{color:var(--red)} pre .cmd{color:var(--
   <h1 class="pywebview-drag-region">TaskHub</h1><span class="cnt pywebview-drag-region" id="cnt"></span>
   <span class="sp pywebview-drag-region" style="align-self:stretch"></span>
   <div class="tabs"><button data-f="active" class="on" data-i="active"></button><button data-f="all" data-i="all"></button></div>
-  <button class="ib" id="mute" title="Сповіщення">🔔</button>
-  <button class="ib" id="clear">🧹</button>
-  <button class="ib" id="sup">♡</button>
-  <button class="ib" id="cfg">⚙</button>
-  <button class="ib" id="pin">📌</button>
+  <button class="ib" id="mute" title="Сповіщення"><i>&#xEA8F;</i></button>
+  <button class="ib" id="clear"><i>&#xEA99;</i></button>
+  <button class="ib" id="sup"><i>&#xEB51;</i></button>
+  <button class="ib" id="cfg"><i>&#xE713;</i></button>
+  <button class="ib" id="pin"><i>&#xE718;</i></button>
 </header>
 <div id="set">
   <label for="lang" data-i="language"></label><select id="lang"></select>
@@ -272,7 +275,7 @@ function applyLook(){
     document.getElementById(id+"v").textContent=s.value+" %";
     s.disabled=!bd; const rg=document.getElementById(id+"r"); rg.classList.toggle("off",!bd); rg.title=bd?"":T("tr_na");
   }
-  const p=document.getElementById("pin"); p.classList.toggle("on",!!PANEL.panel_pinned); p.title=T(PANEL.panel_pinned?"unpin":"pin"); p.setAttribute("aria-label",p.title); p.setAttribute("aria-pressed",PANEL.panel_pinned?"true":"false"); p.style.display=NATIVE?"":"none";
+  const p=document.getElementById("pin"); $("i",p).textContent=PANEL.panel_pinned?"\uE841":"\uE718";   /* filled pin = pinned */ p.title=T(PANEL.panel_pinned?"unpin":"pin"); p.setAttribute("aria-label",p.title); p.setAttribute("aria-pressed",PANEL.panel_pinned?"true":"false"); p.style.display=NATIVE?"":"none";
 }
 let modal = false;   // confirm() dialog open -> don't auto-hide
 function ask(m){ return new Promise(res=>{ const d=document.getElementById("dlg"); d.querySelector(".t").textContent=m; d.classList.add("on"); modal=true;
@@ -728,7 +731,7 @@ function render(){
   const list=$("#list");
   const nAct=data.tasks.filter(t=>ACTIVE.has(t.state)).length;
   $("#cnt").textContent = T("counts",nAct,data.tasks.length);
-  $("#mute").textContent = data.muted ? "🔕" : "🔔";
+  $("#mute i").textContent = data.muted ? "\uE7ED" : "\uEA8F";   // bell crossed out = muted
   $("#mute").title = data.muted ? T("notif_off") : T("notif_on");
   place(list, layout());
   requestAnimationFrame(sbUpd);
