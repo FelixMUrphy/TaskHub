@@ -53,10 +53,13 @@ sealed class Settings
         ["toasts"] = true,
         ["keep_finished"] = 60,
         ["log_lines"] = 400,
-        ["panel_width"] = 480,
-        ["panel_height"] = 760,
+        ["panel_width"] = 480,              // width of the panel docked to the right edge (px at 96 dpi; drag its left edge)
         ["panel_autohide"] = true,
+        ["panel_pinned"] = false,           // pin button: the panel stays open when it loses focus
         ["panel_topmost"] = true,
+        ["panel_transparency"] = 30,        // background transparency 0-100 % (Windows 11 acrylic behind it)
+        ["theme"] = "system",               // system | light | dark
+        ["accent"] = "system",              // system (Windows accent colour) | taskhub
         ["toast_controls"] = true,
         ["progress_toasts"] = false,
         ["language"] = "auto",

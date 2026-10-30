@@ -115,7 +115,8 @@ sealed class Api
             if (b.ContainsKey("muted")) hub.SetMuted(J.Truthy(b["muted"]));
             if (J.Truthy(b["seen"])) hub.MarkSeen();
             if (b.ContainsKey("language")) hub.SetLanguage(J.Str(b["language"], "auto"));
-            return new JsonObject { ["ok"] = true, ["muted"] = hub.Muted, ["lang"] = L.Lang, ["language"] = L.Setting };
+            hub.SetPanelSettings(b);
+            return new JsonObject { ["ok"] = true, ["muted"] = hub.Muted, ["lang"] = L.Lang, ["language"] = L.Setting, ["panel"] = hub.PanelSettings() };
         });
         R("POST", "/api/ui/hide", async (c, q, g) =>
         {

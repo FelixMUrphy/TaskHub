@@ -760,6 +760,46 @@ sealed class Hub
         lock (Lock) Bump();
     }
 
+    /// <summary>The panel's look and behaviour (config.json): theme, accent, background transparency, pin.</summary>
+    public JsonObject PanelSettings() => new()
+    {
+        ["theme"] = J.Str(S.Get("theme"), "system"),
+        ["accent"] = J.Str(S.Get("accent"), "system"),
+        ["panel_transparency"] = Math.Clamp(S.Int("panel_transparency", 30), 0, 100),
+        ["panel_pinned"] = S.Bool("panel_pinned", false),
+    };
+
+    /// <summary>Raised (on the caller's thread) after a panel setting changed.</summary>
+    public event Action PanelSettingsChanged;
+
+    public void SetPanelSettings(JsonObject b)
+    {
+        var kv = new List<(string, JsonNode)>();
+        if (b.ContainsKey("theme"))
+        {
+            var v = J.Str(b["theme"]);
+            if (v is not ("system" or "light" or "dark")) throw new ApiError(400, "theme must be system, light or dark");
+            kv.Add(("theme", v));
+        }
+        if (b.ContainsKey("accent"))
+        {
+            var v = J.Str(b["accent"]);
+            if (v is not ("system" or "taskhub")) throw new ApiError(400, "accent must be system or taskhub");
+            kv.Add(("accent", v));
+        }
+        if (b.ContainsKey("panel_transparency"))
+        {
+            if (J.Num(b["panel_transparency"]) is not double d || !double.IsFinite(d) || d < 0 || d > 100)
+                throw new ApiError(400, "panel_transparency must be a number from 0 to 100");
+            kv.Add(("panel_transparency", (int)Math.Round(d)));
+        }
+        if (b.ContainsKey("panel_pinned")) kv.Add(("panel_pinned", J.Truthy(b["panel_pinned"])));
+        if (kv.Count == 0) return;
+        S.Set(kv.ToArray());
+        lock (Lock) Bump();
+        PanelSettingsChanged?.Invoke();
+    }
+
     // ------------------------------------------------------------ controls & commands
     public JsonObject Trigger(string tid, string cid, JsonObject b, string via = null)
     {
@@ -1065,6 +1105,7 @@ sealed class Hub
             {
                 ["version"] = Version, ["now"] = J.Now(), ["muted"] = Muted,
                 ["lang"] = L.Lang, ["language"] = L.Setting,
+                ["panel"] = PanelSettings(),
                 ["focus"] = focus.DeepClone(),
                 ["server"] = new JsonObject { ["version"] = Settings.Version, ["pid"] = Environment.ProcessId, ["impl"] = "dotnet" },
                 ["tasks"] = new JsonArray(list),
