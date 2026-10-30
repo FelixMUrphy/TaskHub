@@ -204,6 +204,9 @@ sealed class TrayApp : ApplicationContext
         return bmp;
     }
 
+    /// <summary>Quit from another thread (the installer's quit event, Install.StopHubs).</summary>
+    public void QuitSoon() => Ui(Quit);
+
     public void Quit()
     {
         try

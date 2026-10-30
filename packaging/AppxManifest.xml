@@ -20,7 +20,8 @@
     <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
   </Properties>
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+    <!-- 19041 (2004): the virtualization switches above and unvirtualizedResources need 1903+, 1903 / 1909 are out of support -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
   </Dependencies>
   <Resources>
     <Resource Language="en-us" /><Resource Language="uk-ua" /><Resource Language="es-es" /><Resource Language="de-de" />

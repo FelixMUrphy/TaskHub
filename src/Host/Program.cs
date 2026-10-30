@@ -24,6 +24,9 @@ static class Program
         bool quiet = Has("--quiet");
 
         if (Has("--help") || Has("-h") || Has("/?")) { Msg(Usage); return 0; }
+        // tests only: one install step against a throw-away registry key / Start-menu folder (Install.SelfTest)
+        if (Has("--selftest-install") && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 } testHome)
+            return Install.SelfTest(S, testHome, args[(Array.IndexOf(args, "--selftest-install") + 1)..]);
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
@@ -44,7 +47,7 @@ static class Program
             Install.Unregister(S);
             Integrations.RemoveAll(S);
             try { ToastNotificationManagerCompat.Uninstall(); } catch { }
-            if (Has("--purge")) try { Directory.Delete(S.DataDir, true); } catch { }
+            if (Has("--purge")) Install.PurgeData(S);
             if (wasInstalled) Install.ScheduleRemoveFiles(dir);
             if (!quiet) Msg(L.T("uninstalled", S.DataDir));
             return 0;
@@ -132,6 +135,9 @@ static class Program
         // once the install itself goes ahead (not on Cancel / Run, not if the folder is not writable)
         string installDir = Arg("--dir");
         bool optAuto = !Has("--no-autostart"), optPath = !Has("--no-path");
+        // --install --quiet over an installation whose autostart the user turned off in Windows: it stays off
+        // (the setup window shows the current state on its toggle instead)
+        if (install && quiet && Install.IsInstalled && Install.DisabledInTaskManager(S)) optAuto = false;
         string optAgents = string.Join("", Integrations.All.SelectMany(a => Integrations.Kinds.Select(k => Integrations.ArgName(a, k)))
             .SelectMany(n => new[] { "--" + n, "--no-" + n }).Where(Has).Select(x => " " + x));
         if (setup && !quiet)
@@ -240,6 +246,8 @@ static class Program
             return 1;
         }
 
+        // the installer / uninstaller asks a running hub to quit through this event (Install.StopHubs)
+        using var quit = new EventWaitHandle(false, EventResetMode.ManualReset, Install.QuitEventName(Environment.ProcessId));
         telegram.Start();
         connectors.StartAll();
         var updater = new Updater(S, hub, notifier);
@@ -249,12 +257,20 @@ static class Program
         if (Has("--no-tray"))
         {
             var cts = new CancellationTokenSource();
+            ThreadPool.RegisterWaitForSingleObject(quit, (_, _) => cts.Cancel(), null, -1, true);
             hub.Watchdog(cts.Token).GetAwaiter().GetResult();
+            _ = api.Stop();
+            connectors.StopAll();
+            hub.MarkDirty();
+            hub.Save();
+            Log.W("exit (asked to quit)");
             return 0;
         }
 
         // Store edition: updates come from the Store, so no update check / menu
-        Application.Run(new TrayApp(S, hub, api, notifier, openTask) { Updater = Install.IsPackaged ? null : updater, GitHub = github });
+        var trayApp = new TrayApp(S, hub, api, notifier, openTask) { Updater = Install.IsPackaged ? null : updater, GitHub = github };
+        ThreadPool.RegisterWaitForSingleObject(quit, (_, _) => trayApp.QuitSoon(), null, -1, true);
+        Application.Run(trayApp);
         connectors.StopAll();
         hub.MarkDirty();
         hub.Save();
@@ -366,7 +382,7 @@ static class Program
                     if (purge)
                     {
                         f.Step(L.T("step_purge"), 0.85);
-                        try { Directory.Delete(S.DataDir, true); } catch (Exception e) { Log.W("purge: " + e.Message); }
+                        Install.PurgeData(S);
                     }
                     f.Step("", 1);
                 });

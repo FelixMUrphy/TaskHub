@@ -138,16 +138,22 @@ one-time link GitHub gives, without the token. A notification warns a week befor
 
 ## Install details
 The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or any folder you choose), unpacks the
-`taskhub` CLI, `taskhub_client.py` and `API.md`, registers `taskhub://` and an *Apps & features* entry. Over an existing
+`taskhub` CLI, `taskhub_client.py` and `API.md`, registers `taskhub://` and an *Apps & features* entry, and (from 2.9)
+adds TaskHub to the Start menu. Over an existing
 install the setup shows the installed version and folder (the version is read from the installed exe) and offers
 **Update**, **Reinstall** (same version) or installing the older version, keeping the folder, autostart and PATH choice. *Run without installing* is also available.
 
 - Silent: `TaskHub-<version>-setup.exe --install [--dir PATH] [--no-autostart] [--no-path] [--claude|--no-claude]
   [--codex|--no-codex] [--claude-mcp|--no-claude-mcp] [--codex-mcp|--no-codex-mcp] --quiet` (agent options not given stay unchanged)
 - Uninstall: *Apps & features* → TaskHub, or `TaskHubHost.exe --uninstall [--quiet] [--purge]`
-  (`--purge` also deletes the data in `%APPDATA%\TaskHub`). Also removes TaskHub's entries from the Claude Code / Codex settings.
-- Autostart restores itself (also if disabled in Task Manager) unless you turn it off in Settings → *System* (before 2.9: the tray menu).
-- Requirements: Windows 10 1809+ / 11 x64, WebView2 runtime (preinstalled on current Windows).
+  (`--purge` also deletes the data in `%APPDATA%\TaskHub` and, from 2.9, the GitHub / Telegram tokens TaskHub saved in the
+  Windows Credential Manager; a plain uninstall keeps them for a reinstall). Also removes TaskHub's entries from the Claude Code / Codex settings.
+- Autostart restores itself if its entry is removed or changed, unless you turn it off in Settings → *System* (before 2.9: the tray menu).
+  From 2.9 turning it off in Task Manager / Settings → *Apps* → *Startup* is respected too (TaskHub's switch then shows it off);
+  before 2.9 it was turned back on.
+- Installing and uninstalling first ask a running TaskHub to quit (it saves its tasks) and end it only if it doesn't within
+  a few seconds (2.9; before: ended at once, with everything it had opened).
+- Requirements: Windows 10 1809+ / 11 x64 (Microsoft Store edition: Windows 10 2004+ from 2.9), WebView2 runtime (preinstalled on current Windows).
 - Port 47800, `127.0.0.1` only, CSRF header + Host/Origin checks; optional bearer token (`"token"` in `config.json`).
 
 Updates: once a day the installed hub looks up the latest release on GitHub (one request to `api.github.com`, nothing is

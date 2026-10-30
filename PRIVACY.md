@@ -36,8 +36,12 @@ nothing there.
 
 ## Removing your data
 Uninstalling TaskHub removes the program; your tasks and settings stay in `%APPDATA%\TaskHub`. To delete them as well,
-delete that folder (or uninstall the GitHub version with `TaskHubHost.exe --uninstall --purge`). The Microsoft Store
-version also leaves its `taskhub` copy in `%LOCALAPPDATA%\TaskHub`, which you can delete.
+delete that folder (or uninstall the GitHub version with *Also delete my data* / `TaskHubHost.exe --uninstall --purge`).
+The Telegram bot token and the GitHub token (TaskHub 2.9 and later) stay in the Windows Credential Manager after a plain
+uninstall, so a reinstall finds them; *Also delete my data* / `--purge` deletes them too (TaskHub 2.9 and later), or
+remove the `TaskHub/...` entries in Control Panel → Credential Manager → Windows Credentials, or disconnect Telegram /
+GitHub in TaskHub's settings before uninstalling. Uninstalling the Microsoft Store version doesn't delete them either.
+The Microsoft Store version also leaves its `taskhub` copy in `%LOCALAPPDATA%\TaskHub`, which you can delete.
 
 ## Contact
 Questions: open an issue at https://github.com/FelixMUrphy/TaskHub/issues.

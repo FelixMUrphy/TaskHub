@@ -58,6 +58,9 @@ sealed class Connectors
 /// A hub with its own data folder (tests, demos) gets its own names, so it never sees or changes the real ones.</summary>
 static class Secrets
 {
+    /// <summary>Every name TaskHub saves a secret under (GitHub connector, Telegram bot): deleted by uninstall --purge.</summary>
+    public static readonly string[] Names = { "github", "telegram" };
+
     static string Target(Settings s, string name)
     {
         var def = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Settings.AppId);

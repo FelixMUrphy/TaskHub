@@ -8,8 +8,9 @@ namespace TaskHub;
 
 /// <summary>
 /// Per-user installation (no admin, HKCU only):
-///   files -> chosen folder (default %LOCALAPPDATA%\Programs\TaskHub), autostart (Run key, kept enabled),
-///   taskhub:// protocol, folder on the user PATH (taskhub CLI), entry in "Apps &amp; features" for uninstall.
+///   files -> chosen folder (default %LOCALAPPDATA%\Programs\TaskHub), autostart (Run key, restored if removed; turned
+///   off in Task Manager / Settings -> Startup apps is respected), taskhub:// protocol, folder on the user PATH (taskhub
+///   CLI), Start-menu shortcut, entry in "Apps &amp; features" for uninstall.
 /// The install folder is remembered in the uninstall entry (InstallLocation).
 /// Data (%APPDATA%\TaskHub) is kept on uninstall unless --purge.
 /// </summary>
@@ -27,6 +28,12 @@ static class Install
         (new[] { ".dll", ".pdb", ".xml", ".deps.json", ".runtimeconfig.json" }.Any(e => name.EndsWith(e, StringComparison.OrdinalIgnoreCase))
          || name is "createdump.exe" or "taskhub.ico" or "ui.html");
 
+    // tests only (SelfTest): the registry entries go under HKCU\Software\TaskHubTest\<test home folder name> and the
+    // Start-menu folder under the test home - never the real ones
+    static string testHome;
+    static RegistryKey testRoot;
+    static RegistryKey Hkcu => testRoot ?? Registry.CurrentUser;
+
     static string Exe => Environment.ProcessPath;
     static string ExeDir => Path.GetDirectoryName(Exe);
     public static string DefaultDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "TaskHub");
@@ -36,7 +43,7 @@ static class Install
     {
         get
         {
-            using var k = Registry.CurrentUser.OpenSubKey(UninstKey);
+            using var k = Hkcu.OpenSubKey(UninstKey);
             var v = k?.GetValue("InstallLocation") as string;
             return string.IsNullOrWhiteSpace(v) ? DefaultDir : v;
         }
@@ -51,7 +58,7 @@ static class Install
 
     public static bool IsInstalled
     {
-        get { using var k = Registry.CurrentUser.OpenSubKey(UninstKey); return k != null && File.Exists(InstalledExe); }
+        get { using var k = Hkcu.OpenSubKey(UninstKey); return k != null && File.Exists(InstalledExe); }
     }
     public static bool IsInstalledCopy => IsInstalled && SameDir(ExeDir, InstallDir);
 
@@ -137,7 +144,7 @@ static class Install
                 if (fv.FileMajorPart > 0 || fv.FileMinorPart > 0) return new Version(fv.FileMajorPart, fv.FileMinorPart, fv.FileBuildPart);
             }
             catch { }
-            using var k = Registry.CurrentUser.OpenSubKey(UninstKey);
+            using var k = Hkcu.OpenSubKey(UninstKey);
             return Version.TryParse(k?.GetValue("DisplayVersion") as string, out var v) ? v : null;
         }
     }
@@ -145,7 +152,7 @@ static class Install
     /// <summary>The folder is on the user PATH.</summary>
     public static bool OnPath(string dir)
     {
-        using var k = Registry.CurrentUser.OpenSubKey("Environment");
+        using var k = Hkcu.OpenSubKey("Environment");
         var cur = k?.GetValue("Path", "", RegistryValueOptions.DoNotExpandEnvironmentNames) as string ?? "";
         return cur.Split(';', StringSplitOptions.RemoveEmptyEntries).Any(p => SameDir(Environment.ExpandEnvironmentVariables(p), dir));
     }
@@ -162,15 +169,16 @@ static class Install
             try { return PackageStartup().State is StartupTaskState.Enabled or StartupTaskState.EnabledByPolicy; }
             catch (Exception e) { Log.W("startup task: " + e.Message); return false; }
         }
-        using var k = Registry.CurrentUser.OpenSubKey(RunKey);
+        using var k = Hkcu.OpenSubKey(RunKey);
         var v = k?.GetValue(RunValueName(s)) as string;
         if (v == null || !v.Contains(HostExe, StringComparison.OrdinalIgnoreCase)) return false;
         return !DisabledInTaskManager(s);
     }
 
-    static bool DisabledInTaskManager(Settings s)
+    /// <summary>The user turned the Run entry off in Task Manager / Settings -> Startup apps.</summary>
+    public static bool DisabledInTaskManager(Settings s)
     {
-        using var k = Registry.CurrentUser.OpenSubKey(ApprovedKey);
+        using var k = Hkcu.OpenSubKey(ApprovedKey);
         // StartupApproved: first byte 02/06 = enabled, 03/07 = disabled (Task Manager "Startup apps")
         return k?.GetValue(RunValueName(s)) is byte[] b && b.Length > 0 && (b[0] & 1) == 1;
     }
@@ -186,8 +194,8 @@ static class Install
                 throw new InvalidOperationException(L.T("startup_by_user"));
             return;
         }
-        using var k = Registry.CurrentUser.CreateSubKey(RunKey);
-        using var a = Registry.CurrentUser.CreateSubKey(ApprovedKey);
+        using var k = Hkcu.CreateSubKey(RunKey);
+        using var a = Hkcu.CreateSubKey(ApprovedKey);
         if (on)
         {
             k.SetValue(RunValueName(s), RunCommand);
@@ -201,15 +209,23 @@ static class Install
         }
     }
 
-    /// <summary>Self-healing autostart for the installed copy: restore the Run entry / re-enable it if it was removed, changed or disabled.</summary>
+    /// <summary>Self-healing autostart for the installed copy: restore the Run entry if it was removed or changed. Turned off
+    /// by the user in Task Manager / Settings -> Startup apps: that choice stands - the app's own setting follows it (the
+    /// settings page shows it off; turning it on there is the user's explicit choice and clears the Windows switch).</summary>
     public static void EnsureAutostart(Settings s)
     {
         try
         {
             if (!IsInstalledCopy || s.Port != Settings.DefaultPort) return;
-            using var k = Registry.CurrentUser.OpenSubKey(RunKey);
+            if (DisabledInTaskManager(s))
+            {
+                s.Set(("autostart", false));
+                Log.W("autostart turned off in Windows: left off");
+                return;
+            }
+            using var k = Hkcu.OpenSubKey(RunKey);
             var v = k?.GetValue(RunValueName(s)) as string;
-            if (v == RunCommand && !DisabledInTaskManager(s)) return;
+            if (v == RunCommand) return;
             SetAutostart(true, s);
             Log.W("autostart entry restored");
         }
@@ -221,18 +237,18 @@ static class Install
     {
         if (on)
         {
-            using var k = Registry.CurrentUser.CreateSubKey(ProtoKey);
+            using var k = Hkcu.CreateSubKey(ProtoKey);
             k.SetValue("", "URL:TaskHub");
             k.SetValue("URL Protocol", "");
-            using var c = Registry.CurrentUser.CreateSubKey(ProtoKey + @"\shell\open\command");
+            using var c = Hkcu.CreateSubKey(ProtoKey + @"\shell\open\command");
             c.SetValue("", $"\"{Exe}\" --open-url \"%1\"");
         }
         else
         {
             string v;
-            using (var c = Registry.CurrentUser.OpenSubKey(ProtoKey + @"\shell\open\command")) v = c?.GetValue("") as string;
+            using (var c = Hkcu.OpenSubKey(ProtoKey + @"\shell\open\command")) v = c?.GetValue("") as string;
             if (v != null && v.Contains(HostExe, StringComparison.OrdinalIgnoreCase))
-                Registry.CurrentUser.DeleteSubKeyTree(ProtoKey, false);
+                Hkcu.DeleteSubKeyTree(ProtoKey, false);
         }
     }
 
@@ -242,21 +258,79 @@ static class Install
 
     static void SetPath(string dir, bool add)
     {
-        using var k = Registry.CurrentUser.CreateSubKey("Environment");
+        using var k = Hkcu.CreateSubKey("Environment");
         var cur = k.GetValue("Path", "", RegistryValueOptions.DoNotExpandEnvironmentNames) as string ?? "";
         var parts = cur.Split(';', StringSplitOptions.RemoveEmptyEntries).ToList();
         bool has = parts.Any(p => SameDir(Environment.ExpandEnvironmentVariables(p), dir));
         if (add == has) return;
         if (add) parts.Add(dir); else parts.RemoveAll(p => SameDir(Environment.ExpandEnvironmentVariables(p), dir));
         k.SetValue("Path", string.Join(";", parts), RegistryValueKind.ExpandString);
-        SendMessageTimeout((IntPtr)0xFFFF, 0x1A, IntPtr.Zero, "Environment", 2, 3000, out _);   // WM_SETTINGCHANGE
+        if (testRoot == null) SendMessageTimeout((IntPtr)0xFFFF, 0x1A, IntPtr.Zero, "Environment", 2, 3000, out _);   // WM_SETTINGCHANGE
+    }
+
+    // ------------------------------------------------------------ Start-menu shortcut
+    // Start / Search find desktop apps only through it. No System.AppUserModel.ID on it: the toasts use the Toolkit's own
+    // registered AUMID (it never sets one on the process), so the shortcut's implicit one doesn't touch them.
+    static string StartMenuDir => testHome != null ? Path.Combine(testHome, "Start Menu", "Programs")
+        : Environment.GetFolderPath(Environment.SpecialFolder.Programs);
+    public static string StartMenuLink => Path.Combine(StartMenuDir, Settings.AppId + ".lnk");
+
+    static void SetShortcut(bool on, string exe = null)
+    {
+        var lnk = StartMenuLink;
+        if (!on)
+        {
+            try { File.Delete(lnk); } catch (Exception e) { Log.W("shortcut not deleted: " + e.Message); }
+            return;
+        }
+        try
+        {
+            Directory.CreateDirectory(StartMenuDir);
+            var link = (IShellLinkW)new ShellLink();
+            try
+            {
+                link.SetPath(exe);
+                link.SetWorkingDirectory(Path.GetDirectoryName(exe));
+                link.SetIconLocation(exe, 0);
+                link.SetDescription("TaskHub");
+                ((System.Runtime.InteropServices.ComTypes.IPersistFile)link).Save(lnk, true);
+            }
+            finally { Marshal.FinalReleaseComObject(link); }
+        }
+        catch (Exception e) { Log.W("Start-menu shortcut not created: " + e.Message); }   // the install itself still works
+    }
+
+    [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
+    class ShellLink { }
+
+    [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("000214F9-0000-0000-C000-000000000046")]
+    interface IShellLinkW
+    {
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int cch, IntPtr fd, uint flags);
+        void GetIDList(out IntPtr pidl);
+        void SetIDList(IntPtr pidl);
+        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder name, int cch);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string name);
+        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder dir, int cch);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string dir);
+        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder args, int cch);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string args);
+        void GetHotkey(out short hotkey);
+        void SetHotkey(short hotkey);
+        void GetShowCmd(out int show);
+        void SetShowCmd(int show);
+        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder path, int cch, out int icon);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string path, int icon);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string rel, uint reserved);
+        void Resolve(IntPtr hwnd, uint flags);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string file);
     }
 
     // ------------------------------------------------------------ apps & features entry
     static void SetUninstallEntry(bool on, string dir)
     {
-        if (!on) { Registry.CurrentUser.DeleteSubKeyTree(UninstKey, false); return; }
-        using var k = Registry.CurrentUser.CreateSubKey(UninstKey);
+        if (!on) { Hkcu.DeleteSubKeyTree(UninstKey, false); return; }
+        using var k = Hkcu.CreateSubKey(UninstKey);
         k.SetValue("DisplayName", "TaskHub");
         k.SetValue("DisplayVersion", Settings.Version);
         k.SetValue("Publisher", "TaskHub");
@@ -275,14 +349,52 @@ static class Install
     }
 
     // ------------------------------------------------------------ install / uninstall
-    /// <summary>Kill other hub processes (they would lock the files / the port).</summary>
-    public static void StopOtherHubs()
+    /// <summary>Stop other hub processes (they would lock the files / the port).</summary>
+    public static void StopOtherHubs() => StopHubs(_ => true);
+
+    /// <summary>The event a running hub waits on to quit (Program.Main); Local\ = this logon session only.</summary>
+    public static string QuitEventName(int pid) => $@"Local\TaskHub_Quit_{pid}";
+
+    /// <summary>Stop the matching hub processes of this logon session (never this process): ask each one to quit (it saves
+    /// its tasks and exits), wait up to 5 s, then end the ones still running (older versions have no quit event). Only the
+    /// hub itself, not its process tree: what it ShellExecute'd (a browser opened from the update page) is the user's, and
+    /// its WebView2 processes exit with it.</summary>
+    static void StopHubs(Func<Process, bool> match)
     {
+        int session;
+        using (var me = Process.GetCurrentProcess()) session = me.SessionId;
+        var hubs = new List<Process>();
         foreach (var p in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(HostExe)))
         {
-            if (p.Id == Environment.ProcessId) continue;
-            try { p.Kill(true); p.WaitForExit(5000); } catch { }
+            bool take = false;
+            try { take = p.Id != Environment.ProcessId && p.SessionId == session && match(p); } catch { }
+            if (take) hubs.Add(p); else p.Dispose();
         }
+        try
+        {
+            var asked = new List<Process>();
+            foreach (var p in hubs)
+                try
+                {
+                    if (!EventWaitHandle.TryOpenExisting(QuitEventName(p.Id), out var e)) continue;
+                    using (e) e.Set();
+                    asked.Add(p);
+                }
+                catch { }
+            var until = DateTime.UtcNow.AddSeconds(5);
+            foreach (var p in asked)
+                try { p.WaitForExit((int)Math.Max(0, (until - DateTime.UtcNow).TotalMilliseconds)); } catch { }
+            foreach (var p in hubs)
+                try
+                {
+                    if (p.HasExited) continue;
+                    p.Kill(false);
+                    p.WaitForExit(5000);
+                    Log.W($"hub {p.Id} did not quit: ended");
+                }
+                catch (Exception e) { Log.W($"hub {p.Id} not stopped: " + e.Message); }
+        }
+        finally { foreach (var p in hubs) p.Dispose(); }
     }
 
     /// <summary>Null if the folder can be created and written by the current user, else the error text.</summary>
@@ -372,6 +484,7 @@ static class Install
         SetAutostart(autostart, s);
         SetProtocol(true);
         SetPath(dir, addPath);
+        SetShortcut(true, Exe);
     }
 
     public static void Unregister(Settings s)
@@ -380,23 +493,22 @@ static class Install
         SetAutostart(false, s);
         SetProtocol(false);
         SetPath(dir, false);
+        SetShortcut(false);
         SetUninstallEntry(false, dir);
     }
 
-    // ------------------------------------------------------------ the other edition (setup exe <-> Microsoft Store)
-    /// <summary>Kill hub processes started from this folder (not this process).</summary>
-    static void StopHubsIn(string dir)
+    /// <summary>Uninstall with "also delete my data": the data folder and the tokens TaskHub saved in the Windows Credential
+    /// Manager (a plain uninstall keeps both, so a reinstall finds them).</summary>
+    public static void PurgeData(Settings s)
     {
-        foreach (var p in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(HostExe)))
-        {
-            if (p.Id == Environment.ProcessId) continue;
-            try
-            {
-                if (SameDir(Path.GetDirectoryName(p.MainModule!.FileName), dir)) { p.Kill(true); p.WaitForExit(5000); }
-            }
-            catch { }
-        }
+        foreach (var name in Secrets.Names)
+            try { Secrets.Delete(s, name); } catch (Exception e) { Log.W($"purge: {name} token: " + e.Message); }
+        try { Directory.Delete(s.DataDir, true); } catch (Exception e) { Log.W("purge: " + e.Message); }
     }
+
+    // ------------------------------------------------------------ the other edition (setup exe <-> Microsoft Store)
+    /// <summary>Stop hub processes started from this folder (not this process).</summary>
+    static void StopHubsIn(string dir) => StopHubs(p => SameDir(Path.GetDirectoryName(p.MainModule!.FileName), dir));
 
     /// <summary>Store edition switching over: remove the setup-exe installation (its hub, Run entry, taskhub://, PATH
     /// entry, Apps &amp; features entry and files). Its data folder is the one this edition reads, so nothing is lost.
@@ -405,13 +517,14 @@ static class Install
     {
         var dir = InstallDir;
         StopHubsIn(dir);
-        using (var k = Registry.CurrentUser.CreateSubKey(RunKey))
+        using (var k = Hkcu.CreateSubKey(RunKey))
         {
             var v = k.GetValue(RunValueName(s)) as string;
             if (v != null && v.Contains(HostExe, StringComparison.OrdinalIgnoreCase)) k.DeleteValue(RunValueName(s), false);
         }
         SetProtocol(false);
         SetPath(dir, false);
+        SetShortcut(false);
         SetUninstallEntry(false, dir);
         RemoveFiles(dir);
         // a taskhub.exe still running (an agent's MCP server) cannot be deleted yet: retried on later starts
@@ -453,27 +566,34 @@ static class Install
         return null;
     }
 
-    /// <summary>Setup exe replacing the Store edition: take over the data the package wrote (it lives in the package's
-    /// private copy of %APPDATA%), then remove the package.</summary>
+    /// <summary>Setup exe replacing the Store edition: take over the data the package wrote into its private copy of
+    /// %APPDATA% (only where write virtualization was still on: Windows before 1903 / package versions before 2.9),
+    /// then remove the package.</summary>
     public static void ReplaceStoreEdition(StorePackage pkg, Settings s)
     {
         StopHubsIn(pkg.Dir);
         var src = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Packages", pkg.FamilyName, "LocalCache", "Roaming", Settings.AppId);
         if (Directory.Exists(src) && SameDir(s.DataDir, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Settings.AppId)))
-        {
-            foreach (var f in Directory.EnumerateFiles(src, "*", SearchOption.AllDirectories))
-            {
-                var rel = Path.GetRelativePath(src, f);
-                if (rel.StartsWith("webview", StringComparison.OrdinalIgnoreCase)) continue;   // browser cache, rebuilt
-                var dst = Path.Combine(s.DataDir, rel);
-                Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
-                File.Copy(f, dst, true);
-            }
-        }
+            CopyMissing(src, s.DataDir);
         var r = new Windows.Management.Deployment.PackageManager().RemovePackageAsync(pkg.FullName).AsTask().GetAwaiter().GetResult();
         if (r.ExtendedErrorCode != null) throw new IOException(r.ErrorText);
         Log.W($"Store edition {pkg.Version} removed");
+    }
+
+    /// <summary>Copy the files of src that dst does not have yet: the real data folder may be newer than the package's
+    /// copy (used since), so nothing there is overwritten.</summary>
+    static void CopyMissing(string src, string dstDir)
+    {
+        foreach (var f in Directory.EnumerateFiles(src, "*", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetRelativePath(src, f);
+            if (rel.StartsWith("webview", StringComparison.OrdinalIgnoreCase)) continue;   // browser cache, rebuilt
+            var dst = Path.Combine(dstDir, rel);
+            if (File.Exists(dst)) continue;
+            Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+            File.Copy(f, dst, false);
+        }
     }
 
     /// <summary>Remove our files from the install folder after this process exits.</summary>
@@ -485,10 +605,34 @@ static class Install
         Process.Start(new ProcessStartInfo("cmd.exe", cmd) { CreateNoWindow = true, UseShellExecute = false, WorkingDirectory = Path.GetTempPath() })?.Dispose();
     }
 
+    /// <summary>Hidden test entry: `TaskHubHost --data DIR --selftest-install STEP ...`, honoured only with TASKHUB_TEST_HOME
+    /// set (Program.Main). Runs one install step against a throw-away registry key and Start-menu folder (testRoot /
+    /// testHome) - never the real entries, never the real install. Returns the exit code.</summary>
+    public static int SelfTest(Settings s, string home, string[] a)
+    {
+        testHome = home;
+        testRoot = Registry.CurrentUser.CreateSubKey(@"Software\TaskHubTest\" + Path.GetFileName(home.TrimEnd('\\')));
+        try
+        {
+            switch (a.FirstOrDefault())
+            {
+                case "register": Register(s, !a.Contains("--no-autostart"), true); return 0;
+                case "unregister": Unregister(s); return 0;
+                case "ensure-autostart": EnsureAutostart(s); return 0;
+                case "stop" when a.Length > 1 && int.TryParse(a[1], out var pid): StopHubs(p => p.Id == pid); return 0;
+                case "copy-missing" when a.Length > 2: CopyMissing(a[1], a[2]); return 0;
+                case "purge": PurgeData(s); return 0;
+                default: return 2;
+            }
+        }
+        catch (Exception e) { Log.W("selftest: " + e); return 1; }
+        finally { testRoot.Dispose(); testRoot = null; testHome = null; }
+    }
+
     public static string Describe(Settings s)
     {
-        using var k = Registry.CurrentUser.OpenSubKey(RunKey);
-        using var p = Registry.CurrentUser.OpenSubKey(ProtoKey + @"\shell\open\command");
+        using var k = Hkcu.OpenSubKey(RunKey);
+        using var p = Hkcu.OpenSubKey(ProtoKey + @"\shell\open\command");
         return $"Installed: {(IsInstalled ? InstallDir : "no")}\n" +
                $"Autostart [{RunValueName(s)}] = {k?.GetValue(RunValueName(s)) ?? "(none)"}{(DisabledInTaskManager(s) ? " (DISABLED in Task Manager)" : "")}\n" +
                $"taskhub:// = {p?.GetValue("") ?? "(none)"}";
