@@ -125,13 +125,13 @@ static class Program
         bool install = Has("--install");
         bool setup = install || (args.Length == 0 && !Install.IsInstalledCopy && !Install.IsPackaged && Settings.ReadExeSettings() == null
             && !ToastNotificationManagerCompat.WasCurrentProcessToastActivated());
-        // setup exe over the Store edition: only one of them at a time
-        if (setup && !Install.IsPackaged && Install.FindStoreEdition() is { } pkg)
+        // setup exe over the Store edition: only one of them at a time. Asked here, removed only once the install
+        // itself goes ahead (not on Cancel / Run in the setup dialog, not if the folder is not writable)
+        var storePkg = setup && !Install.IsPackaged ? Install.FindStoreEdition() : null;
+        if (storePkg != null)
         {
             if (quiet) { Log.W("setup: " + L.T("setup_store_quiet")); return 1; }   // scripted: exit code, no dialog
-            if (Ask(L.T("setup_store_found", pkg.Version.ToString(3), Settings.Version), L.T("setup_store_replace"), L.T("setup_cancel")) != true) return 0;
-            try { Install.ReplaceStoreEdition(pkg, S); }
-            catch (Exception e) { Log.W("replace Store edition: " + e); Msg(L.T("edition_failed", e.Message)); return 1; }
+            if (Ask(L.T("setup_store_found", storePkg.Version.ToString(3), Settings.Version), L.T("setup_store_replace"), L.T("setup_cancel")) != true) return 0;
         }
         string installDir = Arg("--dir");
         bool optAuto = !Has("--no-autostart"), optPath = !Has("--no-path");
@@ -159,6 +159,11 @@ static class Program
                 installDir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(installDir));
                 var err = Install.CheckWritable(installDir);
                 if (err != null) { Msg(L.T("setup_no_access", installDir) + "\n\n" + err); return 1; }
+                if (storePkg != null)
+                {
+                    try { Install.ReplaceStoreEdition(storePkg, S); }
+                    catch (Exception e) { Log.W("replace Store edition: " + e); Msg(L.T("edition_failed", e.Message)); return 1; }
+                }
                 var exe = Install.InstallFiles(installDir);
                 var a2 = "--register" + (quiet ? " --quiet" : "") + (optAuto ? "" : " --no-autostart") + (optPath ? "" : " --no-path") + optAgents;
                 Process.Start(new ProcessStartInfo(exe, a2) { UseShellExecute = true })?.Dispose();
