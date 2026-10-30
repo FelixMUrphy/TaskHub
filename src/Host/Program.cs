@@ -311,6 +311,7 @@ static class Program
                 }
                 f.Step(L.T("step_start"), 0.9);
                 for (int i = 0; i < 80 && !Running(S); i++) Thread.Sleep(250);
+                if (!Running(S)) throw new TimeoutException(L.T("setup_not_started"));
                 f.Step(L.T("step_start"), 1);
             });
             rc(0);
