@@ -6,7 +6,7 @@ setlocal
 cd /d "%~dp0"
 set DOTNET_CLI_TELEMETRY_OPTOUT=1
 set DOTNET_NOLOGO=1
-set VER=2.6.1
+set VER=2.6.2
 set SF=-c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=none --nologo -v q
 rem 1) CLI (trimmed + compressed single file; short-lived, so decompression RAM does not matter) -> obj\cli\taskhub.exe,
 rem    embedded into the hub as payload
