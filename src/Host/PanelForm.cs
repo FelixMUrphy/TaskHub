@@ -94,7 +94,7 @@ sealed class PanelForm : Form
 
     string Theme => J.Str(S.Get("theme"), "system");
     bool EffectiveDark() => Theme == "dark" || (Theme == "system" && SystemDark());
-    static Color SolidBack(bool dark) => dark ? Color.FromArgb(0x14, 0x16, 0x1b) : Color.FromArgb(0xf4, 0xf5, 0xf7);
+    static Color SolidBack(bool dark) => dark ? Color.FromArgb(0x20, 0x20, 0x20) : Color.FromArgb(0xf3, 0xf3, 0xf3);   // Windows 11 neutral greys, as --bg in ui.html
 
     /// <summary>Windows accent colour, in the shade Windows itself uses on this theme (darker on light, lighter on dark).</summary>
     string Accent()
