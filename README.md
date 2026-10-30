@@ -44,6 +44,7 @@ loopback only.
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
   plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
+- **Update check**: a notification when a new version is released (once a day; tray → *Updates*).
 - 10 UI languages (English, Українська, Español, Deutsch, Français, Italiano, Português, Polski, 中文, 日本語).
 - Per-user install, no admin rights, no .NET runtime needed; self-healing autostart.
 
@@ -139,7 +140,8 @@ WinRT toasts), `src\Cli`, `ui.html`, `clients\python`.
 
 Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no tray, no notifications) and runs
 `api_test.py` (API contract, agent hooks, CLI), `validation_test.py` (input validation: non-finite numbers, widget attributes, control values, shell controls), `parallel_test.py` (8 concurrent workers + notification burst),
-`integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder) and `mcp_test.py` (`taskhub mcp`).
+`integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder), `mcp_test.py` (`taskhub mcp`) and
+`telegram_test.py` (Telegram bridge against a mock Bot API).
 Every push runs the build and these tests on GitHub Actions (`.github/workflows/ci.yml`, Windows runner); pushing a tag
 `v<version>` (matching `Settings.Version`, `build.cmd` and both `.csproj`) also publishes the release with the setup exe
 and its SHA-256.

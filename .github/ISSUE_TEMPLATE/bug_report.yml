@@ -43,6 +43,7 @@ body:
         - Tray icon
         - Panel
         - Notifications
+        - Telegram
         - HTTP API
         - Claude Code / Codex (hooks, MCP)
         - CLI (taskhub)

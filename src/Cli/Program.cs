@@ -98,7 +98,8 @@ static class Program
 
     public static string Version => typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "";
 
-    const string Help = @"TaskHub CLI - talks to the TaskHub hub over HTTP (default http://127.0.0.1:47800, env TASKHUB_URL / TASKHUB_TOKEN)
+    const string Help = @"TaskHub CLI - talks to the TaskHub hub over HTTP (port and token from the hub's config, default
+http://127.0.0.1:47800; env TASKHUB_URL / TASKHUB_TOKEN override them)
 
   taskhub health
   taskhub notify ""Title"" [""message""] [--level info|warn|error] [--task ID]

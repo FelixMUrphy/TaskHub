@@ -118,10 +118,15 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 `progress` 0..1 · `percent` 0..100 · `current` (+`total`) · `status` · `stage` · `log` (str or [str]) + `level` (info/warn/error) ·
 `toast`: true or string → Windows notification now · `metrics`: `{k: v}` (null deletes; key-value list) ·
 `widgets`: `{widget_id: value}` · `state`: running/paused · `add_widgets` / `remove_widgets` · `add_controls` / `remove_controls` / `controls` (replace) · `links` · `meta`.
+An update with an invalid entry in `controls` / `add_controls` / `add_widgets` is rejected as a whole (400, nothing changed). Numbers must be finite:
+`NaN` / `Infinity` (also as strings) are ignored.
 
 ## Widgets
 Declared in `widgets[]` (or `add_widgets`), values via `update.widgets`. Common fields: `id`, `type`, `label`, `unit`,
-`span` (1 = half width, 2 = full; chart/table/kv/progress default full), `color` (CSS), `decimals`.
+`span` (1 = half width, 2 = full; chart/table/kv/progress default full), `color`, `decimals` (0–10).
+`color`: `#rgb` / `#rrggbb(aa)`, a colour name, `var(--name)` or `rgb()` / `rgba()` / `hsl()` / `hsla()` - anything else is
+dropped. Numeric fields take numbers (numeric strings are converted, other values dropped); `label` is cut to 80 characters,
+`unit` to 16, `text` to 1000.
 Thresholds: `warn`, `crit` (value ≥ → amber/red; `invert: true` → value ≤ is bad).
 
 | type | extra fields | value |
@@ -133,7 +138,7 @@ Thresholds: `warn`, `crit` (value ≥ → amber/red; `invert: true` → value �
 | `led` | `text` | `"ok"`/`"warn"`/`"error"`/`"busy"`/`"off"`, bool, or `{state, text}` |
 | `kv` | | object `{key: value}` |
 | `table` | `columns` | list of rows (lists or dicts); replaces table |
-| `chart` | `series: [names]`, `kind: line/area/bar`, `max_points` (120), `y_min`, `y_max`, `warn`, `crit`, `height` | **appends**: number · `{series: v}` · `[v1, v2]` · batch `[{"t": unix_ts, "train": 0.4}, …]`; `null` clears |
+| `chart` | `series: [names]`, `kind: line/area/bar`, `max_points` (120), `y_min`, `y_max`, `warn`, `crit`, `height` (px, 20–400) | **appends**: number · `{series: v}` · `[v1, v2]` · batch `[{"t": unix_ts, "train": 0.4}, …]`; `null` clears |
 
 ```jsonc
 {"widgets": [
@@ -154,13 +159,13 @@ in Telegram), `hint`, `states` (when shown; default running/paused/stale), `inpu
 | kind | on click |
 |---|---|
 | `signal` | queued for the process → it receives via `GET /commands?wait=25` → replies with `ack` |
-| `shell` | hub runs `command` (list or string; placeholders `{value}` `{pid}` `{task_id}`), output → task log; `cwd`, `timeout` |
+| `shell` | hub runs `command` (list or string; placeholders `{value}` `{pid}` `{task_id}`), the last 25 output lines and the exit code → task log; `cwd`, `timeout` (s, default 300, 1–86400) |
 | `open` | hub opens `target` (file, folder, URL) |
-| `kill` | hub kills `pid` with its whole process tree; task → cancelled |
+| `kill` | hub kills `pid` with its whole process tree (only if it is still the process the task registered, never a reused pid); task → cancelled |
 
 `input`: `{"type": "text"|"number"|"select"|"bool", "label", "default", "options": [...], "min", "max", "step"}`.
 Values are checked by the hub for every surface (400 otherwise): a number within `min`/`max`, `true`/`false` for bool, one of
-`options` for select, text as a string.
+`options` for select, text as a string (cut to 2000 characters).
 The value is sent only when the control's button is pressed, so give such controls an action label ("Set speed", "Apply", "Send"),
 and `input.label` for the field itself. The hub remembers the last sent value (`last_value` in the control) and pre-fills the panel form
 and the toast input with it.
@@ -221,7 +226,7 @@ and `task_list`. It starts the hub on the first tool call. Enable it in the setu
   ```toml
   [mcp_servers.taskhub]
   args = ["mcp", "--source", "codex"]
-  command = 'C:\Users\<you>\AppData\Local\Programs\TaskHub\taskhub.exe'
+  command = "C:\\Users\\<you>\\AppData\\Local\\Programs\\TaskHub\\taskhub.exe"
   ```
 
 ## Agent notes (Claude / ChatGPT / Codex / any automation)
