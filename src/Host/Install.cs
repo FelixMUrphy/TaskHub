@@ -299,8 +299,9 @@ static class Install
         catch (Exception e) { return e.Message; }
     }
 
-    /// <summary>Copy this single-file exe into dir and unpack the CLI / client / docs next to it. Returns the installed exe.</summary>
-    public static string InstallFiles(string dir)
+    /// <summary>Copy this single-file exe into dir and unpack the CLI / client / docs next to it. Returns the installed exe.
+    /// progress (0..1) follows the copy of the exe, which is nearly all of the work.</summary>
+    public static string InstallFiles(string dir, Action<double> progress = null)
     {
         StopOtherHubs();
         Directory.CreateDirectory(dir);
@@ -318,11 +319,30 @@ static class Install
         if (!SameDir(ExeDir, dir))
             for (int i = 0; ; i++)
             {
-                try { File.Copy(Exe, exe, true); break; }
+                try { CopyFile(Exe, exe, progress); break; }
                 catch (IOException) when (i < 10) { Thread.Sleep(500); }
             }
         Res.Extract(dir);
         return exe;
+    }
+
+    static void CopyFile(string from, string to, Action<double> progress)
+    {
+        if (progress == null) { File.Copy(from, to, true); return; }
+        using (var src = new FileStream(from, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 20))
+        using (var dst = new FileStream(to, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20))
+        {
+            var buf = new byte[1 << 20];
+            long total = Math.Max(1, src.Length), done = 0;
+            int n;
+            while ((n = src.Read(buf, 0, buf.Length)) > 0)
+            {
+                dst.Write(buf, 0, n);
+                done += n;
+                progress(done / (double)total);
+            }
+        }
+        File.SetLastWriteTimeUtc(to, File.GetLastWriteTimeUtc(from));
     }
 
     /// <summary>Remove only our files from a folder (never anything else the user keeps there), then the folder if empty.</summary>

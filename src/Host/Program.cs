@@ -35,9 +35,9 @@ static class Program
             return 0;
         }
 
+        if (Has("--uninstall") && !quiet) return UninstallWindow(S);
         if (Has("--uninstall"))
         {
-            if (!quiet && MessageBox.Show(L.T("uninstall_q"), "TaskHub", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return 0;
             var dir = Install.InstallDir;
             bool wasInstalled = Install.IsInstalled;
             Install.StopOtherHubs();
@@ -93,12 +93,15 @@ static class Program
                         else if (Has(on)) notes.Add("• " + Integrations.Hint(a, k));
                     }
                 if (!Running(S)) Process.Start(new ProcessStartInfo(Environment.ProcessPath, "--run") { UseShellExecute = true })?.Dispose();
+                // the setup window asked for the outcome: the notes (AI agents' hints) for its last page
+                if (Arg("--result") is { } rf) try { File.WriteAllLines(rf, notes); } catch { }
                 if (!quiet) Msg(L.T("installed") + "\n\n" + Install.Describe(S) + (notes.Count > 0 ? "\n\n" + string.Join("\n", notes) : ""));
                 return 0;
             }
             catch (Exception e)
             {
                 Log.W("register failed: " + e);
+                if (Arg("--result") is { } rf) { try { File.WriteAllText(rf, "!" + e.Message); } catch { } return 1; }
                 Msg("TaskHub: install failed\n" + e.Message);
                 return 1;
             }
@@ -108,7 +111,7 @@ static class Program
         if (Install.IsPackaged && args.Length == 0 && Install.IsInstalled && J.Str(S.Get("other_edition")) != "keep"
             && !ToastNotificationManagerCompat.WasCurrentProcessToastActivated())
         {
-            var answer = Ask(L.T("store_found_exe", Install.InstalledVersion?.ToString(3) ?? "?", Install.InstallDir), L.T("store_switch"), L.T("store_keep"));
+            var answer = SetupForm.Ask(S, L.T("store_found_exe", Install.InstalledVersion?.ToString(3) ?? "?", Install.InstallDir), L.T("store_switch"), L.T("store_keep"));
             if (answer == true)
             {
                 try { Install.RemoveExeEdition(S); }
@@ -125,47 +128,48 @@ static class Program
         bool install = Has("--install");
         bool setup = install || (args.Length == 0 && !Install.IsInstalledCopy && !Install.IsPackaged && Settings.ReadExeSettings() == null
             && !ToastNotificationManagerCompat.WasCurrentProcessToastActivated());
-        // setup exe over the Store edition: only one of them at a time. Asked here, removed only once the install
-        // itself goes ahead (not on Cancel / Run in the setup dialog, not if the folder is not writable)
-        var storePkg = setup && !Install.IsPackaged ? Install.FindStoreEdition() : null;
-        if (storePkg != null)
-        {
-            if (quiet) { Log.W("setup: " + L.T("setup_store_quiet")); return 1; }   // scripted: exit code, no dialog
-            if (Ask(L.T("setup_store_found", storePkg.Version.ToString(3), Settings.Version), L.T("setup_store_replace"), L.T("setup_cancel")) != true) return 0;
-        }
+        // setup exe over the Store edition: only one of them at a time. Asked here (or in the setup window), removed only
+        // once the install itself goes ahead (not on Cancel / Run, not if the folder is not writable)
         string installDir = Arg("--dir");
         bool optAuto = !Has("--no-autostart"), optPath = !Has("--no-path");
         string optAgents = string.Join("", Integrations.All.SelectMany(a => Integrations.Kinds.Select(k => Integrations.ArgName(a, k)))
             .SelectMany(n => new[] { "--" + n, "--no-" + n }).Where(Has).Select(x => " " + x));
-        if (setup && !install)
+        if (setup && !quiet)
         {
-            using var f = new InstallForm(Install.IsInstalled, Install.InstalledVersion, S);
-            f.ShowDialog();
-            if (f.Result == InstallForm.Choice.Cancel) return 0;
-            if (f.Result == InstallForm.Choice.Install)
-            {
-                install = true;
-                installDir = f.Folder;
-                optAuto = f.Autostart;
-                optPath = f.AddPath;
-                optAgents = string.Concat(f.Agents.Select(x => (x.on ? " --" : " --no-") + Integrations.ArgName(x.agent, x.kind)));
-            }
+            // the window first (it must appear at once), the slower look-ups behind it
+            var storeTask = Task.Run(() => Install.IsPackaged ? null : Install.FindStoreEdition());
+            using var f = new SetupForm(S, "TaskHub " + Settings.Version);
+            var (title, _, _, cmp) = SetupForm.Describe(Install.IsInstalled, Install.InstalledVersion);
+            int rc = 0;
+            void Go(string dir, bool auto, bool path, string agents) =>
+                _ = RunInstall(f, S, dir, auto, path, agents, storeTask.Result, cmp < 0 && Install.IsInstalled, r => rc = r);
+            if (install)   // --install without --quiet: straight to the progress
+                f.Load += (_, _) =>
+                {
+                    if (storeTask.Result is { } sp
+                        && SetupForm.Ask(S, L.T("setup_store_found", sp.Version.ToString(3), Settings.Version), L.T("setup_store_replace"), L.T("setup_cancel")) != true)
+                    { f.Close(); return; }
+                    Go(installDir, optAuto, optPath, optAgents);
+                };
+            else
+                f.ShowOptions(Install.IsInstalled, Install.InstalledVersion,
+                    () => storeTask.Result is { } sp ? L.T("setup_store_found", sp.Version.ToString(3), Settings.Version) : null,
+                    () => Go(f.Folder, f.Autostart, f.AddPath, string.Concat(f.Agents.Select(x => (x.on ? " --" : " --no-") + Integrations.ArgName(x.agent, x.kind)))));
+            Application.Run(f);
+            if (f.Result != SetupForm.Choice.Run) return rc;
         }
-        if (install)
+        else if (install)   // --install --quiet: scripted, no window (as before)
         {
+            var storePkg = !Install.IsPackaged ? Install.FindStoreEdition() : null;
+            if (storePkg != null) { Log.W("setup: " + L.T("setup_store_quiet")); return 1; }
             try
             {
                 installDir ??= Install.IsInstalled ? Install.InstallDir : Install.DefaultDir;
                 installDir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(installDir));
                 var err = Install.CheckWritable(installDir);
                 if (err != null) { Msg(L.T("setup_no_access", installDir) + "\n\n" + err); return 1; }
-                if (storePkg != null)
-                {
-                    try { Install.ReplaceStoreEdition(storePkg, S); }
-                    catch (Exception e) { Log.W("replace Store edition: " + e); Msg(L.T("edition_failed", e.Message)); return 1; }
-                }
                 var exe = Install.InstallFiles(installDir);
-                var a2 = "--register" + (quiet ? " --quiet" : "") + (optAuto ? "" : " --no-autostart") + (optPath ? "" : " --no-path") + optAgents;
+                var a2 = "--register --quiet" + (optAuto ? "" : " --no-autostart") + (optPath ? "" : " --no-path") + optAgents;
                 Process.Start(new ProcessStartInfo(exe, a2) { UseShellExecute = true })?.Dispose();
                 return 0;
             }
@@ -258,17 +262,126 @@ static class Program
         return 0;
     }
 
-    /// <summary>Two-button question (task dialog): true / false for the buttons, null if closed without choosing.</summary>
-    static bool? Ask(string text, string yes, string no)
+    /// <summary>TASKHUB_SETUP_DRYRUN=1: the setup / uninstall windows go through their steps without changing anything
+    /// (for checking the windows themselves).</summary>
+    static readonly bool DryRun = Environment.GetEnvironmentVariable("TASKHUB_SETUP_DRYRUN") == "1";
+
+    /// <summary>The install job inside the setup window: progress by steps, then "done" (Open TaskHub) or the error.</summary>
+    static async Task RunInstall(SetupForm f, Settings S, string dir, bool auto, bool path, string agents, Install.StorePackage storePkg,
+        bool update, Action<int> rc)
     {
-        TaskDialogButton by = new(yes), bn = new(no);
-        var page = new TaskDialogPage
+        f.ShowProgress(L.T(update ? "setup_progress_update" : "setup_progress_install"));
+        var notes = new List<string>();
+        try
         {
-            Caption = "TaskHub", Text = text, Icon = TaskDialogIcon.Information, AllowCancel = true,
-            Buttons = { by, bn }, DefaultButton = by,
-        };
-        var r = TaskDialog.ShowDialog(page);
-        return r == by ? true : r == bn ? false : null;
+            await Task.Run(() =>
+            {
+                if (DryRun)
+                {
+                    foreach (var (k, v) in new[] { ("step_stop", 0.03), ("step_copy", 0.2), ("step_copy", 0.5), ("step_copy", 0.75), ("step_register", 0.8), ("step_start", 0.9) })
+                    { f.Step(L.T(k), v); Thread.Sleep(900); }
+                    notes.Add("• " + Integrations.Hint(Integrations.Agent.Claude, Integrations.Kind.Mcp));
+                    return;
+                }
+                dir ??= Install.IsInstalled ? Install.InstallDir : Install.DefaultDir;
+                dir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(dir));
+                var err = Install.CheckWritable(dir);
+                if (err != null) throw new IOException(L.T("setup_no_access", dir) + "\n\n" + err);
+                if (storePkg != null)
+                {
+                    f.Step(L.T("step_store"), null);
+                    Install.ReplaceStoreEdition(storePkg, S);
+                }
+                f.Step(L.T("step_stop"), 0.03);
+                Install.StopOtherHubs();
+                f.Step(L.T("step_copy"), 0.05);
+                var exe = Install.InstallFiles(dir, p => f.Step(L.T("step_copy"), 0.05 + 0.7 * p));
+                f.Step(L.T("step_register"), 0.8);
+                var res = Path.Combine(Path.GetTempPath(), $"taskhub-setup-{Environment.ProcessId}.txt");
+                try { File.Delete(res); } catch { }
+                var a2 = "--register --quiet" + (auto ? "" : " --no-autostart") + (path ? "" : " --no-path") + agents + $" --result \"{res}\"";
+                using (var p = Process.Start(new ProcessStartInfo(exe, a2) { UseShellExecute = false }))
+                {
+                    if (p == null) throw new IOException("cannot start " + exe);
+                    if (!p.WaitForExit(120_000)) throw new TimeoutException(exe + " --register");
+                    var outp = File.Exists(res) ? File.ReadAllText(res) : "";
+                    try { File.Delete(res); } catch { }
+                    if (p.ExitCode != 0 || outp.StartsWith("!")) throw new IOException(outp.StartsWith("!") ? outp[1..] : $"--register: exit code {p.ExitCode}");
+                    notes.AddRange(outp.Split('\n').Select(x => x.Trim()).Where(x => x.Length > 0));
+                }
+                f.Step(L.T("step_start"), 0.9);
+                for (int i = 0; i < 80 && !Running(S); i++) Thread.Sleep(250);
+                f.Step(L.T("step_start"), 1);
+            });
+            rc(0);
+            f.ShowDone(L.T(update ? "setup_done_update" : "setup_done_install"), L.T("installed"), notes, L.T("setup_open"), () => OpenPanel(S));
+        }
+        catch (Exception e)
+        {
+            Log.W("install failed: " + e);
+            rc(1);
+            f.ShowFailed(L.T("setup_failed"), e.Message);
+        }
+    }
+
+    /// <summary>Opens the installed hub's panel (this process has the foreground and passes it on).</summary>
+    static void OpenPanel(Settings S)
+    {
+        try
+        {
+            Native.AllowSetForegroundWindow(-1);
+            Post(S, "/api/ui/open", new JsonObject { ["task"] = null });
+        }
+        catch (Exception e) { Log.W("open panel: " + e.Message); }
+    }
+
+    /// <summary>Uninstall from Apps &amp; features: confirm (and "also delete my data"), progress, done.</summary>
+    static int UninstallWindow(Settings S)
+    {
+        var dir = Install.InstallDir;
+        bool wasInstalled = Install.IsInstalled, removed = false;
+        using var f = new SetupForm(S, "TaskHub");
+        f.ShowUninstall(async () =>
+        {
+            bool purge = f.Purge;
+            f.ShowProgress(L.T("uninstall_progress"));
+            try
+            {
+                await Task.Run(() =>
+                {
+                    if (DryRun)
+                    {
+                        foreach (var (k, v) in new[] { ("step_stop", 0.1), ("step_unregister", 0.35), ("step_agents", 0.6), ("step_purge", 0.85) })
+                        { f.Step(L.T(k), v); Thread.Sleep(900); }
+                        return;
+                    }
+                    f.Step(L.T("step_stop"), 0.1);
+                    Install.StopOtherHubs();
+                    f.Step(L.T("step_unregister"), 0.35);
+                    Install.Unregister(S);
+                    f.Step(L.T("step_agents"), 0.6);
+                    Integrations.RemoveAll(S);
+                    try { ToastNotificationManagerCompat.Uninstall(); } catch { }
+                    if (purge)
+                    {
+                        f.Step(L.T("step_purge"), 0.85);
+                        try { Directory.Delete(S.DataDir, true); } catch (Exception e) { Log.W("purge: " + e.Message); }
+                    }
+                    f.Step("", 1);
+                });
+                removed = true;
+                f.ShowDone(L.T("uninstall_done"), purge ? L.T("uninstall_purged") : L.T("uninstalled", S.DataDir), null, null, null);
+            }
+            catch (Exception e)
+            {
+                Log.W("uninstall failed: " + e);
+                f.ShowFailed(L.T("uninstall_failed"), e.Message);
+            }
+        });
+        Application.Run(f);
+        // the files (this exe among them) go once this process has exited
+        if (removed && wasInstalled && !DryRun) Install.ScheduleRemoveFiles(dir);
+        return removed ? 0 : 1;
     }
 
     static void Msg(string text)

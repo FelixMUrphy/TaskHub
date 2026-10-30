@@ -60,6 +60,8 @@ loopback only.
 
 ## Quick start
 1. Run `TaskHub-<version>-setup.exe` → **Install** (choose a folder, autostart, PATH and the Claude Code / Codex options).
+   From 2.9 the setup window stays open with the progress and ends with *Open TaskHub*; uninstalling works the same way
+   (with an optional *Also delete my data*).
 2. Report something:
 
 ```powershell
@@ -177,6 +179,8 @@ Every push runs the build and these tests on GitHub Actions (`.github/workflows/
 `v<version>` (matching `Settings.Version`, `build.cmd` and both `.csproj`) also publishes the release with the setup exe
 and its SHA-256.
 `tests\demo_long.py` is an interactive ~20 min demo against the main hub.
+The setup and uninstall windows can be checked without changing anything: `set TASKHUB_SETUP_DRYRUN=1`, then run the
+setup exe (or `--uninstall`) - every step is only shown.
 
 Hub command line: `TaskHubHost.exe [--port N] [--data DIR] [--install|--uninstall [--quiet] [--purge] | --status |
 --panel [ID] | --integrations [claude|codex|claude-mcp|codex-mcp=on|off ...] | --no-tray]`. A `TaskHubHost.settings.json` next to the exe (`{"port": 47801, "data": "..."}`) runs an
