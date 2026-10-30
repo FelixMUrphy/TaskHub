@@ -113,7 +113,8 @@ sealed class Api
         {
             var b = await Body(c);
             if (b.ContainsKey("muted")) hub.SetMuted(J.Truthy(b["muted"]));
-            if (J.Truthy(b["seen"])) hub.MarkSeen();
+            if (b["seen"] is JsonArray seenIds) hub.MarkSeen(seenIds.Select(x => J.Str(x)));   // shown in the open panel
+            else if (J.Truthy(b["seen"])) hub.MarkSeen();
             if (b.ContainsKey("language")) hub.SetLanguage(J.Str(b["language"], "auto"));
             hub.SetPanelSettings(b);
             return new JsonObject { ["ok"] = true, ["muted"] = hub.Muted, ["lang"] = L.Lang, ["language"] = L.Setting, ["panel"] = hub.PanelSettings() };

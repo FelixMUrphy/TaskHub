@@ -258,6 +258,7 @@ sealed class PanelForm : Form
             ready = e.IsSuccess;
             if (!e.IsSuccess) { Log.W("panel navigation failed: " + e.WebErrorStatus); ReloadSoon(); return; }
             ApplyLook();
+            if (PanelVisible) PostShown(true);
             if (pendingTask != null) { hub.SetFocus(pendingTask); pendingTask = null; }
         };
         cw.ProcessFailed += (_, e) => { Log.W("webview process failed: " + e.ProcessFailedKind); ReloadSoon(); };
@@ -456,7 +457,14 @@ sealed class PanelForm : Form
             if (ready) hub.SetFocus(task);
             else pendingTask = task;
         }
-        hub.MarkSeen();
+        PostShown(true);
+    }
+
+    /// <summary>Tells the page whether the panel is on screen: finished tasks count as seen only while it is.</summary>
+    void PostShown(bool on)
+    {
+        if (!ready) return;
+        try { web.CoreWebView2?.PostWebMessageAsJson(on ? "{\"shown\":1}" : "{\"hidden\":1}"); } catch { }
     }
 
     async Task SlideIn()
@@ -509,8 +517,7 @@ sealed class PanelForm : Form
         animating = false;
         Hide();
         shownPx = 0;
-        // nothing stays open in a hidden panel (settings popover etc.)
-        try { web.CoreWebView2?.PostWebMessageAsJson("{\"hidden\":1}"); } catch { }
+        PostShown(false);   // also: nothing stays open in a hidden panel (settings popover etc.)
     }
 
     public void Toggle()

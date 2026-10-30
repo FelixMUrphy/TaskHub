@@ -91,6 +91,9 @@ main{padding:10px;display:flex;flex-direction:column;gap:9px}
 .row .n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
 .row .r{color:var(--mut);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 0}
 .row .t{color:var(--mut);font-size:11px;white-space:nowrap;padding-left:6px;flex:none}
+.row.new .n{font-weight:650} .row.new .r{color:var(--fg);opacity:.8}
+.badge{display:inline-block;min-width:16px;padding:0 5px;margin-left:5px;border-radius:8px;font-size:10.5px;line-height:16px;text-align:center;font-weight:650;background:var(--o3);color:var(--fg)}
+.badge.bad{background:var(--red);color:#fff}
 .row[data-s=done]{--sc:var(--green)} .row[data-s=failed],.row[data-s=lost]{--sc:var(--red)} .row[data-s=cancelled]{--sc:var(--grey)}
 .hist{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--mut);padding:6px 10px;border-radius:8px;cursor:pointer;user-select:none}
 .hist.open .fold{transform:rotate(90deg)}
@@ -490,7 +493,7 @@ function cardSkeleton(t){
   $("details",el).addEventListener("toggle",()=>{ if($("details",el).open) fillLog(el, findTask(t.id), true); });
   // a finished task's card folds back into its row (a failed one also leaves "needs attention")
   $(".hd",el).addEventListener("click",e=>{ if (e.target.closest("button,a")) return; const x=findTask(t.id); if (!x || ACTIVE.has(x.state)) return;
-    if (needsMe(x)){ ACK[x.id]=x.finished; lsSet("th_ack",ACK); } fold(x.id); });
+    if (!x.seen) markSeen([x.id]); fold(x.id); });
   ui[t.id]=Object.assign(ui[t.id]||{}, {ctlSig:null, formFor:null});
   return el;
 }
@@ -587,21 +590,23 @@ async function send(tid,c,value,btn){
 }
 
 /* ---------------- list layout: structure appears only when it is needed ----------------
-   needs attention (asks for you / no response / failed, not yet looked at) -> working -> finished (one row each,
-   the full card on click); finished ones that went fine move to the history after a while; many tasks from several
-   projects (or sources) -> groups, a folded group is one quiet row; several sources -> a quiet source filter */
-const HIST_AFTER=3600, FAIL_KEEP=86400, GROUP_MIN=8;
+   "seen" = the task was visible in the open panel (the hub keeps it per task). "Active": what works or waits for you
+   (incl. a failure not seen yet); "All": everything - failed (also seen ones, until removed) above the successful ones,
+   the ones seen in an earlier opening of the panel folded into "History · N" (the hub keeps them history_days);
+   unseen ones are highlighted like unread mail, their count is on the "All" switch (red with a failure among them).
+   Nothing moves while the panel is open: what is seen now changes place the next time it opens.
+   Many tasks from several projects (or sources) -> groups and a quiet source filter. */
+const GROUP_MIN=8;
 const lsGet=(k,d)=>{ try{ const v=JSON.parse(localStorage.getItem(k)||"null"); return v==null?d:v; }catch(e){ return d; } };
 const lsSet=(k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} };
-let ACK=lsGet("th_ack",{});      // failed tasks the user has looked at: id -> finished
+let SESSION=new Set();          // tasks seen since the panel was opened: they keep their place until it closes
 let GOPEN=lsGet("th_grp",{});    // group key -> open (true / false), only once the user toggled it
 let SRC=lsGet("th_src","");      // source filter ("" = all)
 const isFail = t => t.state==="failed" || t.state==="lost";
 const projectOf = t => t.project || (t.cwd ? String(t.cwd).replace(/[\\/]+$/,"").split(/[\\/]/).pop() : "");
-const needsMe = t => ACTIVE.has(t.state) ? !!(t.attention || t.state==="stale")
-  : isFail(t) && ACK[t.id]!==t.finished && now()-(t.finished||0) < FAIL_KEEP;
-// failed ones stay (also once looked at) until removed; the rest goes to the history after an hour
-const inHistory = t => !ACTIVE.has(t.state) && !isFail(t) && now()-(t.finished||0) > HIST_AFTER;
+const seenBefore = t => !!t.seen && !SESSION.has(t.id);
+const needsMe = t => ACTIVE.has(t.state) ? !!(t.attention || t.state==="stale") : isFail(t) && !seenBefore(t);
+const inHistory = t => !ACTIVE.has(t.state) && !isFail(t) && seenBefore(t);
 let HOPEN=false;   // "All": history rows unfolded
 function ago(sec){ return sec<60 ? T("just_now") : T("ago", dur(sec, true)); }
 function place(list, els){
@@ -624,7 +629,7 @@ function cardEl(t, prj){
 }
 function rowEl(t){
   const el=node("r-"+t.id, "row", ()=>unfold(t.id));
-  el.dataset.s=t.state;
+  el.dataset.s=t.state; el.classList.toggle("new", !t.seen);
   const note=[T("st_"+t.state), (t.message||t.status||"").split("\n")[0]].filter(Boolean).join(" · ");
   const h=`<i></i><span class="n">${esc(t.name)}</span><span class="r">${esc(note)}</span><span class="t">${ago(now()-(t.finished||t.updated||now()))}</span><span class="fold">›</span>`;
   if (el.__h!==h){ el.innerHTML=h; el.__h=h; el.title=t.name; }
@@ -708,9 +713,11 @@ function layout(){
     if (e.__h!==hh){ e.innerHTML=hh; e.__h=hh; const l=$(".lnk",e); if (l) l.onclick=()=>setFilt("all"); }
     out.push(e);
   }
-  // forget what refers to tasks that are gone
-  const ids=new Set(all.map(t=>t.id));
-  if (Object.keys(ACK).some(k=>!ids.has(k))){ for (const k in ACK) if (!ids.has(k)) delete ACK[k]; lsSet("th_ack",ACK); }
+  // "All": how many finished ones you have not seen yet (red if one of them failed)
+  const unseen=all.filter(t=>!ACTIVE.has(t.state) && !t.seen), ab=document.querySelector('.tabs button[data-f="all"]');
+  const bh=esc(T("all")) + (unseen.length ? `<span class="badge${unseen.some(isFail)?" bad":""}">${unseen.length}</span>` : "");
+  if (ab.__h!==bh){ ab.innerHTML=bh; ab.__h=bh; }
+  for (const el of out) if (/^[rt]-/.test(el.id)) seenIO.observe(el);
   return out;
 }
 function render(){
@@ -762,8 +769,30 @@ $("#srcf").onclick=e=>{ const sp=e.target.closest("span[data-v]"); if (!sp) retu
 $("#mute").onclick=()=>api("POST","/api/settings",{muted:!(data&&data.muted)}).catch(e=>snack(e.message));
 $("#clear").onclick=()=>api("POST","/api/clear",{}).catch(e=>snack(e.message));
 $("#sup").onclick=()=>{ if (NATIVE) host({open:SUPPORT_URL}); else window.open(SUPPORT_URL,"_blank"); };
-const seen=()=>api("POST","/api/settings",{seen:true}).catch(()=>{});
-window.addEventListener("focus",seen);
+/* ---------------- seen: a finished task visible ~0.7 s in the open panel ---------------- */
+// the docked panel: open only between the host's "shown" and "hidden" messages - the page also lives in the
+// hidden window; a browser tab: while visible
+let panelOpen = !NATIVE && document.visibilityState==="visible";
+const VIS=new Map(), SENT=new Set();
+const seenIO=new IntersectionObserver(es=>{ for (const e of es){ const id=e.target.id.slice(2);
+  if (e.isIntersecting) { if (!VIS.has(id)) VIS.set(id, Date.now()); } else VIS.delete(id); } }, {root:$("#list"), threshold:0.6});
+function markSeen(ids){
+  ids=ids.filter(id=>!SENT.has(id)); if (!ids.length) return;
+  ids.forEach(id=>{ SENT.add(id); SESSION.add(id); });
+  api("POST","/api/settings",{seen:ids}).catch(()=>ids.forEach(id=>SENT.delete(id)));
+}
+function panelShown(on){
+  if (on && !panelOpen){ SESSION=new Set(); HOPEN=false; render(); }   // a new opening: what was seen moves now
+  panelOpen=on;
+}
+setInterval(()=>{
+  if (!panelOpen || !data) return;
+  const t0=Date.now()-700, ids=[];
+  for (const [id,since] of VIS) if (since<=t0){ const t=findTask(id); if (t && !ACTIVE.has(t.state) && !t.seen) ids.push(id); }
+  markSeen(ids);
+}, 300);
+if (!NATIVE) window.addEventListener("focus",()=>panelShown(true));
+document.addEventListener("visibilitychange",()=>{ if (!NATIVE) panelShown(document.visibilityState==="visible"); });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape" && setBox.classList.contains("on")){ e.preventDefault(); closeSet(); return; } if(e.key==="Escape" && !modal && !Object.values(ui).some(u=>u.formFor)){ if (NATIVE) host("hide"); else api("POST","/api/ui/hide",{}).catch(()=>{}); } });
 // docked panel: resize by its left edge
 $("#grip").addEventListener("mousedown",e=>{ if(e.button!==0) return; e.preventDefault(); host("resize"); });
@@ -823,12 +852,13 @@ setInterval(()=>{ if(!data) return; for(const t of data.tasks){ const el=documen
 setInterval(()=>{ if (data) render(); },30000);   // "5 min ago", history and attention move with the clock
 try{ if(localStorage.th_f) filt=localStorage.th_f; }catch(e){}
 if (NATIVE){ document.documentElement.classList.add("native"); try{ window.chrome.webview.addEventListener("message",e=>{ const d=e.data; if(d && d.look){ LOOK=d.look; applyLook(); }
-  if(d && d.paint) requestAnimationFrame(()=>requestAnimationFrame(()=>host("painted")));
-  if(d && d.hidden){ closeSet(); const a=document.activeElement; if (a && a.closest && a.closest("header,#set")) a.blur(); } }); }catch(e){} host("look"); }
+  if(d && d.shown) panelShown(true);
+  if(d && d.paint){ requestAnimationFrame(()=>requestAnimationFrame(()=>host("painted"))); }
+  if(d && d.hidden){ panelShown(false); closeSet(); const a=document.activeElement; if (a && a.closest && a.closest("header,#set")) a.blur(); } }); }catch(e){} host("look"); }
 else { for (const id of ["transpl","transpr","ctranspl","ctranspr"]) $("#"+id).style.display="none"; }
 applyLang();
 $("#lang").onchange=e=>api("POST","/api/settings",{language:e.target.value}).catch(err=>snack(err.message));
-setFilt(filt); seen(); loop();
+setFilt(filt); loop();
 if (location.hash.length>1) setTimeout(()=>flash(location.hash.slice(1)),600);
 </script>
 </body>

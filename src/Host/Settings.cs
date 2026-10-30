@@ -52,6 +52,7 @@ sealed class Settings
         ["token"] = "",
         ["toasts"] = true,
         ["keep_finished"] = 60,
+        ["history_days"] = 7,               // finished tasks the user has seen are kept this long (failed: until removed)
         ["log_lines"] = 400,
         ["panel_width"] = 480,              // width of the panel docked to the right edge (px at 96 dpi; drag its left edge)
         ["panel_autohide"] = true,

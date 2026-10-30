@@ -250,6 +250,19 @@ s, snap = call("GET", "/api/tasks")
 tp = next(t for t in snap["tasks"] if t["id"] == "t-prj")
 check("attention cleared on finish", tp.get("attention") == "", tp)
 call("DELETE", "/api/tasks/t-prj")
+# seen: per task, by the panel showing it (or all at once with seen: true)
+for i in ("t-seen1", "t-seen2"):
+    call("POST", "/api/tasks", {"id": i, "name": i})
+    call("POST", f"/api/tasks/{i}/finish", {"state": "done"})
+s, snap = call("GET", "/api/tasks")
+st = {t["id"]: t.get("seen") for t in snap["tasks"] if t["id"].startswith("t-seen")}
+check("seen: a finished task is unseen until shown", st == {"t-seen1": False, "t-seen2": False}, st)
+call("POST", "/api/settings", {"seen": ["t-seen1"]})
+s, snap = call("GET", "/api/tasks")
+st = {t["id"]: t.get("seen") for t in snap["tasks"] if t["id"].startswith("t-seen")}
+check("seen: only the given ids", st == {"t-seen1": True, "t-seen2": False}, st)
+for i in ("t-seen1", "t-seen2"):
+    call("DELETE", f"/api/tasks/{i}")
 # speed / ETA from the recent updates, not since the start: a job resuming at 9000 of 10000
 call("POST", "/api/tasks", {"id": "t-pace", "name": "pace", "total": 10000, "unit": "frames"})
 call("POST", "/api/tasks/t-pace/update", {"current": 9000})

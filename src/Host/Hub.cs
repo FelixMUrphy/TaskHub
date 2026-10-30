@@ -705,7 +705,7 @@ sealed class Hub
             if (state == "done" && t["progress"] != null) t["progress"] = 1.0;
             t.Remove("rate"); t.Remove("eta_at");
             t["attention"] = "";
-            t["seen"] = state == "done";
+            t["seen"] = false;   // until the user has seen it in the panel
             In(tid).CmdQ.Clear();
             var message = J.Str(t["message"]);
             AddLog(t, "finished: " + state + (message.Length > 0 ? " — " + message : ""),
@@ -760,25 +760,36 @@ sealed class Hub
         return new JsonObject { ["ok"] = true };
     }
 
-    void Prune()
+    /// <summary>History limits: finished tasks the user has seen go after history_days (failed ones stay until removed);
+    /// above keep_finished the oldest go first, successful ones before failed ones. Returns true if any was removed.</summary>
+    bool Prune()
     {
-        var fin = tasks.Values.Where(t => IsFinal(St(t)))
-            .OrderByDescending(t => J.Num(t["finished"]) ?? 0).Skip(S.Int("keep_finished", 60)).ToList();
-        foreach (var t in fin)
+        var now = J.Now();
+        var keepFor = Math.Max(0, S.Int("history_days", 7)) * 86400.0;
+        bool Failed(JsonObject t) => St(t) is "failed" or "lost";
+        var fin = tasks.Values.Where(t => IsFinal(St(t))).ToList();
+        var drop = fin.Where(t => keepFor > 0 && J.Truthy(t["seen"]) && !Failed(t) && now - (J.Num(t["finished"]) ?? now) > keepFor).ToList();
+        int excess = fin.Count - drop.Count - S.Int("keep_finished", 60);
+        if (excess > 0)
+            drop.AddRange(fin.Except(drop).OrderBy(t => Failed(t) ? 1 : 0).ThenBy(t => J.Num(t["finished"]) ?? 0).Take(excess));
+        foreach (var t in drop)
         {
             var id = J.Str(t["id"]);
             tasks.Remove(id);
             internals.Remove(id);
         }
+        return drop.Count > 0;
     }
 
-    public void MarkSeen()
+    /// <summary>Marks finished tasks as seen by the user: the given ids (shown in the open panel), or all.</summary>
+    public void MarkSeen(IEnumerable<string> ids = null)
     {
         lock (Lock)
         {
             bool ch = false;
-            foreach (var t in tasks.Values)
-                if (!J.Truthy(t["seen"])) { t["seen"] = true; ch = true; }
+            var only = ids?.ToHashSet();
+            foreach (var (id, t) in tasks)
+                if ((only == null || only.Contains(id)) && !J.Truthy(t["seen"])) { t["seen"] = true; ch = true; }
             if (ch) Bump();
         }
     }
@@ -1209,11 +1220,15 @@ sealed class Hub
     }
 
     // ------------------------------------------------------------ watchdog
+    int watchTicks;
+
     public async Task Watchdog(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
             try { await Task.Delay(3000, ct); } catch { break; }
+            if (++watchTicks % 200 == 0)   // ~10 min: history older than history_days
+                lock (Lock) if (Prune()) Bump();
             try
             {
                 var lost = new List<(string tid, Internal gen)>();
