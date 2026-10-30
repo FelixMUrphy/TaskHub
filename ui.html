@@ -76,21 +76,25 @@ main{padding:10px;display:flex;flex-direction:column;gap:9px}
 /* many tasks: structure only when needed - quiet text and shades, no lines or frames */
 #srcf{display:none;gap:2px;padding:0 10px 6px;font-size:12px;color:var(--mut);flex:none;flex-wrap:wrap;user-select:none}
 #srcf.on{display:flex}
-#srcf span{padding:1px 8px;border-radius:9px;cursor:pointer} #srcf span:hover{color:var(--fg)} #srcf span.on{background:var(--o2);color:var(--fg)}
+#srcf span{padding:1px 8px;border-radius:9px;cursor:pointer} #srcf span.on{background:var(--o2);color:var(--fg)}
 .sec{display:flex;align-items:baseline;gap:6px;font-size:11.5px;color:var(--mut);margin:2px 4px -2px;user-select:none}
 .sec b{color:var(--fg);font-weight:600;font-size:12px} .sec .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);align-self:center}
 .grp{display:flex;align-items:baseline;gap:7px;font-size:12px;color:var(--mut);padding:5px 6px 0;cursor:pointer;user-select:none;border-radius:8px;min-width:0}
 .grp .chev{width:10px;font-size:10px;flex:none} .grp b{color:var(--fg);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .grp .sum{margin-left:auto;font-size:11.5px;white-space:nowrap;padding-left:8px}
-.grp.closed{padding:6px} .grp:hover{background:var(--o1)}
+.grp.closed{padding:6px}
 .row{display:flex;align-items:center;gap:8px;padding:4px 8px 4px 10px;margin:-4px 0;border-radius:8px;font-size:12.5px;min-width:0;cursor:pointer}
-.row:hover{background:var(--o1)}
+/* faint chevron: the row opens into the full card (rotated on an open card, which folds back) */
+.fold{color:var(--mut);opacity:.55;font-size:13px;line-height:1;flex:none;width:10px;text-align:center;transition:transform .2s ease;user-select:none}
+.card .fold{display:none;margin-left:2px} .card:not([data-active]) .fold{display:inline-block;transform:rotate(90deg)}
 .row>i{width:7px;height:7px;border-radius:50%;flex:none;background:var(--sc,var(--grey))}
 .row .n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
 .row .r{color:var(--mut);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 0}
 .row .t{color:var(--mut);font-size:11px;white-space:nowrap;padding-left:6px;flex:none}
 .row[data-s=done]{--sc:var(--green)} .row[data-s=failed],.row[data-s=lost]{--sc:var(--red)} .row[data-s=cancelled]{--sc:var(--grey)}
-.hist{font-size:11.5px;color:var(--mut);padding:6px 10px;border-radius:8px;cursor:pointer;user-select:none} .hist:hover{background:var(--o1);color:var(--fg)}
+.hist{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--mut);padding:6px 10px;border-radius:8px;cursor:pointer;user-select:none}
+.hist.open .fold{transform:rotate(90deg)}
+.empty .lnk{display:inline-block;margin-top:8px;font-size:12px;cursor:pointer;color:var(--fg);opacity:.8}
 .card:not([data-active]) .hd{cursor:pointer}
 .card[data-attn][data-s]{--sc:var(--amber)}
 .attn{color:var(--amber);font-size:12px;margin-top:3px;word-break:break-word}
@@ -283,7 +287,7 @@ const LANGS = {en:"English",uk:"Українська",es:"Español",de:"Deutsch"
 const LOCALE = {en:"en-GB",uk:"uk-UA",es:"es-ES",de:"de-DE",fr:"fr-FR",it:"it-IT",pt:"pt-BR",pl:"pl-PL",zh:"zh-CN",ja:"ja-JP"};
 const I18N = {
  en:{active:"Active",all:"All",notif_on:"Notifications on",notif_off:"Notifications off",clear_done:"Clear finished",offline:"No connection to TaskHub…",no_tasks:"No tasks",no_active:"No active tasks",ok:"OK",cancel:"Cancel",remove:"Remove",log:"Log",cmd_queued:"command queued",sent:"“{0}” sent",error:"Error",counts:"{0} active · {1} total",waiting:"waiting for data…",per_s:"u/s",eta:"ETA",silence:"silent",language:"Language",auto:"Auto",
-  st_running:"running",st_paused:"paused",st_stale:"no response",st_done:"done",st_failed:"failed",st_cancelled:"cancelled",st_lost:"lost",u:["s","m","h","d"]},
+  st_running:"running",st_paused:"paused",st_stale:"no response",st_done:"done",st_failed:"failed",st_cancelled:"cancelled",st_lost:"lost",u:["s","min","h","d"]},
  uk:{active:"Активні",all:"Усі",notif_on:"Сповіщення увімкнені",notif_off:"Сповіщення вимкнені",clear_done:"Прибрати завершені",offline:"Немає з'єднання з TaskHub…",no_tasks:"Немає задач",no_active:"Немає активних задач",ok:"OK",cancel:"Скасувати",remove:"Прибрати",log:"Лог",cmd_queued:"команда в черзі",sent:"«{0}» надіслано",error:"Помилка",counts:"{0} активн. · {1} всього",waiting:"очікування даних…",per_s:"од/с",eta:"ETA",silence:"тиша",language:"Мова",auto:"Авто",
   st_running:"працює",st_paused:"пауза",st_stale:"мовчить",st_done:"готово",st_failed:"помилка",st_cancelled:"скасовано",st_lost:"втрачено",u:["с","хв","г","д"]},
  es:{active:"Activas",all:"Todas",notif_on:"Notificaciones activadas",notif_off:"Notificaciones desactivadas",clear_done:"Quitar finalizadas",offline:"Sin conexión con TaskHub…",no_tasks:"No hay tareas",no_active:"No hay tareas activas",ok:"Aceptar",cancel:"Cancelar",remove:"Quitar",log:"Registro",cmd_queued:"comando en cola",sent:"«{0}» enviado",error:"Error",counts:"{0} activas · {1} en total",waiting:"esperando datos…",per_s:"u/s",eta:"ETA",silence:"sin señal",language:"Idioma",auto:"Automático",
@@ -362,8 +366,10 @@ async function api(method, path, body){
   if (!r.ok) throw new Error(j.error || r.status);
   return j;
 }
-function dur(s){ const u=T("u"); s=Math.max(0,Math.floor(s)); if(s<60) return s+u[0]; if(s<3600) return Math.floor(s/60)+u[1]+" "+String(s%60).padStart(2,"0")+u[0];
-  if(s<86400) return Math.floor(s/3600)+u[2]+" "+String(Math.floor(s%3600/60)).padStart(2,"0")+u[1]; return Math.floor(s/86400)+u[3]+" "+Math.floor(s%86400/3600)+u[2]; }
+function dur(s, coarse){ const u=T("u"), q=(n,i)=>n+(LANG==="zh"||LANG==="ja"?"":" ")+u[i]; s=Math.max(0,Math.floor(s));
+  const p = s<60 ? [q(s,0)] : s<3600 ? [q(Math.floor(s/60),1), q(String(s%60).padStart(2,"0"),0)]
+    : s<86400 ? [q(Math.floor(s/3600),2), q(String(Math.floor(s%3600/60)).padStart(2,"0"),1)] : [q(Math.floor(s/86400),3), q(Math.floor(s%86400/3600),2)];
+  return coarse ? p[0] : p.join(" "); }
 function num(v, d){ if (typeof v!=="number"||!isFinite(v)) return esc(v ?? "—");
   if (d!=null) return v.toFixed(d); const a=Math.abs(v);
   if (a>=1e6) return (v/1e6).toFixed(2)+"M"; if (a>=1e4) return (v/1e3).toFixed(1)+"k";
@@ -476,7 +482,7 @@ function renderWidgets(t){
 function cardSkeleton(t){
   const el=document.createElement("div");
   el.className="card"; el.id="t-"+t.id;
-  el.innerHTML=`<div class="hd"><span class="name"></span><span class="chip prj"></span><span class="chip src"></span><span class="st"></span><span class="sp"></span><span class="tm"></span><button class="x" title="${T("remove")}">×</button></div>
+  el.innerHTML=`<div class="hd"><span class="name"></span><span class="chip prj"></span><span class="chip src"></span><span class="st"></span><span class="sp"></span><span class="tm"></span><button class="x" title="${T("remove")}">×</button><span class="fold">›</span></div>
    <div class="desc"></div><div class="attn"></div><div class="bar"><i></i></div><div class="l1"></div><div class="status"></div><div class="stage"></div>
    <div class="wg"></div><div class="msg"></div><div class="ctl"></div><div class="form"></div>
    <details class="lgx"><summary></summary><pre></pre></details><div class="meta"></div>`;
@@ -484,7 +490,7 @@ function cardSkeleton(t){
   $("details",el).addEventListener("toggle",()=>{ if($("details",el).open) fillLog(el, findTask(t.id), true); });
   // a finished task's card folds back into its row (a failed one also leaves "needs attention")
   $(".hd",el).addEventListener("click",e=>{ if (e.target.closest("button,a")) return; const x=findTask(t.id); if (!x || ACTIVE.has(x.state)) return;
-    if (needsMe(x)){ ACK[x.id]=x.finished; lsSet("th_ack",ACK); } ui[x.id].open=false; render(); });
+    if (needsMe(x)){ ACK[x.id]=x.finished; lsSet("th_ack",ACK); } fold(x.id); });
   ui[t.id]=Object.assign(ui[t.id]||{}, {ctlSig:null, formFor:null});
   return el;
 }
@@ -594,8 +600,10 @@ const isFail = t => t.state==="failed" || t.state==="lost";
 const projectOf = t => t.project || (t.cwd ? String(t.cwd).replace(/[\\/]+$/,"").split(/[\\/]/).pop() : "");
 const needsMe = t => ACTIVE.has(t.state) ? !!(t.attention || t.state==="stale")
   : isFail(t) && ACK[t.id]!==t.finished && now()-(t.finished||0) < FAIL_KEEP;
-const inHistory = t => !ACTIVE.has(t.state) && !needsMe(t) && now()-(t.finished||0) > (isFail(t) ? FAIL_KEEP : HIST_AFTER);
-function ago(sec){ return sec<60 ? T("just_now") : T("ago", dur(sec).split(" ")[0]); }
+// failed ones stay (also once looked at) until removed; the rest goes to the history after an hour
+const inHistory = t => !ACTIVE.has(t.state) && !isFail(t) && now()-(t.finished||0) > HIST_AFTER;
+let HOPEN=false;   // "All": history rows unfolded
+function ago(sec){ return sec<60 ? T("just_now") : T("ago", dur(sec, true)); }
 function place(list, els){
   const keep=new Set(els.map(e=>e.id));
   [...list.children].forEach(c=>{ if (!keep.has(c.id)) c.remove(); });
@@ -604,7 +612,8 @@ function place(list, els){
 }
 function node(id, cls, click){
   let el=document.getElementById(id);
-  if (!el){ el=document.createElement("div"); el.id=id; el.className=cls; if (click) el.onclick=click; }
+  if (!el){ el=document.createElement("div"); el.id=id; el.className=cls;
+    if (click){ el.onclick=click; el.setAttribute("role","button"); el.tabIndex=0; } }   // also Enter / Space, screen readers
   return el;
 }
 function cardEl(t, prj){
@@ -614,12 +623,32 @@ function cardEl(t, prj){
   return el;
 }
 function rowEl(t){
-  const el=node("r-"+t.id, "row", ()=>{ ui[t.id]=ui[t.id]||{}; ui[t.id].open=true; render(); });
+  const el=node("r-"+t.id, "row", ()=>unfold(t.id));
   el.dataset.s=t.state;
   const note=[T("st_"+t.state), (t.message||t.status||"").split("\n")[0]].filter(Boolean).join(" · ");
-  const h=`<i></i><span class="n">${esc(t.name)}</span><span class="r">${esc(note)}</span><span class="t">${ago(now()-(t.finished||t.updated||now()))}</span>`;
+  const h=`<i></i><span class="n">${esc(t.name)}</span><span class="r">${esc(note)}</span><span class="t">${ago(now()-(t.finished||t.updated||now()))}</span><span class="fold">›</span>`;
   if (el.__h!==h){ el.innerHTML=h; el.__h=h; el.title=t.name; }
   return el;
+}
+// height animation between a row and its card (none when Windows animations are off)
+const MOTION = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+function animH(el, from, to, done){
+  if (!MOTION || !el){ done && done(); return; }
+  el.style.height=from+"px"; el.style.overflow="hidden"; void el.offsetHeight;
+  el.style.transition="height .22s cubic-bezier(.2,0,0,1)"; el.style.height=to+"px";
+  let fin=false; const end=()=>{ if (fin) return; fin=true; el.style.height=el.style.overflow=el.style.transition=""; done && done(); };
+  el.addEventListener("transitionend", end, {once:true}); setTimeout(end, 320);
+}
+function unfold(id){
+  const row=document.getElementById("r-"+id), h0=row?row.offsetHeight:0;
+  ui[id]=ui[id]||{}; ui[id].open=true; render();
+  const card=document.getElementById("t-"+id); if (card && h0) animH(card, h0, card.offsetHeight);
+}
+function fold(id){
+  const card=document.getElementById("t-"+id);
+  const close=()=>{ if (ui[id]) ui[id].open=false; render(); };
+  if (!card || !MOTION) return close();
+  animH(card, card.offsetHeight, 26, close);
 }
 const taskEl = (t, prj) => ACTIVE.has(t.state) || (ui[t.id] && ui[t.id].open) ? cardEl(t, prj) : rowEl(t);
 const STATES=["running","paused","stale","done","failed","lost","cancelled"];
@@ -629,13 +658,18 @@ function layout(){
   // source filter: only with more than one source
   const srcs=[...new Set(all.map(t=>t.source||""))];
   if (SRC && !srcs.includes(SRC)) SRC="";
-  const sf=$("#srcf"), sh=srcs.length>1 ? [["",T("all")], ...srcs.map(x=>[x, x||T("src_other")])].map(([v,l])=>`<span data-v="${esc(v)}" class="${v===SRC?"on":""}">${esc(l)}</span>`).join("") : "";
+  const many = filt==="all" ? all.length > GROUP_MIN : all.filter(t=>ACTIVE.has(t.state)||needsMe(t)).length > GROUP_MIN;
+  if (!many) SRC="";
+  const sf=$("#srcf"), sh=many && srcs.length>1 ? [["",T("all")], ...srcs.map(x=>[x, x||T("src_other")])].map(([v,l])=>`<span data-v="${esc(v)}" class="${v===SRC?"on":""}">${esc(l)}</span>`).join("") : "";
   if (sf.__h!==sh){ sf.innerHTML=sh; sf.__h=sh; } sf.classList.toggle("on", !!sh);
   const ts=all.filter(t=>!SRC || (t.source||"")===SRC);
   const attn=ts.filter(needsMe), hist=ts.filter(inHistory);
-  const rest=ts.filter(t=>!needsMe(t) && (filt==="all" || !inHistory(t)));
-  const order=(a,b)=> (ACTIVE.has(b.state)-ACTIVE.has(a.state)) || (ACTIVE.has(a.state) ? 0 : (b.finished||0)-(a.finished||0));
-  rest.sort(order);
+  // "Active": what works or waits for you; "All": also the finished ones (the old successful ones folded into the history)
+  const rest=ts.filter(t=>!needsMe(t) && (filt==="all" ? !inHistory(t) || HOPEN : ACTIVE.has(t.state)));
+  // needs attention -> working -> failed -> the rest; newest first inside each
+  const rank=t=> ACTIVE.has(t.state) ? 0 : isFail(t) ? 1 : 2, when=t=>t.finished||t.started||0;
+  const order=(a,b)=> (rank(a)-rank(b)) || (when(b)-when(a));
+  attn.sort(order); rest.sort(order);
   const out=[];
   if (attn.length){
     const h=node("h-attn","sec"); const hh=`<span class="dot"></span><b>${esc(T("attention"))}</b><span>· ${attn.length}</span>`;
@@ -647,7 +681,8 @@ function layout(){
   if (by!=="none" && attn.length+rest.length > GROUP_MIN && keys.length > 1){
     const groups=keys.map(k=>({k, ts:rest.filter(t=>key(t)===k)}));
     const act=g=>g.ts.some(t=>ACTIVE.has(t.state)), last=g=>Math.max(0,...g.ts.map(t=>t.finished||t.updated||0));
-    groups.sort((a,b)=> (act(b)-act(a)) || (!a.k-!b.k) || (last(b)-last(a)));
+    const bad=g=>g.ts.some(isFail);
+    groups.sort((a,b)=> (act(b)-act(a)) || (bad(b)-bad(a)) || (!a.k-!b.k) || (last(b)-last(a)));
     for (const g of groups){
       const open = GOPEN[g.k]!=null ? GOPEN[g.k] : act(g);
       const id="g-"+encodeURIComponent(g.k).replace(/%/g,"_");
@@ -661,11 +696,18 @@ function layout(){
       if (open) for (const t of g.ts) out.push(taskEl(t));
     }
   } else for (const t of rest) out.push(taskEl(t));
-  if (filt!=="all" && hist.length){
-    const h=node("hist","hist",()=>setFilt("all")); const hh=`${esc(T("history"))} · ${hist.length}`;
-    if (h.__h!==hh){ h.textContent=hh; h.__h=hh; } out.push(h);
+  if (filt==="all" && hist.length){
+    const h=node("hist","hist",()=>{ HOPEN=!HOPEN; render(); }); const hh=`<span class="fold">›</span>${esc(T("history"))} · ${hist.length}`;
+    if (h.__h!==hh){ h.innerHTML=hh; h.__h=hh; } h.classList.toggle("open",HOPEN);
+    if (HOPEN){ const i=out.findIndex(e=>hist.some(t=>e.id==="r-"+t.id||e.id==="t-"+t.id)); if (i>=0) out.splice(i,0,h); else out.push(h); } else out.push(h);
   }
-  if (!out.length){ const e=node("empty","empty"); e.textContent= filt==="all"||ts.length ? T("no_tasks") : T("no_active"); out.push(e); }
+  if (!out.length){
+    // nothing works: say so plainly, the finished ones are one click away
+    const e=node("empty","empty"), fin=ts.filter(t=>!ACTIVE.has(t.state)).length;
+    const hh = filt==="all" || !fin ? esc(T(filt==="all"?"no_tasks":"no_active")) : `${esc(T("no_active"))}<br><span class="lnk">${esc(T("all"))} · ${fin}</span>`;
+    if (e.__h!==hh){ e.innerHTML=hh; e.__h=hh; const l=$(".lnk",e); if (l) l.onclick=()=>setFilt("all"); }
+    out.push(e);
+  }
   // forget what refers to tasks that are gone
   const ids=new Set(all.map(t=>t.id));
   if (Object.keys(ACK).some(k=>!ids.has(k))){ for (const k in ACK) if (!ids.has(k)) delete ACK[k]; lsSet("th_ack",ACK); }
@@ -694,7 +736,8 @@ function flash(id){
     if (SRC && (t.source||"")!==SRC){ SRC=""; lsSet("th_src",SRC); }
     if (!ACTIVE.has(t.state)){ ui[t.id]=ui[t.id]||{}; ui[t.id].open=true; }
     const by=PANEL.panel_group||"project", k=by==="source"?(t.source||""):projectOf(t); if (GOPEN[k]===false){ GOPEN[k]=true; lsSet("th_grp",GOPEN); }
-    if (inHistory(t) && filt!=="all") setFilt("all"); else render();
+    if (inHistory(t)) HOPEN=true;
+    if (!ACTIVE.has(t.state) && !needsMe(t) && filt!=="all") setFilt("all"); else render();
   }
   const el=document.getElementById("t-"+id); if (!el) return;
   el.scrollIntoView({block:"center",behavior:"smooth"}); el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
@@ -713,6 +756,8 @@ async function loop(){
   }
 }
 document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setFilt(b.dataset.f));
+document.addEventListener("keydown",e=>{ const b=e.target.closest && e.target.closest("[role=button]");
+  if (b && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); b.click(); } });
 $("#srcf").onclick=e=>{ const sp=e.target.closest("span[data-v]"); if (!sp) return; SRC=sp.dataset.v; lsSet("th_src",SRC); render(); };
 $("#mute").onclick=()=>api("POST","/api/settings",{muted:!(data&&data.muted)}).catch(e=>snack(e.message));
 $("#clear").onclick=()=>api("POST","/api/clear",{}).catch(e=>snack(e.message));
