@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Win32;
+using Windows.ApplicationModel;
 
 namespace TaskHub;
 
@@ -53,6 +55,29 @@ static class Install
     }
     public static bool IsInstalledCopy => IsInstalled && SameDir(ExeDir, InstallDir);
 
+    // ------------------------------------------------------------ Microsoft Store edition (MSIX package)
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    static extern int GetCurrentPackageFullName(ref int length, StringBuilder name);
+
+    /// <summary>Running from an MSIX package (Microsoft Store edition): Windows installs, updates and removes it, and
+    /// autostart, taskhub:// and the `taskhub` command come from the package manifest instead of the registry / PATH.</summary>
+    public static readonly bool IsPackaged = DetectPackage();
+    public static string Edition => IsPackaged ? "store" : "exe";
+    const string StartupTaskId = "TaskHubStartup";   // packaging\AppxManifest.xml
+
+    static bool DetectPackage()
+    {
+        try { int len = 0; return GetCurrentPackageFullName(ref len, null) != 15700; }   // APPMODEL_ERROR_NO_PACKAGE
+        catch { return false; }
+    }
+
+    static StartupTask PackageStartup() => StartupTask.GetAsync(StartupTaskId).AsTask().GetAwaiter().GetResult();
+
+    /// <summary>The `taskhub` command of the package (an app execution alias): stable across updates, unlike the
+    /// package folder, and starts the CLI inside the package.</summary>
+    public static string PackagedCli => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Microsoft", "WindowsApps", "taskhub.exe");
+
     /// <summary>Version of the installed copy: the installed exe's file version (the uninstall entry's DisplayVersion can be
     /// stale if the files were replaced by hand), else DisplayVersion, else null.</summary>
     public static Version InstalledVersion
@@ -85,6 +110,11 @@ static class Install
 
     public static bool AutostartEnabled(Settings s)
     {
+        if (IsPackaged)
+        {
+            try { return PackageStartup().State is StartupTaskState.Enabled or StartupTaskState.EnabledByPolicy; }
+            catch (Exception e) { Log.W("startup task: " + e.Message); return false; }
+        }
         using var k = Registry.CurrentUser.OpenSubKey(RunKey);
         var v = k?.GetValue(RunValueName(s)) as string;
         if (v == null || !v.Contains(HostExe, StringComparison.OrdinalIgnoreCase)) return false;
@@ -100,6 +130,15 @@ static class Install
 
     public static void SetAutostart(bool on, Settings s)
     {
+        if (IsPackaged)
+        {
+            var t = PackageStartup();
+            if (!on) { t.Disable(); return; }
+            // turned off by the user in Settings / Task Manager: only they can turn it on again there
+            if (t.RequestEnableAsync().AsTask().GetAwaiter().GetResult() == StartupTaskState.DisabledByUser)
+                throw new InvalidOperationException(L.T("startup_by_user"));
+            return;
+        }
         using var k = Registry.CurrentUser.CreateSubKey(RunKey);
         using var a = Registry.CurrentUser.CreateSubKey(ApprovedKey);
         if (on)

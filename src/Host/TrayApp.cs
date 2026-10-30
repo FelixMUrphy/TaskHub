@@ -161,6 +161,7 @@ sealed class TrayApp : ApplicationContext
                 it.Text = Integrations.Name(a) + " — " + L.T(k == Integrations.Kind.Hooks ? "menu_hooks" : "menu_mcp");
                 it.Checked = Integrations.Enabled(a, k);
             }
+            miUpd.Visible = Updater != null;
             var avail = Updater?.Available;
             miUpdate.Visible = avail != null;
             if (avail != null) miUpdate.Text = L.T("update_to", avail.Version);

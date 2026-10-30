@@ -68,6 +68,20 @@ jobs:
         shell: pwsh
         run: Get-Content "$env:TEMP\taskhub-tests\taskhub.log" -Tail 200 -ErrorAction SilentlyContinue
 
+      # Microsoft Store edition. Identity from the repository variables STORE_NAME / STORE_PUBLISHER /
+      # STORE_PUBLISHER_DISPLAY (Partner Center → the app → Product identity); without them a placeholder identity
+      # (still checks that the package builds)
+      - name: Package MSIX
+        shell: pwsh
+        env:
+          STORE_NAME: ${{ vars.STORE_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY: ${{ vars.STORE_PUBLISHER_DISPLAY }}
+        run: |
+          $id = @{}
+          if ($env:STORE_NAME) { $id = @{ Name = $env:STORE_NAME; Publisher = $env:STORE_PUBLISHER; PublisherDisplay = $env:STORE_PUBLISHER_DISPLAY } }
+          ./packaging/build-msix.ps1 @id
+
       - name: Checksum
         if: github.ref_type == 'tag'
         shell: pwsh
@@ -76,12 +90,22 @@ jobs:
           $h = (Get-FileHash "dist/$f" -Algorithm SHA256).Hash.ToLower()
           "$h  $f" | Out-File -Encoding ascii -NoNewline "dist/$f.sha256"
 
+      # the release gets only the setup exe; the unsigned .msix is for the Store upload (users can't install it)
       - uses: actions/upload-artifact@v7
         if: github.ref_type == 'tag'
         with:
           name: setup
-          path: dist/*
+          path: |
+            dist/*.exe
+            dist/*.sha256
           retention-days: 7
+
+      - uses: actions/upload-artifact@v7
+        if: github.ref_type == 'tag'
+        with:
+          name: store-msix
+          path: dist/*.msix
+          retention-days: 30
 
   release:
     needs: build-test

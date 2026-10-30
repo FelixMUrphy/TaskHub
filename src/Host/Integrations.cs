@@ -68,7 +68,8 @@ static class Integrations
 
     static string CliPath()
     {
-        var p = Path.Combine(AppContext.BaseDirectory, "taskhub.exe");
+        // Store edition: the package's `taskhub` command, not the versioned package folder (changes on every update)
+        var p = Install.IsPackaged ? Install.PackagedCli : Path.Combine(AppContext.BaseDirectory, "taskhub.exe");
         if (!p.Contains(' ')) return p;
         var sb = new StringBuilder(1024);   // 8.3 name: no quoting problems in whatever shell the agent uses
         return GetShortPathName(p, sb, sb.Capacity) > 0 ? sb.ToString() : p;

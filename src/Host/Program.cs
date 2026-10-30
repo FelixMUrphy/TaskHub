@@ -28,6 +28,13 @@ static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
+        // Store edition: Windows installs, updates and removes the package - no setup of our own
+        if (Install.IsPackaged && (Has("--install") || Has("--register") || Has("--uninstall")))
+        {
+            if (!quiet) Msg(L.T("store_managed"));
+            return 0;
+        }
+
         if (Has("--uninstall"))
         {
             if (!quiet && MessageBox.Show(L.T("uninstall_q"), "TaskHub", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return 0;
@@ -103,7 +110,7 @@ static class Program
         bool optAuto = !Has("--no-autostart"), optPath = !Has("--no-path");
         string optAgents = string.Join("", Integrations.All.SelectMany(a => Integrations.Kinds.Select(k => Integrations.ArgName(a, k)))
             .SelectMany(n => new[] { "--" + n, "--no-" + n }).Where(Has).Select(x => " " + x));
-        if (!install && args.Length == 0 && !Install.IsInstalledCopy && Settings.ReadExeSettings() == null
+        if (!install && args.Length == 0 && !Install.IsInstalledCopy && !Install.IsPackaged && Settings.ReadExeSettings() == null
             && !ToastNotificationManagerCompat.WasCurrentProcessToastActivated())
         {
             using var f = new InstallForm(Install.IsInstalled, Install.InstalledVersion, S);
@@ -165,7 +172,7 @@ static class Program
         Log.W($"TaskHub {Settings.Version} (.NET) starting; exe={Environment.ProcessPath} data={S.DataDir} port={S.Port} args=[{string.Join(" ", args)}]");
         if (S.Bool("autostart", true)) Install.EnsureAutostart(S);
         Install.EnsurePayload();
-        if (Install.IsInstalledCopy) Integrations.Ensure(S);   // never from dev/test hubs
+        if (Install.IsInstalledCopy || Install.IsPackaged) Integrations.Ensure(S);   // never from dev/test hubs
         Application.ThreadException += (_, e) => Log.W("UI exception: " + e.Exception);
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.W("fatal: " + e.ExceptionObject);
@@ -206,7 +213,8 @@ static class Program
             return 0;
         }
 
-        Application.Run(new TrayApp(S, hub, api, notifier, openTask) { Updater = updater });
+        // Store edition: updates come from the Store, so no update check / menu
+        Application.Run(new TrayApp(S, hub, api, notifier, openTask) { Updater = Install.IsPackaged ? null : updater });
         hub.MarkDirty();
         hub.Save();
         Log.W("exit");

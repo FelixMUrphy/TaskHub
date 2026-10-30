@@ -201,6 +201,28 @@ static class L
         ["update_msg"] = new[] { "You have {0}. Click to open the download page.", "У вас {0}. Натисніть, щоб відкрити сторінку завантаження.", "Tienes la {0}. Haz clic para abrir la página de descarga.", "Installiert: {0}. Klicken öffnet die Download-Seite.", "Vous avez la {0}. Cliquez pour ouvrir la page de téléchargement.", "Hai la {0}. Fai clic per aprire la pagina di download.", "Você tem a {0}. Clique para abrir a página de download.", "Masz {0}. Kliknij, aby otworzyć stronę pobierania.", "当前版本 {0}。点击打开下载页面。", "現在 {0}。クリックでダウンロードページを開きます。" },
         ["update_latest"] = new[] { "TaskHub {0} is the latest version.", "TaskHub {0} — остання версія.", "TaskHub {0} es la última versión.", "TaskHub {0} ist aktuell.", "TaskHub {0} est la dernière version.", "TaskHub {0} è l'ultima versione.", "TaskHub {0} é a versão mais recente.", "TaskHub {0} to najnowsza wersja.", "TaskHub {0} 已是最新版本。", "TaskHub {0} は最新です。" },
         ["update_failed"] = new[] { "Could not check for updates: {0}", "Не вдалося перевірити оновлення: {0}", "No se pudieron buscar actualizaciones: {0}", "Update-Prüfung fehlgeschlagen: {0}", "Impossible de vérifier les mises à jour : {0}", "Impossibile controllare gli aggiornamenti: {0}", "Não foi possível verificar atualizações: {0}", "Nie udało się sprawdzić aktualizacji: {0}", "无法检查更新：{0}", "更新を確認できませんでした: {0}" },
+        ["store_managed"] = new[] {
+            "This TaskHub is installed from the Microsoft Store: Windows installs, updates and removes it (Settings → Apps).",
+            "Цей TaskHub встановлено з Microsoft Store: його встановлює, оновлює й видаляє Windows (Параметри → Програми).",
+            "Este TaskHub se instaló desde Microsoft Store: Windows lo instala, actualiza y quita (Configuración → Aplicaciones).",
+            "Dieses TaskHub stammt aus dem Microsoft Store: Windows installiert, aktualisiert und entfernt es (Einstellungen → Apps).",
+            "Ce TaskHub provient du Microsoft Store : Windows l'installe, le met à jour et le supprime (Paramètres → Applications).",
+            "Questo TaskHub proviene dal Microsoft Store: Windows lo installa, aggiorna e rimuove (Impostazioni → App).",
+            "Este TaskHub foi instalado pela Microsoft Store: o Windows o instala, atualiza e remove (Configurações → Aplicativos).",
+            "Ten TaskHub pochodzi z Microsoft Store: Windows go instaluje, aktualizuje i usuwa (Ustawienia → Aplikacje).",
+            "此 TaskHub 来自 Microsoft Store：由 Windows 安装、更新和删除（设置 → 应用）。",
+            "この TaskHub は Microsoft Store からインストールされています。インストール・更新・削除は Windows が行います（設定 → アプリ）。" },
+        ["startup_by_user"] = new[] {
+            "Autostart was turned off in Windows. Turn it on in Settings → Apps → Startup (or Task Manager → Startup apps).",
+            "Автозапуск вимкнено у Windows. Увімкніть його в Параметри → Програми → Автозавантаження (або Диспетчер завдань → Автозавантаження).",
+            "El inicio automático se desactivó en Windows. Actívalo en Configuración → Aplicaciones → Inicio (o Administrador de tareas → Aplicaciones de arranque).",
+            "Autostart wurde in Windows deaktiviert. Aktiviere ihn unter Einstellungen → Apps → Autostart (oder Task-Manager → Autostart-Apps).",
+            "Le démarrage automatique a été désactivé dans Windows. Activez-le dans Paramètres → Applications → Démarrage (ou Gestionnaire des tâches → Applications de démarrage).",
+            "L'avvio automatico è stato disattivato in Windows. Attivalo in Impostazioni → App → Avvio (o Gestione attività → App di avvio).",
+            "A inicialização automática foi desativada no Windows. Ative-a em Configurações → Aplicativos → Inicialização (ou Gerenciador de Tarefas → Aplicativos de inicialização).",
+            "Autostart został wyłączony w Windows. Włącz go w Ustawienia → Aplikacje → Uruchamianie (lub Menedżer zadań → Aplikacje autostartu).",
+            "已在 Windows 中关闭自动启动。请在 设置 → 应用 → 启动（或 任务管理器 → 启动应用）中开启。",
+            "Windows で自動起動がオフになっています。設定 → アプリ → スタートアップ（またはタスク マネージャー → スタートアップ アプリ）でオンにしてください。" },
         ["kill_confirm"] = new[] { "Kill process {0} and its children?", "Завершити процес {0} і його дочірні?", "¿Terminar el proceso {0} y sus hijos?", "Prozess {0} samt Unterprozessen beenden?", "Tuer le processus {0} et ses enfants ?", "Terminare il processo {0} e i figli?", "Encerrar o processo {0} e os filhos?", "Zakończyć proces {0} i jego potomne?", "结束进程 {0} 及其子进程？", "プロセス {0} と子プロセスを終了しますか？" },
     };
 
