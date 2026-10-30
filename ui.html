@@ -13,6 +13,8 @@
   --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
   /* accent (Windows accent colour from the host, or TaskHub blue) and the text colour on it */
   --acc:var(--blue);--accfg:#fff;
+  /* "busy / working" indicators: the accent, or TaskHub blue when the accent is grey */
+  --live:var(--acc);
   /* background opacity: 100% unless the host has a Windows 11 backdrop behind the page (panel_transparency) */
   --alpha:100%;--calpha:100%;--halo:0%;--hhalo:0%;
   color-scheme:light;
@@ -25,6 +27,7 @@
   --o3:color-mix(in srgb,var(--fg) 15%,transparent);
   --ln:color-mix(in srgb,var(--fg) 12%,transparent);
 }
+html.acc-neutral{--live:var(--blue)}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){
   --bg:#14161b;--card:#1d2027;--fg:#e6e8ec;--mut:#8d95a3;--line:#2b2f38;--track:#2c313b;
   --blue:#5b8ff9;--green:#3ccf74;--red:#f87171;--amber:#fbbf24;--grey:#7b8391;
@@ -112,17 +115,20 @@ main{padding:10px;display:flex;flex-direction:column;gap:9px}
 .w .pb{height:7px;background:var(--o2);border-radius:4px;overflow:hidden;margin-top:4px}
 .w .pb i{display:block;height:100%;border-radius:4px;background:var(--wc,var(--acc));transition:width .4s}
 .led{display:flex;align-items:center;gap:7px}
-.led i{width:10px;height:10px;border-radius:50%;background:var(--grey);flex:none}
+.led i{width:10px;height:10px;border-radius:50%;background:transparent;box-shadow:inset 0 0 0 1.5px var(--grey);flex:none}
 .led i.ok{background:var(--green);box-shadow:0 0 6px var(--green)} .led i.warn{background:var(--amber);box-shadow:0 0 6px var(--amber)}
-.led i.error{background:var(--red);box-shadow:0 0 6px var(--red)} .led i.busy{background:var(--acc);animation:bl 1s infinite}
-@keyframes bl{50%{opacity:.25}}
+.led i.error{background:var(--red);box-shadow:0 0 6px var(--red)} .led i.busy{background:var(--live);box-shadow:0 0 0 0 var(--live);animation:pulse 1.6s infinite ease-out}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--live) 70%,transparent)}100%{box-shadow:0 0 0 7px transparent}}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:1px 10px;font-size:12px;margin-top:2px}
 .kv span:nth-child(odd){color:var(--mut)} .kv span:nth-child(even){font-variant-numeric:tabular-nums;word-break:break-word}
 table.tb{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:3px;font-variant-numeric:tabular-nums}
 table.tb th{text-align:left;color:var(--mut);font-weight:500;border-bottom:1px solid var(--ln);padding:2px 4px}
 table.tb td{padding:2px 4px;border-bottom:1px solid var(--ln)}
 svg.ch{display:block;width:100%;margin-top:3px;overflow:visible}
-svg.ch text{font-size:9px;fill:var(--mut);font-family:var(--mono)}
+.chw{display:flex;gap:6px;margin-top:3px}
+.chw svg.ch{flex:1;width:0;min-width:0;margin-top:0}
+.chw .ax{flex:none;display:flex;flex-direction:column;justify-content:space-between;font:9.5px/1 var(--mono);color:var(--mut);text-align:right;font-variant-numeric:tabular-nums}
+.wait{color:var(--mut);font-size:11px;padding:8px 0}
 .lg{display:flex;flex-wrap:wrap;gap:8px;font-size:10.5px;color:var(--mut);margin-top:2px}
 .lg i{display:inline-block;width:8px;height:3px;border-radius:2px;vertical-align:middle;margin-right:3px}
 /* controls */
@@ -131,7 +137,10 @@ svg.ch text{font-size:9px;fill:var(--mut);font-family:var(--mono)}
 .btn{font:inherit;font-size:12px;border:1px solid var(--ln);background:var(--o1);color:var(--fg);border-radius:6px;padding:3px 10px;cursor:pointer}
 .btn:hover,.btn:focus-visible{background:var(--o2)}
 .btn:active{background:var(--o3)}
-.btn.primary{background:var(--acc);border-color:var(--acc);color:var(--accfg)}
+.btn.primary{background:var(--acc);border-color:var(--acc);color:var(--accfg);font-weight:600}
+.btn.primary:hover{background:color-mix(in srgb,var(--acc) 88%,var(--fg))}
+html.acc-neutral .btn.primary{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+html.acc-neutral .btn.primary:hover{background:color-mix(in srgb,var(--fg) 85%,var(--bg))}
 .btn.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 45%,transparent)}
 .btn.danger:hover{background:var(--red);color:#fff}
 .btn:disabled{opacity:.5;cursor:default}
@@ -208,12 +217,15 @@ let PANEL = {theme:"system",accent:"system",panel_transparency:30,card_transpare
 function lum(h){ const m=/^#([0-9a-f]{6})$/i.exec(h||""); if(!m) return 0; const n=parseInt(m[1],16);
   const c=[n>>16&255,n>>8&255,n&255].map(v=>{ v/=255; return v<=0.03928? v/12.92 : Math.pow((v+0.055)/1.055,2.4); });
   return 0.2126*c[0]+0.7152*c[1]+0.0722*c[2]; }
+// colourfulness 0..1 (max - min of the RGB channels): a grey accent is close to 0
+function chroma(h){ const n=parseInt(h.slice(1),16), c=[n>>16&255,n>>8&255,n&255]; return (Math.max(...c)-Math.min(...c))/255; }
 function applyLook(){
   const r=document.documentElement, st=r.style;
   if (PANEL.theme==="light"||PANEL.theme==="dark") r.dataset.theme=PANEL.theme; else delete r.dataset.theme;
   const acc = PANEL.accent==="system" && LOOK && /^#[0-9a-f]{6}$/i.test(LOOK.accent||"") ? LOOK.accent : "";
   if (acc){ st.setProperty("--acc",acc); st.setProperty("--accfg", lum(acc)>0.179?"#000":"#fff"); }
   else { st.removeProperty("--acc"); st.removeProperty("--accfg"); }
+  r.classList.toggle("acc-neutral", !!acc && chroma(acc)<0.12);
   const bd=!!(LOOK && LOOK.backdrop), pct=v=>Math.max(0,Math.min(100,+v||0));
   const tr=bd? pct(PANEL.panel_transparency) : 0, ctr=bd? pct(PANEL.card_transparency) : 0;
   // the panel's and the cards' own tint; at 100 % nothing but the blur of the windows behind is left
@@ -373,6 +385,7 @@ const W = {
   table(w){
     const rows=(w.value||[]).slice(-50), cols=w.columns&&w.columns.length?w.columns:(rows[0]&&!Array.isArray(rows[0])?Object.keys(rows[0]):[]);
     const cell=v=>typeof v==="number"?num(v,w.decimals):esc(v);
+    if (!rows.length) return lab(w)+`<div class="v wait">${T("waiting")}</div>`;
     return lab(w)+`<table class="tb">${cols.length?`<tr>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr>`:""}
       ${rows.map(r=>`<tr>${(Array.isArray(r)?r:cols.map(c=>r[c])).map(v=>`<td>${cell(v)}</td>`).join("")}</tr>`).join("")}</table>`;
   },
@@ -380,7 +393,7 @@ const W = {
     const pts=w.points||[], S=w.series||[w.id], hgt=Math.min(400,Math.max(20,fin(w.height,54))), Wd=300;
     const last = pts.length? pts[pts.length-1] : null;
     const right = last ? S.map((s,i)=> last[i+1]==null?"":`${S.length>1?esc(s)+" ":""}${num(last[i+1],w.decimals)}`).filter(Boolean).join(" · ")+(w.unit?" "+esc(w.unit):"") : "";
-    if (pts.length<2) return lab(w,right)+`<div class="v" style="color:var(--mut);font-size:11px;padding:8px 0">${T("waiting")}</div>`;
+    if (pts.length<2) return lab(w,right)+`<div class="v wait">${T("waiting")}</div>`;
     let lo=Infinity, hi=-Infinity;
     for (const p of pts) for (let i=1;i<p.length;i++) if (p[i]!=null){ lo=Math.min(lo,p[i]); hi=Math.max(hi,p[i]); }
     if (w.y_min!=null) lo=w.y_min; if (w.y_max!=null) hi=w.y_max;
@@ -405,9 +418,9 @@ const W = {
         g+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
       }
     });
-    g += `<text x="${Wd-2}" y="${Y(hi)+9}" text-anchor="end">${num(hi)}</text><text x="${Wd-2}" y="${Y(lo)-2}" text-anchor="end">${num(lo)}</text>`;
     const legend = S.length>1 ? `<div class="lg">${S.map((s,i)=>`<span><i style="background:var(--s${i%6+1})"></i>${esc(s)}</span>`).join("")}</div>` : "";
-    return lab(w,right)+`<svg class="ch" viewBox="0 0 ${Wd} ${hgt}" preserveAspectRatio="none" style="height:${hgt}px">${g}</svg>`+legend;
+    return lab(w,right)+`<div class="chw"><svg class="ch" viewBox="0 0 ${Wd} ${hgt}" preserveAspectRatio="none" style="height:${hgt}px">${g}</svg>`
+      +`<div class="ax" style="height:${hgt}px"><span>${num(hi)}</span><span>${num(lo)}</span></div></div>`+legend;
   },
 };
 function renderWidgets(t){
@@ -444,7 +457,7 @@ function fillLog(el, t, scroll){
 function times(t){
   const end = t.finished || now(), el = end - t.started;
   let s = dur(el);
-  if (ACTIVE.has(t.state) && t.progress>0.005 && t.progress<1) s += " · "+T("eta")+" " + dur(el/t.progress*(1-t.progress));
+  if (t.state==="running" && t.eta_at && !(t.progress>=1)) s += " · "+T("eta")+" " + dur(Math.max(0,t.eta_at-now()));
   if (t.state==="stale") s += " · "+T("silence")+" " + dur(now()-t.last_seen);
   return s;
 }
@@ -462,7 +475,7 @@ function updCard(el, t){
   let l1=[];
   if (hasP) l1.push(`<b>${(t.progress*100).toFixed(1)}%</b>`);
   if (t.current!=null) l1.push(`${num(t.current)}${t.total!=null?" / "+num(t.total):""} ${esc(t.unit)}`);
-  if (hasP && ACTIVE.has(t.state) && t.current!=null && t.progress>0){ const r=t.current/Math.max(1,now()-t.started); l1.push(`${num(r)} ${t.unit?esc(t.unit)+"/s":T("per_s")}`); }
+  if (t.state==="running" && t.current!=null && t.rate!=null) l1.push(`${num(t.rate)} ${t.unit?esc(t.unit)+"/s":T("per_s")}`);
   $(".l1",el).innerHTML=l1.join("<span>·</span>"); $(".l1",el).style.display=l1.length?"":"none";
   $(".status",el).textContent=t.status||""; $(".status",el).style.display=t.status?"":"none";
   $(".stage",el).textContent=t.stage?("▸ "+t.stage):""; $(".stage",el).style.display=t.stage?"":"none";

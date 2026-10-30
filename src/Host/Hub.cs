@@ -39,6 +39,7 @@ sealed class Hub
         public List<JsonObject> CmdQ = new();
         public long? Ct;
         public double LastProgressToast;
+        public readonly List<(double T, double? Cur, double? P)> Pace = new();   // recent progress samples (rate / ETA)
     }
 
     readonly Settings S;
@@ -76,6 +77,7 @@ sealed class Hub
                 var id = J.Str(t["id"]);
                 long? ct = J.Num(t["_ct"]) is double d && d > 1e12 ? (long)d : null;
                 t.Remove("_ct");
+                t.Remove("rate"); t.Remove("eta_at");   // measured again from the next updates
                 tasks[id] = t;
                 internals[id] = new Internal { Ct = ct };
             }
@@ -154,6 +156,35 @@ sealed class Hub
     {
         if (tid == null || !tasks.TryGetValue(tid, out var t)) throw new ApiError(404, $"task '{tid}' not found");
         return t;
+    }
+
+    const double PaceWindow = 120, PaceMinSpan = 3;
+
+    /// <summary>Current speed ("rate", units/s) and ETA ("eta_at", unix time) from the progress updates of the last
+    /// ~2 minutes, not since the start: a job that resumes where it stopped, or speeds up / slows down, shows its real
+    /// pace. Nothing while paused or until the samples span a few seconds.</summary>
+    static void UpdatePace(JsonObject t, Internal it, double now)
+    {
+        var s = it.Pace;
+        double? cur = J.Num(t["current"]), p = J.Num(t["progress"]);
+        if (St(t) != "running" || (cur == null && p == null)) { s.Clear(); t.Remove("rate"); t.Remove("eta_at"); return; }
+        if (s.Count > 0 && (cur < s[^1].Cur || p < s[^1].P)) s.Clear();   // went back: a new run of the job
+        s.Add((now, cur, p));
+        while (s.Count > 2 && now - s[1].T >= PaceWindow) s.RemoveAt(0);
+        var (a, z) = (s[0], s[^1]);
+        double dt = z.T - a.T;
+        double? rate = null, eta = null;
+        if (dt >= PaceMinSpan)
+        {
+            if (a.Cur is double c0 && z.Cur is double c1)
+            {
+                rate = (c1 - c0) / dt;
+                if (J.Num(t["total"]) is double tot && rate > 0) eta = Math.Max(0, tot - c1) / rate;
+            }
+            if (eta == null && a.P is double p0 && z.P is double p1 && p1 > p0) eta = (1 - p1) * dt / (p1 - p0);
+        }
+        if (rate is double r) t["rate"] = Math.Round(r, 6); else t.Remove("rate");
+        if (eta is double e && double.IsFinite(e)) t["eta_at"] = Math.Round(now + e, 1); else t.Remove("eta_at");
     }
 
     Internal In(string tid)
@@ -576,6 +607,7 @@ sealed class Hub
                     .Where(x => !rm.Contains(J.Str(x["id"]))).Select(x => (JsonNode)x.DeepClone()).ToArray());
             }
             if (b["widgets"] is JsonObject wv) ApplyWidgetValues(t, wv);
+            UpdatePace(t, In(tid), now);
             var level = J.Truthy(b["level"]) ? J.Str(b["level"]) : "info";
             if (J.Truthy(b["log"])) AddLog(t, b["log"], level);
             // milestones
@@ -668,6 +700,7 @@ sealed class Hub
             }
             if (b["widgets"] is JsonObject wv) ApplyWidgetValues(t, wv);
             if (state == "done" && t["progress"] != null) t["progress"] = 1.0;
+            t.Remove("rate"); t.Remove("eta_at");
             t["seen"] = state == "done";
             In(tid).CmdQ.Clear();
             var message = J.Str(t["message"]);

@@ -307,7 +307,7 @@ sealed class TelegramBridge
         double start = J.Num(t["started"]) ?? now;
         double end = Hub.IsFinal(st) ? J.Num(t["finished"]) ?? now : now;
         sb.Append("\n⏱ ").Append(Esc(Coarse(end - start)));
-        if (st == "running" && p >= 0.01 && p < 1) sb.Append("  ·  ETA ").Append(Esc(Coarse((end - start) * (1 - p) / p)));
+        if (st == "running" && p < 1 && J.Num(t["eta_at"]) is double eta) sb.Append("  ·  ETA ").Append(Esc(Coarse(Math.Max(0, eta - now))));
         return sb.ToString();
     }
 
