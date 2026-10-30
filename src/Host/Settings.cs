@@ -59,6 +59,7 @@ sealed class Settings
         ["panel_topmost"] = true,
         ["panel_transparency"] = 30,        // background transparency 0-100 % (Windows 11 acrylic behind it)
         ["card_transparency"] = 30,         // the cards' own background, 0-100 %
+        ["panel_group"] = "project",        // many tasks: group them by project / source / none
         ["theme"] = "system",               // system | light | dark
         ["accent"] = "system",              // system (Windows accent colour) | taskhub
         ["toast_controls"] = true,

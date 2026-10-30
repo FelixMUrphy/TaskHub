@@ -73,6 +73,28 @@ main{padding:10px;display:flex;flex-direction:column;gap:9px}
 #sb:hover i,#sb.drag i{width:6px;right:2px;background:color-mix(in srgb,var(--fg) 62%,transparent)}
 #sb.none{display:none}
 .empty{color:var(--mut);text-align:center;padding:50px 10px}
+/* many tasks: structure only when needed - quiet text and shades, no lines or frames */
+#srcf{display:none;gap:2px;padding:0 10px 6px;font-size:12px;color:var(--mut);flex:none;flex-wrap:wrap;user-select:none}
+#srcf.on{display:flex}
+#srcf span{padding:1px 8px;border-radius:9px;cursor:pointer} #srcf span:hover{color:var(--fg)} #srcf span.on{background:var(--o2);color:var(--fg)}
+.sec{display:flex;align-items:baseline;gap:6px;font-size:11.5px;color:var(--mut);margin:2px 4px -2px;user-select:none}
+.sec b{color:var(--fg);font-weight:600;font-size:12px} .sec .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);align-self:center}
+.grp{display:flex;align-items:baseline;gap:7px;font-size:12px;color:var(--mut);padding:5px 6px 0;cursor:pointer;user-select:none;border-radius:8px;min-width:0}
+.grp .chev{width:10px;font-size:10px;flex:none} .grp b{color:var(--fg);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.grp .sum{margin-left:auto;font-size:11.5px;white-space:nowrap;padding-left:8px}
+.grp.closed{padding:6px} .grp:hover{background:var(--o1)}
+.row{display:flex;align-items:center;gap:8px;padding:4px 8px 4px 10px;margin:-4px 0;border-radius:8px;font-size:12.5px;min-width:0;cursor:pointer}
+.row:hover{background:var(--o1)}
+.row>i{width:7px;height:7px;border-radius:50%;flex:none;background:var(--sc,var(--grey))}
+.row .n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.row .r{color:var(--mut);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 0}
+.row .t{color:var(--mut);font-size:11px;white-space:nowrap;padding-left:6px;flex:none}
+.row[data-s=done]{--sc:var(--green)} .row[data-s=failed],.row[data-s=lost]{--sc:var(--red)} .row[data-s=cancelled]{--sc:var(--grey)}
+.hist{font-size:11.5px;color:var(--mut);padding:6px 10px;border-radius:8px;cursor:pointer;user-select:none} .hist:hover{background:var(--o1);color:var(--fg)}
+.card:not([data-active]) .hd{cursor:pointer}
+.card[data-attn][data-s]{--sc:var(--amber)}
+.attn{color:var(--amber);font-size:12px;margin-top:3px;word-break:break-word}
+.chip.prj{color:var(--fg);opacity:.75}
 .card{border-radius:10px;padding:10px 11px 9px 14px;position:relative;isolation:isolate}
 /* the card's own layer: blurred, so its edges are soft rather than a frame */
 .card::after{content:"";position:absolute;inset:1px;z-index:-1;border-radius:12px;background:color-mix(in srgb,var(--card) var(--calpha),transparent);filter:blur(4px);pointer-events:none}
@@ -196,9 +218,11 @@ pre .warn{color:var(--amber)} pre .error{color:var(--red)} pre .cmd{color:var(--
   <label for="theme" data-i="theme"></label><select id="theme"></select>
   <label for="accent" data-i="accent"></label><select id="accent"></select>
   <label for="transp" data-i="transparency" id="transpl"></label><div class="rg" id="transpr"><input type="range" id="transp" min="0" max="100" step="5"><span class="rv" id="transpv"></span></div>
+  <label for="grp" data-i="group_by"></label><select id="grp"></select>
   <label for="ctransp" data-i="card_transparency" id="ctranspl"></label><div class="rg" id="ctranspr"><input type="range" id="ctransp" min="0" max="100" step="5"><span class="rv" id="ctranspv"></span></div>
 </div>
 <div id="grip"></div>
+<div id="srcf"></div>
 <div id="off" data-i="offline"></div>
 <main id="list" tabindex="-1"></main>
 <div id="sb"><i></i></div>
@@ -212,7 +236,7 @@ const NATIVE = !!(window.chrome && window.chrome.webview);   // TaskHub .NET hos
 const host = m => { try{ window.chrome.webview.postMessage(m); }catch(e){} };
 /* ---------------- look: theme, accent, background transparency ---------------- */
 let LOOK = null;   // from the host: {dark, accent:"#rrggbb", backdrop:bool}
-let PANEL = {theme:"system",accent:"system",panel_transparency:30,card_transparency:30,panel_pinned:false};   // config.json, via /api/tasks
+let PANEL = {theme:"system",accent:"system",panel_transparency:30,card_transparency:30,panel_group:"project",panel_pinned:false};   // config.json, via /api/tasks
 // relative luminance -> black or white text on the accent colour (WCAG: whichever contrasts more)
 function lum(h){ const m=/^#([0-9a-f]{6})$/i.exec(h||""); if(!m) return 0; const n=parseInt(m[1],16);
   const c=[n>>16&255,n>>8&255,n&255].map(v=>{ v/=255; return v<=0.03928? v/12.92 : Math.pow((v+0.055)/1.055,2.4); });
@@ -235,7 +259,7 @@ function applyLook(){
   st.setProperty("--halo",Math.round(Math.min(90,see*1.1))+"%"); st.setProperty("--hhalo",Math.round(Math.min(90,tr*1.1))+"%");
   r.classList.toggle("halo", see>=5 || tr>=5);
   const th=document.getElementById("theme"); if (!th || !th.options.length) return;
-  th.value=PANEL.theme; document.getElementById("accent").value=PANEL.accent;
+  th.value=PANEL.theme; document.getElementById("accent").value=PANEL.accent; document.getElementById("grp").value=PANEL.panel_group||"project";
   for (const [id,key] of [["transp","panel_transparency"],["ctransp","card_transparency"]]){
     const s=document.getElementById(id); if (document.activeElement!==s) s.value=PANEL[key];
     document.getElementById(id+"v").textContent=s.value+" %";
@@ -291,7 +315,19 @@ const I18N_UI = {
  zh:{settings:"设置",theme:"主题",th_system:"跟随系统",th_light:"浅色",th_dark:"深色",accent:"强调色",acc_system:"Windows 强调色",acc_taskhub:"TaskHub 蓝",transparency:"面板透明度",card_transparency:"卡片透明度",tr_na:"此 Windows 版本不可用",pin:"固定面板（不自动隐藏）",unpin:"取消固定面板"},
  ja:{settings:"設定",theme:"テーマ",th_system:"システム設定",th_light:"ライト",th_dark:"ダーク",accent:"アクセントカラー",acc_system:"Windows のアクセント",acc_taskhub:"TaskHub ブルー",transparency:"パネルの透明度",card_transparency:"カードの透明度",tr_na:"この Windows のバージョンでは使用できません",pin:"パネルを固定 (自動で隠さない)",unpin:"パネルの固定を解除"},
 };
-for (const k in I18N_UI) Object.assign(I18N[k], I18N_UI[k]);
+const I18N_LIST = {
+ en:{attention:"Needs attention",history:"History",ago:"{0} ago",just_now:"just now",group_by:"Group tasks",grp_project:"By project",grp_source:"By source",grp_none:"No groups",grp_other:"Other",src_other:"other"},
+ uk:{attention:"Потребує уваги",history:"Історія",ago:"{0} тому",just_now:"щойно",group_by:"Групувати задачі",grp_project:"За проєктом",grp_source:"За джерелом",grp_none:"Без груп",grp_other:"Інше",src_other:"інше"},
+ es:{attention:"Requiere atención",history:"Historial",ago:"hace {0}",just_now:"ahora mismo",group_by:"Agrupar tareas",grp_project:"Por proyecto",grp_source:"Por origen",grp_none:"Sin grupos",grp_other:"Otros",src_other:"otro"},
+ de:{attention:"Braucht Aufmerksamkeit",history:"Verlauf",ago:"vor {0}",just_now:"gerade eben",group_by:"Aufgaben gruppieren",grp_project:"Nach Projekt",grp_source:"Nach Quelle",grp_none:"Keine Gruppen",grp_other:"Sonstige",src_other:"sonstige"},
+ fr:{attention:"Requiert votre attention",history:"Historique",ago:"il y a {0}",just_now:"à l’instant",group_by:"Grouper les tâches",grp_project:"Par projet",grp_source:"Par source",grp_none:"Sans groupes",grp_other:"Autres",src_other:"autre"},
+ it:{attention:"Richiede attenzione",history:"Cronologia",ago:"{0} fa",just_now:"adesso",group_by:"Raggruppa attività",grp_project:"Per progetto",grp_source:"Per origine",grp_none:"Nessun gruppo",grp_other:"Altro",src_other:"altro"},
+ pt:{attention:"Requer atenção",history:"Histórico",ago:"há {0}",just_now:"agora mesmo",group_by:"Agrupar tarefas",grp_project:"Por projeto",grp_source:"Por origem",grp_none:"Sem grupos",grp_other:"Outros",src_other:"outro"},
+ pl:{attention:"Wymaga uwagi",history:"Historia",ago:"{0} temu",just_now:"przed chwilą",group_by:"Grupuj zadania",grp_project:"Według projektu",grp_source:"Według źródła",grp_none:"Bez grup",grp_other:"Inne",src_other:"inne"},
+ zh:{attention:"需要处理",history:"历史",ago:"{0}前",just_now:"刚刚",group_by:"任务分组",grp_project:"按项目",grp_source:"按来源",grp_none:"不分组",grp_other:"其他",src_other:"其他"},
+ ja:{attention:"要対応",history:"履歴",ago:"{0}前",just_now:"たった今",group_by:"タスクのグループ化",grp_project:"プロジェクト別",grp_source:"ソース別",grp_none:"グループなし",grp_other:"その他",src_other:"その他"}
+};
+for (const k in I18N_UI) Object.assign(I18N[k], I18N_UI[k], I18N_LIST[k]);
 let LANG = (()=>{ const n=(navigator.language||"en").slice(0,2).toLowerCase(); return I18N[n]?n:"en"; })();
 let LANG_SETTING = "auto";
 function T(k, ...a){ const d=I18N[LANG]||I18N.en; let s=d[k]; if (s==null) s=I18N.en[k]; if (s==null) return k; return a.length? String(s).replace(/\{(\d)\}/g,(_,i)=>a[+i]) : s; }
@@ -310,6 +346,7 @@ function applyLang(){
   $("#cfg").title = T("settings"); $("#cfg").setAttribute("aria-label", T("settings"));
   $("#theme").innerHTML = ["system","light","dark"].map(v=>`<option value="${v}">${esc(T("th_"+v))}</option>`).join("");
   $("#accent").innerHTML = ["system","taskhub"].map(v=>`<option value="${v}">${esc(T("acc_"+v))}</option>`).join("");
+  $("#grp").innerHTML = ["project","source","none"].map(v=>`<option value="${v}">${esc(T("grp_"+v))}</option>`).join("");
   applyLook();
   // rebuild cards so every translated string is refreshed
   $("#list").innerHTML=""; for (const k in ui) delete ui[k];
@@ -439,13 +476,16 @@ function renderWidgets(t){
 function cardSkeleton(t){
   const el=document.createElement("div");
   el.className="card"; el.id="t-"+t.id;
-  el.innerHTML=`<div class="hd"><span class="name"></span><span class="chip src"></span><span class="st"></span><span class="sp"></span><span class="tm"></span><button class="x" title="${T("remove")}">×</button></div>
-   <div class="desc"></div><div class="bar"><i></i></div><div class="l1"></div><div class="status"></div><div class="stage"></div>
+  el.innerHTML=`<div class="hd"><span class="name"></span><span class="chip prj"></span><span class="chip src"></span><span class="st"></span><span class="sp"></span><span class="tm"></span><button class="x" title="${T("remove")}">×</button></div>
+   <div class="desc"></div><div class="attn"></div><div class="bar"><i></i></div><div class="l1"></div><div class="status"></div><div class="stage"></div>
    <div class="wg"></div><div class="msg"></div><div class="ctl"></div><div class="form"></div>
    <details class="lgx"><summary></summary><pre></pre></details><div class="meta"></div>`;
   $(".x",el).onclick=()=>api("DELETE",`/api/tasks/${t.id}`).catch(e=>snack(e.message));
   $("details",el).addEventListener("toggle",()=>{ if($("details",el).open) fillLog(el, findTask(t.id), true); });
-  ui[t.id]={};
+  // a finished task's card folds back into its row (a failed one also leaves "needs attention")
+  $(".hd",el).addEventListener("click",e=>{ if (e.target.closest("button,a")) return; const x=findTask(t.id); if (!x || ACTIVE.has(x.state)) return;
+    if (needsMe(x)){ ACK[x.id]=x.finished; lsSet("th_ack",ACK); } ui[x.id].open=false; render(); });
+  ui[t.id]=Object.assign(ui[t.id]||{}, {ctlSig:null, formFor:null});
   return el;
 }
 const findTask = id => data && data.tasks.find(x=>x.id===id);
@@ -468,6 +508,8 @@ function updCard(el, t){
   $(".st",el).textContent=T("st_"+t.state);
   $(".tm",el).textContent=times(t);
   const d=$(".desc",el); d.textContent=t.description||""; d.style.display=t.description?"":"none";
+  const at=$(".attn",el), att=ACTIVE.has(t.state) && t.attention; at.textContent=att||""; at.style.display=att?"":"none";
+  if (att) el.dataset.attn=1; else delete el.dataset.attn;
   const bar=$(".bar",el), hasP = t.progress!=null;
   bar.style.display = (hasP || ACTIVE.has(t.state)) ? "" : "none";
   bar.classList.toggle("ind", !hasP && t.state==="running");
@@ -538,28 +580,108 @@ async function send(tid,c,value,btn){
   finally{ if (btn) btn.disabled=false; }
 }
 
+/* ---------------- list layout: structure appears only when it is needed ----------------
+   needs attention (asks for you / no response / failed, not yet looked at) -> working -> finished (one row each,
+   the full card on click); finished ones that went fine move to the history after a while; many tasks from several
+   projects (or sources) -> groups, a folded group is one quiet row; several sources -> a quiet source filter */
+const HIST_AFTER=3600, FAIL_KEEP=86400, GROUP_MIN=8;
+const lsGet=(k,d)=>{ try{ const v=JSON.parse(localStorage.getItem(k)||"null"); return v==null?d:v; }catch(e){ return d; } };
+const lsSet=(k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} };
+let ACK=lsGet("th_ack",{});      // failed tasks the user has looked at: id -> finished
+let GOPEN=lsGet("th_grp",{});    // group key -> open (true / false), only once the user toggled it
+let SRC=lsGet("th_src","");      // source filter ("" = all)
+const isFail = t => t.state==="failed" || t.state==="lost";
+const projectOf = t => t.project || (t.cwd ? String(t.cwd).replace(/[\\/]+$/,"").split(/[\\/]/).pop() : "");
+const needsMe = t => ACTIVE.has(t.state) ? !!(t.attention || t.state==="stale")
+  : isFail(t) && ACK[t.id]!==t.finished && now()-(t.finished||0) < FAIL_KEEP;
+const inHistory = t => !ACTIVE.has(t.state) && !needsMe(t) && now()-(t.finished||0) > (isFail(t) ? FAIL_KEEP : HIST_AFTER);
+function ago(sec){ return sec<60 ? T("just_now") : T("ago", dur(sec).split(" ")[0]); }
+function place(list, els){
+  const keep=new Set(els.map(e=>e.id));
+  [...list.children].forEach(c=>{ if (!keep.has(c.id)) c.remove(); });
+  let prev=null;
+  for (const el of els){ const want=prev?prev.nextSibling:list.firstChild; if (want!==el) list.insertBefore(el,want); prev=el; }
+}
+function node(id, cls, click){
+  let el=document.getElementById(id);
+  if (!el){ el=document.createElement("div"); el.id=id; el.className=cls; if (click) el.onclick=click; }
+  return el;
+}
+function cardEl(t, prj){
+  let el=document.getElementById("t-"+t.id); if (!el) el=cardSkeleton(t);
+  updCard(el,t);
+  const c=$(".prj",el); c.textContent=prj||""; c.style.display=prj?"":"none";
+  return el;
+}
+function rowEl(t){
+  const el=node("r-"+t.id, "row", ()=>{ ui[t.id]=ui[t.id]||{}; ui[t.id].open=true; render(); });
+  el.dataset.s=t.state;
+  const note=[T("st_"+t.state), (t.message||t.status||"").split("\n")[0]].filter(Boolean).join(" · ");
+  const h=`<i></i><span class="n">${esc(t.name)}</span><span class="r">${esc(note)}</span><span class="t">${ago(now()-(t.finished||t.updated||now()))}</span>`;
+  if (el.__h!==h){ el.innerHTML=h; el.__h=h; el.title=t.name; }
+  return el;
+}
+const taskEl = (t, prj) => ACTIVE.has(t.state) || (ui[t.id] && ui[t.id].open) ? cardEl(t, prj) : rowEl(t);
+const STATES=["running","paused","stale","done","failed","lost","cancelled"];
+const counts = ts => STATES.map(s=>[s, ts.filter(t=>t.state===s).length]).filter(x=>x[1]).map(([s,n])=>`${T("st_"+s)} ${n}`).join(" · ");
+function layout(){
+  const all=data.tasks;
+  // source filter: only with more than one source
+  const srcs=[...new Set(all.map(t=>t.source||""))];
+  if (SRC && !srcs.includes(SRC)) SRC="";
+  const sf=$("#srcf"), sh=srcs.length>1 ? [["",T("all")], ...srcs.map(x=>[x, x||T("src_other")])].map(([v,l])=>`<span data-v="${esc(v)}" class="${v===SRC?"on":""}">${esc(l)}</span>`).join("") : "";
+  if (sf.__h!==sh){ sf.innerHTML=sh; sf.__h=sh; } sf.classList.toggle("on", !!sh);
+  const ts=all.filter(t=>!SRC || (t.source||"")===SRC);
+  const attn=ts.filter(needsMe), hist=ts.filter(inHistory);
+  const rest=ts.filter(t=>!needsMe(t) && (filt==="all" || !inHistory(t)));
+  const order=(a,b)=> (ACTIVE.has(b.state)-ACTIVE.has(a.state)) || (ACTIVE.has(a.state) ? 0 : (b.finished||0)-(a.finished||0));
+  rest.sort(order);
+  const out=[];
+  if (attn.length){
+    const h=node("h-attn","sec"); const hh=`<span class="dot"></span><b>${esc(T("attention"))}</b><span>· ${attn.length}</span>`;
+    if (h.__h!==hh){ h.innerHTML=hh; h.__h=hh; } out.push(h);
+    for (const t of attn) out.push(cardEl(t, projectOf(t)));
+  }
+  const by=PANEL.panel_group||"project", key=t=> by==="source" ? (t.source||"") : projectOf(t);
+  const keys=[...new Set(rest.map(key))];
+  if (by!=="none" && attn.length+rest.length > GROUP_MIN && keys.length > 1){
+    const groups=keys.map(k=>({k, ts:rest.filter(t=>key(t)===k)}));
+    const act=g=>g.ts.some(t=>ACTIVE.has(t.state)), last=g=>Math.max(0,...g.ts.map(t=>t.finished||t.updated||0));
+    groups.sort((a,b)=> (act(b)-act(a)) || (!a.k-!b.k) || (last(b)-last(a)));
+    for (const g of groups){
+      const open = GOPEN[g.k]!=null ? GOPEN[g.k] : act(g);
+      const id="g-"+encodeURIComponent(g.k).replace(/%/g,"_");
+      const el=node(id, "grp", ()=>{ GOPEN[g.k]=!el.classList.contains("open"); lsSet("th_grp",GOPEN); render(); });
+      const a=g.ts.filter(t=>ACTIVE.has(t.state)), f=g.ts.filter(t=>!ACTIVE.has(t.state));
+      const sum = open ? counts(f) : [counts(g.ts), f.length ? ago(now()-last({ts:f})) : ""].filter(Boolean).join(" · ");
+      const h=`<span class="chev">${open?"▾":"▸"}</span><b>${esc(g.k||T("grp_other"))}</b>${open&&a.length?`<span>${esc(counts(a))}</span>`:""}<span class="sum">${esc(sum)}</span>`;
+      if (el.__h!==h){ el.innerHTML=h; el.__h=h; }
+      el.classList.toggle("open",open); el.classList.toggle("closed",!open);
+      out.push(el);
+      if (open) for (const t of g.ts) out.push(taskEl(t));
+    }
+  } else for (const t of rest) out.push(taskEl(t));
+  if (filt!=="all" && hist.length){
+    const h=node("hist","hist",()=>setFilt("all")); const hh=`${esc(T("history"))} · ${hist.length}`;
+    if (h.__h!==hh){ h.textContent=hh; h.__h=hh; } out.push(h);
+  }
+  if (!out.length){ const e=node("empty","empty"); e.textContent= filt==="all"||ts.length ? T("no_tasks") : T("no_active"); out.push(e); }
+  // forget what refers to tasks that are gone
+  const ids=new Set(all.map(t=>t.id));
+  if (Object.keys(ACK).some(k=>!ids.has(k))){ for (const k in ACK) if (!ids.has(k)) delete ACK[k]; lsSet("th_ack",ACK); }
+  return out;
+}
 function render(){
   if (!data) return;
   if ((data.lang && data.lang!==LANG) || (data.language && data.language!==LANG_SETTING)){ LANG=data.lang||LANG; LANG_SETTING=data.language||"auto"; applyLang(); }
   if (data.panel){ if (document.activeElement===$("#transp")) data.panel.panel_transparency=PANEL.panel_transparency;
     if (document.activeElement===$("#ctransp")) data.panel.card_transparency=PANEL.card_transparency; PANEL=data.panel; applyLook(); }
-  const list=$("#list"), tasks=data.tasks.filter(t=> filt==="all" || ACTIVE.has(t.state));
+  const list=$("#list");
   const nAct=data.tasks.filter(t=>ACTIVE.has(t.state)).length;
   $("#cnt").textContent = T("counts",nAct,data.tasks.length);
   $("#mute").textContent = data.muted ? "🔕" : "🔔";
   $("#mute").title = data.muted ? T("notif_off") : T("notif_on");
-  const keep=new Set(tasks.map(t=>"t-"+t.id));
-  [...list.children].forEach(c=>{ if(!keep.has(c.id)) c.remove(); });
-  let prev=null;
-  for (const t of tasks){
-    let el=document.getElementById("t-"+t.id);
-    if (!el) el=cardSkeleton(t);
-    updCard(el,t);
-    const want = prev ? prev.nextSibling : list.firstChild;
-    if (want!==el) list.insertBefore(el, want);
-    prev=el;
-  }
-  if (!tasks.length){ list.innerHTML=`<div class="empty">${filt==="all"?T("no_tasks"):T("no_active")}</div>`; }
+  place(list, layout());
   requestAnimationFrame(sbUpd);
   // focus request (tray/toast click)
   const fc=data.focus||{};
@@ -567,7 +689,13 @@ function render(){
   else if (fc.seq!==focusSeq){ focusSeq=fc.seq; if (fc.task) flash(fc.task); }
 }
 function flash(id){
-  const t=findTask(id); if (t && !ACTIVE.has(t.state) && filt!=="all"){ setFilt("all"); }
+  const t=findTask(id);
+  if (t){
+    if (SRC && (t.source||"")!==SRC){ SRC=""; lsSet("th_src",SRC); }
+    if (!ACTIVE.has(t.state)){ ui[t.id]=ui[t.id]||{}; ui[t.id].open=true; }
+    const by=PANEL.panel_group||"project", k=by==="source"?(t.source||""):projectOf(t); if (GOPEN[k]===false){ GOPEN[k]=true; lsSet("th_grp",GOPEN); }
+    if (inHistory(t) && filt!=="all") setFilt("all"); else render();
+  }
   const el=document.getElementById("t-"+id); if (!el) return;
   el.scrollIntoView({block:"center",behavior:"smooth"}); el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
 }
@@ -585,6 +713,7 @@ async function loop(){
   }
 }
 document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>setFilt(b.dataset.f));
+$("#srcf").onclick=e=>{ const sp=e.target.closest("span[data-v]"); if (!sp) return; SRC=sp.dataset.v; lsSet("th_src",SRC); render(); };
 $("#mute").onclick=()=>api("POST","/api/settings",{muted:!(data&&data.muted)}).catch(e=>snack(e.message));
 $("#clear").onclick=()=>api("POST","/api/clear",{}).catch(e=>snack(e.message));
 $("#sup").onclick=()=>{ if (NATIVE) host({open:SUPPORT_URL}); else window.open(SUPPORT_URL,"_blank"); };
@@ -601,6 +730,7 @@ document.addEventListener("mousedown",e=>{ if(!e.target.closest("#set,#cfg")) cl
 const setPanel=b=>api("POST","/api/settings",b).then(r=>{ if(r.panel){ PANEL=r.panel; applyLook(); } }).catch(e=>snack(e.message));
 $("#theme").onchange=e=>setPanel({theme:e.target.value});
 $("#accent").onchange=e=>setPanel({accent:e.target.value});
+$("#grp").onchange=e=>setPanel({panel_group:e.target.value});
 $("#transp").oninput=e=>{ PANEL.panel_transparency=+e.target.value; applyLook(); };
 $("#transp").onchange=e=>setPanel({panel_transparency:+e.target.value});
 $("#ctransp").oninput=e=>{ PANEL.card_transparency=+e.target.value; applyLook(); };
@@ -645,6 +775,7 @@ document.addEventListener("toggle",()=>requestAnimationFrame(sbUpd),true);
 window.addEventListener("focus",()=>{ if (document.activeElement===document.body) SC.focus({preventScroll:true}); });
 document.addEventListener("mousedown",e=>{ if (!e.target.closest("button,input,select,textarea,a,summary,#set,#sb")) setTimeout(()=>{ if (document.activeElement===document.body) SC.focus({preventScroll:true}); }); });
 setInterval(()=>{ if(!data) return; for(const t of data.tasks){ const el=document.getElementById("t-"+t.id); if(el) $(".tm",el).textContent=times(t);} },1000);
+setInterval(()=>{ if (data) render(); },30000);   // "5 min ago", history and attention move with the clock
 try{ if(localStorage.th_f) filt=localStorage.th_f; }catch(e){}
 if (NATIVE){ document.documentElement.classList.add("native"); try{ window.chrome.webview.addEventListener("message",e=>{ const d=e.data; if(d && d.look){ LOOK=d.look; applyLook(); }
   if(d && d.paint) requestAnimationFrame(()=>requestAnimationFrame(()=>host("painted")));

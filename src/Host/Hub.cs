@@ -472,6 +472,9 @@ sealed class Hub
                 ["id"] = tid, ["name"] = name,
                 ["source"] = J.Cut(J.Str(b["source"]), 40),
                 ["description"] = J.Cut(J.Str(b["description"]), 1000),
+                // panel grouping (default: the cwd folder name) / "needs you" text that puts the task on top of the panel
+                ["project"] = J.Cut(J.Str(b["project"]), 80),
+                ["attention"] = J.Cut(J.Str(b["attention"]), 300),
                 ["state"] = "running",
                 ["created"] = old != null ? J.C(old["created"]) : now,
                 ["started"] = old == null || IsFinal(St(old)) ? now : J.C(old["started"]),
@@ -550,8 +553,8 @@ sealed class Hub
             if (J.Num(b["percent"]) is double pct) t["progress"] = Clamp01(pct / 100.0);
             if (b.ContainsKey("progress"))
                 t["progress"] = J.Num(b["progress"]) is double pr ? Clamp01(pr) : null;
-            foreach (var k in new[] { "status", "stage", "name", "description" })
-                if (b[k] != null) t[k] = J.Cut(J.Str(b[k]), 1000);
+            foreach (var k in new[] { "status", "stage", "name", "description", "project", "attention" })
+                if (b[k] != null) t[k] = J.Cut(J.Str(b[k]), k == "project" ? 80 : k == "attention" ? 300 : 1000);
             if (b["metrics"] is JsonObject bm)
             {
                 var m = t["metrics"] as JsonObject;
@@ -701,6 +704,7 @@ sealed class Hub
             if (b["widgets"] is JsonObject wv) ApplyWidgetValues(t, wv);
             if (state == "done" && t["progress"] != null) t["progress"] = 1.0;
             t.Remove("rate"); t.Remove("eta_at");
+            t["attention"] = "";
             t["seen"] = state == "done";
             In(tid).CmdQ.Clear();
             var message = J.Str(t["message"]);
@@ -793,13 +797,14 @@ sealed class Hub
         lock (Lock) Bump();
     }
 
-    /// <summary>The panel's look and behaviour (config.json): theme, accent, panel and card transparency, pin.</summary>
+    /// <summary>The panel's look and behaviour (config.json): theme, accent, panel and card transparency, grouping, pin.</summary>
     public JsonObject PanelSettings() => new()
     {
         ["theme"] = J.Str(S.Get("theme"), "system"),
         ["accent"] = J.Str(S.Get("accent"), "system"),
         ["panel_transparency"] = Math.Clamp(S.Int("panel_transparency", 30), 0, 100),
         ["card_transparency"] = Math.Clamp(S.Int("card_transparency", 30), 0, 100),
+        ["panel_group"] = J.Str(S.Get("panel_group"), "project"),
         ["panel_pinned"] = S.Bool("panel_pinned", false),
     };
 
@@ -827,6 +832,12 @@ sealed class Hub
             if (J.Num(b[key]) is not double d || !double.IsFinite(d) || d < 0 || d > 100)
                 throw new ApiError(400, key + " must be a number from 0 to 100");
             kv.Add((key, (int)Math.Round(d)));
+        }
+        if (b.ContainsKey("panel_group"))
+        {
+            var v = J.Str(b["panel_group"]);
+            if (v is not ("project" or "source" or "none")) throw new ApiError(400, "panel_group must be project, source or none");
+            kv.Add(("panel_group", v));
         }
         if (b.ContainsKey("panel_pinned")) kv.Add(("panel_pinned", J.Truthy(b["panel_pinned"])));
         if (kv.Count == 0) return;

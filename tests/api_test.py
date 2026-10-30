@@ -235,6 +235,21 @@ s, r = call("POST", "/api/settings", {"muted": True})
 check("mute", r.get("muted") is True, r)
 s, r = call("POST", "/api/settings", {"muted": False})
 check("unmute", r.get("muted") is False, r)
+# project (panel groups) and attention ("needs you": top of the panel); attention is cleared when the task ends
+call("POST", "/api/tasks", {"id": "t-prj", "name": "prj", "project": "shop-api", "attention": "approve deploy"})
+s, snap = call("GET", "/api/tasks")
+tp = next(t for t in snap["tasks"] if t["id"] == "t-prj")
+check("project / attention on register", tp.get("project") == "shop-api" and tp.get("attention") == "approve deploy", tp)
+call("POST", "/api/tasks/t-prj/update", {"attention": "", "project": "web"})
+s, snap = call("GET", "/api/tasks")
+tp = next(t for t in snap["tasks"] if t["id"] == "t-prj")
+check("project / attention on update", tp.get("project") == "web" and tp.get("attention") == "", tp)
+call("POST", "/api/tasks/t-prj/update", {"attention": "again"})
+call("POST", "/api/tasks/t-prj/finish", {"state": "done"})
+s, snap = call("GET", "/api/tasks")
+tp = next(t for t in snap["tasks"] if t["id"] == "t-prj")
+check("attention cleared on finish", tp.get("attention") == "", tp)
+call("DELETE", "/api/tasks/t-prj")
 # speed / ETA from the recent updates, not since the start: a job resuming at 9000 of 10000
 call("POST", "/api/tasks", {"id": "t-pace", "name": "pace", "total": 10000, "unit": "frames"})
 call("POST", "/api/tasks/t-pace/update", {"current": 9000})
@@ -255,26 +270,26 @@ call("DELETE", "/api/tasks/t-pace")
 # panel look: theme / accent / panel and card transparency / pin (config.json, shown in the snapshot)
 s, snap = call("GET", "/api/tasks")
 check("panel settings: defaults in the snapshot", snap.get("panel") == {"theme": "system", "accent": "system", "panel_transparency": 30,
-      "card_transparency": 30, "panel_pinned": False}, snap.get("panel"))
-s, r = call("POST", "/api/settings", {"theme": "dark", "accent": "taskhub", "panel_transparency": 72.4, "card_transparency": "55", "panel_pinned": True})
+      "card_transparency": 30, "panel_group": "project", "panel_pinned": False}, snap.get("panel"))
+s, r = call("POST", "/api/settings", {"theme": "dark", "accent": "taskhub", "panel_transparency": 72.4, "card_transparency": "55", "panel_group": "source", "panel_pinned": True})
 check("panel settings: set", s == 200 and r.get("panel") == {"theme": "dark", "accent": "taskhub", "panel_transparency": 72,
-      "card_transparency": 55, "panel_pinned": True}, r)
+      "card_transparency": 55, "panel_group": "source", "panel_pinned": True}, r)
 cfg_path = os.path.join(os.environ.get("TEMP", ""), "taskhub-tests", "config.json")
 if os.path.exists(cfg_path):
     with open(cfg_path, encoding="utf-8") as f:
         cfg = json.load(f)
     check("panel settings: saved in config.json", (cfg.get("theme"), cfg.get("accent"), cfg.get("panel_transparency"), cfg.get("card_transparency"),
            cfg.get("panel_pinned")) == ("dark", "taskhub", 72, 55, True), cfg)
-for bad in ({"theme": "blue"}, {"accent": "red"}, {"panel_transparency": 101}, {"panel_transparency": -1}, {"panel_transparency": "abc"}, {"card_transparency": 101}, {"card_transparency": "x"}):
+for bad in ({"theme": "blue"}, {"accent": "red"}, {"panel_transparency": 101}, {"panel_transparency": -1}, {"panel_transparency": "abc"}, {"card_transparency": 101}, {"card_transparency": "x"}, {"panel_group": "repo"}):
     s, r = call("POST", "/api/settings", bad)
     check(f"panel settings: {bad} -> 400", s == 400, (s, r))
 s, snap = call("GET", "/api/tasks")
 check("panel settings: invalid values change nothing", snap["panel"]["theme"] == "dark" and snap["panel"]["panel_transparency"] == 72
       and snap["panel"]["card_transparency"] == 55, snap["panel"])
 s, r = call("POST", "/api/settings", {"theme": "system", "accent": "system", "panel_transparency": 30, "card_transparency": 30,
-                                      "panel_pinned": False})
+                                      "panel_group": "project", "panel_pinned": False})
 check("panel settings: back to defaults", r.get("panel") == {"theme": "system", "accent": "system", "panel_transparency": 30,
-      "card_transparency": 30, "panel_pinned": False}, r)
+      "card_transparency": 30, "panel_group": "project", "panel_pinned": False}, r)
 s, r = call("GET", "/api/help", raw=True)
 check("help served", s == 200 and b"TaskHub API" in r, s)
 s, r = call("GET", "/ui", raw=True)
