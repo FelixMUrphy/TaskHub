@@ -56,14 +56,8 @@
             </com:ExeServer>
           </com:ComServer>
         </com:Extension>
-      </Extensions>
-    </Application>
-    <!-- the `taskhub` command (CLI, MCP server, agent hooks); one execution alias per application, so it is its own app -->
-    <Application Id="Cli" Executable="taskhub.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements DisplayName="taskhub" Description="TaskHub command line" BackgroundColor="transparent"
-                          AppListEntry="none" Square150x150Logo="Assets\Square150x150Logo.png"
-                          Square44x44Logo="Assets\Square44x44Logo.png" />
-      <Extensions>
+        <!-- the `taskhub` command (CLI, MCP server, agent hooks): an alias of this app that starts the other exe (the
+             Store does not take a second app without a Start menu entry) -->
         <uap3:Extension Category="windows.appExecutionAlias" Executable="taskhub.exe" EntryPoint="Windows.FullTrustApplication">
           <uap3:AppExecutionAlias><desktop:ExecutionAlias Alias="taskhub.exe" /></uap3:AppExecutionAlias>
         </uap3:Extension>
