@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>taskhub</AssemblyName>
     <RootNamespace>TaskHubCli</RootNamespace>
-    <Version>2.6.2</Version>
+    <Version>2.6.3</Version>
     <Product>TaskHub CLI</Product>
     <ApplicationIcon>..\Host\taskhub.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
