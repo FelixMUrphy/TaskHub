@@ -776,10 +776,13 @@ let panelOpen = !NATIVE && document.visibilityState==="visible";
 const VIS=new Map(), SENT=new Set();
 const seenIO=new IntersectionObserver(es=>{ for (const e of es){ const id=e.target.id.slice(2);
   if (e.isIntersecting) { if (!VIS.has(id)) VIS.set(id, Date.now()); } else VIS.delete(id); } }, {root:$("#list"), threshold:0.6});
+// sent once per finish: a task id can be reused (re-registered), its next finish is a new "unseen"
+const runKey=id=>{ const t=findTask(id); return id+"@"+(t&&t.finished||0); };
 function markSeen(ids){
-  ids=ids.filter(id=>!SENT.has(id)); if (!ids.length) return;
-  ids.forEach(id=>{ SENT.add(id); SESSION.add(id); });
-  api("POST","/api/settings",{seen:ids}).catch(()=>ids.forEach(id=>SENT.delete(id)));
+  ids=ids.filter(id=>!SENT.has(runKey(id))); if (!ids.length) return;
+  const keys=ids.map(runKey);
+  keys.forEach(k=>SENT.add(k)); ids.forEach(id=>SESSION.add(id));
+  api("POST","/api/settings",{seen:ids}).catch(()=>keys.forEach(k=>SENT.delete(k)));
 }
 function panelShown(on){
   if (on && !panelOpen){ SESSION=new Set(); HOPEN=false; render(); }   // a new opening: what was seen moves now
