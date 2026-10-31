@@ -246,7 +246,8 @@ if t:
     check("started = run start on GitHub", t and abs(t["started"] - (now0 - 30)) < 2, t and t["started"])
     ids = [c["id"] for c in t["controls"]] if t else []
     check("buttons: open, cancel, re-run failed, re-run", ids == ["open", "cancel", "rerun_failed", "rerun"], ids)
-s, r = call("GET", "/api/connectors/github")
+# repos are polled one after another: wait until o/missing has been checked, not just o/r
+r = wait(lambda: (lambda c: c if c.get("repo_status", {}).get("o/missing") else None)(call("GET", "/api/connectors/github")[1])) or {}
 check("repo without access reported", r.get("repo_status", {}).get("o/missing") == "not found or no access", r)
 check("token expiry known (warning ahead)", abs((r.get("token_expires") or 0) - EXP) < 2, r.get("token_expires"))
 
