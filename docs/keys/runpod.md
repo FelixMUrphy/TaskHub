@@ -36,7 +36,7 @@ you type the name.
 - **At Runpod:** <https://console.runpod.io/user/credentials> → the trash icon next to the key → **Revoke Key**
   (or switch the key off with its toggle).
 - **In TaskHub:** Settings → Connectors → Runpod → **Remove** (deletes it from the Credential Manager).
-  Uninstalling TaskHub deletes it too.
+  Uninstalling TaskHub with **Also delete my data** deletes it too; a plain uninstall keeps it.
 
 ## Official docs
 - API keys: <https://docs.runpod.io/get-started/credentials>
