@@ -65,6 +65,19 @@ class Api(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def end_headers(self):
+        # This mock speaks HTTP/1.0 and closes the socket after every reply. .NET's SocketsHttpHandler does not treat an
+        # HTTP/1.0 answer as "close" by itself and pools the connection; a request with a body (PUT / POST) sent on it
+        # before the close arrives fails with "response ended prematurely" (no retry for requests with content).
+        self.send_header("Connection", "close")
+        super().end_headers()
+
+    def finish(self):
+        # the socket closes a moment after the reply, as on a slow CI runner: without "Connection: close" the hub would
+        # reuse the connection and the actions (PUT with a body) below would fail with ResponseEnded
+        super().finish()
+        time.sleep(0.05)
+
     def reply(self, code, obj=None):
         data = json.dumps(obj).encode() if obj is not None else b""
         self.send_response(code)
