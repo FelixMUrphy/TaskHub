@@ -146,6 +146,7 @@ one-time link GitHub gives, without the token. A notification warns a week befor
 approval (e.g. from a fork) shows *Waiting for approval on GitHub* and is followed once approved; a renamed repository is
 followed and reported (*repository moved to …*); GitHub's rate limits pause polling (2.9). Details:
 [API.md → Connectors](API.md#connectors-github-actions).
+*How to get a token:* [docs/keys/github.md](docs/keys/github.md) (step by step, minimum permissions, revoking; [українською](docs/keys/github.uk.md)).
 
 ### Runpod
 *From version 2.9; off until you turn it on.* Settings → *Connectors* → *Runpod*: paste an API key from the
@@ -162,6 +163,7 @@ ones without a network volume. Stop, start and restart ask for a confirmation (s
 notification and Telegram); delete works only in the panel, after typing the pod's name (never through the HTTP API). TaskHub talks only to
 `api.runpod.io`: REST v2 for pods and billing, and GraphQL for the balance (`graphql_balance`, on by default; turn it off to
 skip the balance). Details: [API.md → Connectors](API.md#connectors-runpod).
+*How to get a key:* [docs/keys/runpod.md](docs/keys/runpod.md) (step by step, minimum permissions, revoking; [українською](docs/keys/runpod.uk.md)).
 
 ### Vast.ai
 *From version 2.9; off until you turn it on.* Settings → *Connectors* → *Vast.ai*: paste an API key from the Vast.ai console
@@ -176,6 +178,7 @@ warning work as for Runpod. Vast.ai reports a *balance* and a *credit*; TaskHub 
 runway — at $0 Vast.ai stops instances (stopped ones still pay for storage), and without a payment method they are scheduled
 for deletion. A start can wait in *Scheduling* when the host rented the GPU out meanwhile; TaskHub says so. TaskHub talks only
 to `console.vast.ai`. Details: [API.md → Connectors](API.md#connectors-vastai).
+*How to get a key:* [docs/keys/vastai.md](docs/keys/vastai.md) (step by step, minimum permissions, revoking; [українською](docs/keys/vastai.uk.md)).
 
 ## Install details
 The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or any folder you choose), unpacks the
