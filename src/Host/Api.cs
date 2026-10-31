@@ -61,6 +61,7 @@ sealed class Api
                 ["ok"] = true, ["app"] = Settings.AppId, ["version"] = Settings.Version, ["impl"] = "dotnet", ["edition"] = Install.Edition,
                 ["pid"] = Environment.ProcessId, ["tasks"] = total, ["active"] = active,
                 ["notifications"] = hub.Notifier?.SystemSetting,   // Windows' switch for TaskHub's notifications (2.9)
+                ["toast_queue"] = hub.Notifier?.QueueLength ?? 0,  // notifications waiting for the rate limit (2.9)
             });
         });
         R("GET", "/api/help", async (c, q, g) =>

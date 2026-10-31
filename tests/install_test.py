@@ -3,8 +3,8 @@ hidden `TaskHubHost.exe --selftest-install STEP` with TASKHUB_TEST_HOME: the reg
 HKCU\\Software\\TaskHubTest\\<temp folder name> and the shortcut under the temp folder - never the real install / entries.
 The quit test starts its own hub on 47893 (temp data) and stops only that one.
 Usage: python install_test.py [path\\to\\TaskHubHost.exe]"""
-import ctypes, hashlib, json, os, shutil, subprocess, sys, tempfile, time, urllib.request, winreg
-from ctypes import wintypes
+import json, os, shutil, subprocess, sys, tempfile, time, urllib.request, winreg
+import vault
 
 exe = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "TaskHubHost.exe"))
 exe_dir = os.path.dirname(exe)
@@ -150,42 +150,27 @@ try:
     shutil.rmtree(src, True); shutil.rmtree(dst, True)
 
     # ---------------------------------------------------------------- purge: data folder + Credential Manager tokens
-    class CREDENTIAL(ctypes.Structure):
-        _fields_ = [("Flags", wintypes.DWORD), ("Type", wintypes.DWORD), ("TargetName", wintypes.LPWSTR),
-                    ("Comment", wintypes.LPWSTR), ("LastWritten", wintypes.FILETIME), ("CredentialBlobSize", wintypes.DWORD),
-                    ("CredentialBlob", ctypes.c_void_p), ("Persist", wintypes.DWORD), ("AttributeCount", wintypes.DWORD),
-                    ("Attributes", ctypes.c_void_p), ("TargetAlias", wintypes.LPWSTR), ("UserName", wintypes.LPWSTR)]
-    adv = ctypes.WinDLL("advapi32", use_last_error=True)
-    adv.CredWriteW.argtypes = [ctypes.POINTER(CREDENTIAL), wintypes.DWORD]
-    adv.CredReadW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p)]
-    adv.CredDeleteW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
-    adv.CredFree.argtypes = [ctypes.c_void_p]
-
     purge_data = tempfile.mkdtemp(prefix="taskhub-purgedata-")
     with open(os.path.join(purge_data, "config.json"), "w") as f:
         f.write("{}")
-    # Secrets.Target: a non-default data folder gets "@" + the first 10 hex of SHA-256(lower-case full path) - test-only names
-    tag = "@" + hashlib.sha256(os.path.abspath(purge_data).rstrip("\\").lower().encode("utf-8")).hexdigest().upper()[:10]
-    targets = ["TaskHub/github" + tag, "TaskHub/telegram" + tag]
-
-    def cred_exists(t):
-        p = ctypes.c_void_p()
-        if adv.CredReadW(t, 1, 0, ctypes.byref(p)):
-            adv.CredFree(p)
-            return True
-        return False
-
-    blob = ctypes.create_string_buffer(b"t\x00e\x00s\x00t\x00", 8)
-    for t in targets:
-        c = CREDENTIAL(Type=1, TargetName=t, CredentialBlobSize=8, CredentialBlob=ctypes.cast(blob, ctypes.c_void_p), Persist=2,
-                       UserName=os.environ.get("USERNAME", "test"))
-        adv.CredWriteW(ctypes.byref(c), 0)
-    check("purge: test tokens written", all(cred_exists(t) for t in targets))
+    # Secrets.Target: a non-default data folder gets "@" + the first 10 hex of SHA-256(lower-case full path, 8.3 names
+    # expanded like .NET's Path.GetFullPath) - test-only names
+    targets = [vault.target(purge_data, "github"), vault.target(purge_data, "telegram")]
+    no_vault = vault.probe()
+    if no_vault:
+        print(f"SKIP purge: test tokens written (Credential Manager unavailable: {no_vault})")
+    else:
+        for t in targets:
+            vault.write(t, "test")
+        check("purge: test tokens written", all(vault.exists(t) for t in targets))
     check("purge: exit 0", selftest("purge", d=purge_data) == 0)
-    check("purge: GitHub and Telegram tokens deleted", not any(cred_exists(t) for t in targets))
+    if no_vault:
+        print(f"SKIP purge: GitHub and Telegram tokens deleted (Credential Manager unavailable: {no_vault})")
+    else:
+        check("purge: GitHub and Telegram tokens deleted", not any(vault.exists(t) for t in targets))
     check("purge: data folder deleted", not os.path.exists(purge_data))
     for t in targets:
-        adv.CredDeleteW(t, 1, 0)
+        vault.delete(t)
     shutil.rmtree(purge_data, True)
 
     # ---------------------------------------------------------------- stop a hub: quit event first, no kill needed

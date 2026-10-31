@@ -18,7 +18,8 @@ it.
   charts from your PC straight to Telegram's Bot API, to the chat you linked, and receives your button presses and
   replies from it. The chat ID is stored in `%APPDATA%\TaskHub\config.json`; the bot token is kept in the Windows Credential
   Manager of your user account (TaskHub 2.9 and later; earlier versions keep it in `config.json`, and 2.9 moves it on its
-  first start). Telegram's own privacy policy
+  first start). If the Credential Manager is unavailable in your Windows session, the token stays in `config.json` and
+  TaskHub's settings show a warning (it moves the token on a later start once the Credential Manager works). Telegram's own privacy policy
   applies to these messages. Disconnecting the bot in TaskHub stops this.
 - **GitHub Actions connector** (TaskHub 2.9 and later; off by default, earlier versions don't have it). If you turn it
   on and list repositories, TaskHub asks `api.github.com` about the workflow runs of those repositories, with the GitHub

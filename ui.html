@@ -878,7 +878,8 @@ function renderSet(){
     const winOff=/^disabled/.test(s.notifications||"")? srow(T("s_win_off"),T("s_win_off_d"),sbtn("notif_settings",T("s_open"))) : "";
     h=sec(T("sec_notif"), winOff + mute + srow(HL("test_toast"),"",sbtn("test_toast",T("s_send")))
       + (tg? srow("Telegram", tg.linked? [tg.bot?"@"+tg.bot:"",T("s_linked")].filter(Boolean).join(" · ")
-          : tg.configured? (tg.status||T("s_not_linked")) : T("s_off"), sbtn("telegram",T("s_setup"))) : ""));
+          : tg.configured? (tg.status||T("s_not_linked")) : T("s_off"), sbtn("telegram",T("s_setup")))
+          + (tg.warning? srow("⚠ "+tg.warning,"","","sub") : "") : ""));
     h+=sec(HL("connectors"), (s.connectors||[]).map(c=>srow(c.name, !c.enabled? T("s_off")
         : [c.account, c.status && c.status!=="ok"? c.status : "", c.items? T("s_watching",c.items) : ""].filter(Boolean).join(" · ") || T("s_on"),
         sbtn(c.id,T("s_setup")))).join(""), T("s_conn_note"));

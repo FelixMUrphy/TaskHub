@@ -124,7 +124,8 @@ go back to the task. A task with progress gets one silent message with a progres
 buttons that is edited in place (no new message per update); when the task finishes, its charts arrive
 as one picture (option *Progress and charts*, `telegram_progress`). Commands: `/tasks`, `/mute`, `/unmute`. Option: send only
 when you are away from the PC (no keyboard / mouse for 5 min, `telegram_away_minutes` in `config.json`). The bot token
-is kept in the Windows Credential Manager (2.9; before: `config.json`); messages go from your PC straight to Telegram's Bot API.
+is kept in the Windows Credential Manager (2.9; before: `config.json`; if the Credential Manager is unavailable it stays in
+`config.json`, with a warning in Settings); messages go from your PC straight to Telegram's Bot API.
 From 2.9 TaskHub keeps to Telegram's pace (about one message a second, and as long as Telegram asks after *Too many
 requests*) instead of dropping messages, and long texts are shortened so they always arrive.
 
@@ -168,7 +169,8 @@ downloaded or installed) and shows a notification when a newer version is out; S
 *Check daily* switch (before 2.9: tray → *Updates*) (`"update_check": false` in `config.json`). Run the new setup.exe to update.
 
 Toast timing: `toast_seconds` / `toast_seconds_interactive` (4 s / 8 s) in `config.json`; afterwards notifications stay
-in the notification center.
+in the notification center. Bursts (2.9): at most `toast_rate` notifications a minute (10; 0 = no limit) and one per task
+every `toast_task_gap` seconds (2); the rest fold into the latest one ("+N more notifications"), toasts and Telegram alike.
 
 ## Build from source
 `build.cmd` (needs the .NET 8 SDK) → `dist\TaskHub-<version>-setup.exe` (single self-contained file; the CLI is built

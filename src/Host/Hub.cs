@@ -20,6 +20,7 @@ interface INotifier
     void ProgressEnd(string taskId);
     void Refresh(string taskId);   // a control value changed -> re-render shown toasts
     string SystemSetting { get; }  // Windows' switch for our notifications: "enabled", "disabled_app", ... (Notifier)
+    int QueueLength { get; }       // notifications waiting (rate limit + toast worker)
 }
 
 /// <summary>Task registry - a port of the Python Hub class; tasks are JsonObjects with the same shape.</summary>
@@ -34,6 +35,20 @@ sealed class Hub
 
     public static bool IsActive(string s) => Array.IndexOf(Active, s) >= 0;
     public static bool IsFinal(string s) => Array.IndexOf(Final, s) >= 0;
+
+    static readonly string[] SnapKeys = { "id", "name", "state", "status", "stage", "progress", "current", "total", "unit",
+                                          "finished", "controls", "links" };
+
+    /// <summary>What a toast / the Telegram mirror needs of a task (buttons, links, progress; charts once it has finished)
+    /// - not the log or the rest: a queued notification holds this, not a copy of the whole task.</summary>
+    public static JsonObject ToastSnap(JsonObject t)
+    {
+        var s = new JsonObject();
+        foreach (var k in SnapKeys) if (t[k] is { } v) s[k] = v.DeepClone();
+        if (IsFinal(J.Str(t["state"])) && t["widgets"] is JsonArray w)
+            s["widgets"] = new JsonArray(w.OfType<JsonObject>().Where(x => J.Str(x["type"]) == "chart").Select(x => (JsonNode)x.DeepClone()).ToArray());
+        return s;
+    }
 
     sealed class Internal
     {
@@ -209,7 +224,7 @@ sealed class Hub
         }
         // milestone toasts are plain unless the task asks for its controls there (notify.milestone_controls)
         bool controls = kind != "milestones" || J.Truthy((t["notify"] as JsonObject)?["milestone_controls"]);
-        Notifier?.Toast(title, msg, level, J.Str(t["id"]), (JsonObject)t.DeepClone(), controls: controls);
+        Notifier?.Toast(title, msg, level, J.Str(t["id"]), ToastSnap(t), controls: controls);
     }
 
     void AddLog(JsonObject t, JsonNode msg, string level = "info")
@@ -557,7 +572,7 @@ sealed class Hub
         Log.W($"register {tid} '{name}' pid={pid}");
         if (J.Truthy(notify["start"]))
             ToastFor(t, "▶ " + name, J.Truthy(t["description"]) ? J.Str(t["description"]) : L.T("started"));
-        if (progressToast && !Muted && S.Bool("toasts", true)) lock (Lock) Notifier?.Progress((JsonObject)t.DeepClone());
+        if (progressToast && !Muted && S.Bool("toasts", true)) lock (Lock) Notifier?.Progress(ToastSnap(t));
         return new JsonObject { ["id"] = tid, ["panel"] = "/ui#" + tid, ["resumed"] = resumed };
     }
 
@@ -685,7 +700,7 @@ sealed class Hub
                 if (now - it.LastProgressToast >= 1.0)
                 {
                     it.LastProgressToast = now;
-                    Notifier?.Progress((JsonObject)t.DeepClone());
+                    Notifier?.Progress(ToastSnap(t));
                 }
             }
             Bump();
@@ -1208,7 +1223,7 @@ sealed class Hub
         string tid = J.Truthy(b["task"]) ? J.Str(b["task"]) : null;
         JsonObject snap = null;
         lock (Lock)
-            if (tid != null && tasks.TryGetValue(tid, out var t)) snap = (JsonObject)t.DeepClone();
+            if (tid != null && tasks.TryGetValue(tid, out var t)) snap = ToastSnap(t);
         // "force" overrides the user's mute, but not "toasts": false in config.json (notifications disabled entirely)
         bool dismiss = snap == null && J.Str(b["click"]) == "dismiss";
         if (!Muted || J.Truthy(b["force"])) Notifier?.Toast(title, msg, level, tid, snap, dismiss);

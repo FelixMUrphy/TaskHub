@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -61,33 +62,59 @@ static class Secrets
     /// <summary>Every name TaskHub saves a secret under (GitHub connector, Telegram bot): deleted by uninstall --purge.</summary>
     public static readonly string[] Names = { "github", "telegram" };
 
-    static string Target(Settings s, string name)
+    const int ErrorNotFound = 1168;
+
+    /// <summary>True for a hub with its own data folder (tests, demos): its names carry an "@tag".</summary>
+    static bool IsTagged(Settings s)
     {
         var def = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Settings.AppId);
+        return !string.Equals(Path.GetFullPath(s.DataDir).TrimEnd('\\'), Path.GetFullPath(def).TrimEnd('\\'),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    static string Target(Settings s, string name)
+    {
         var dir = Path.GetFullPath(s.DataDir).TrimEnd('\\');
-        var tag = string.Equals(dir, Path.GetFullPath(def).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) ? ""
+        var tag = !IsTagged(s) ? ""
             : "@" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(dir.ToLowerInvariant())))[..10];
         return "TaskHub/" + name + tag;
     }
 
+    /// <summary>Tests only: TASKHUB_TEST_NO_VAULT=1 makes the Credential Manager look unavailable - never for the real
+    /// data folder.</summary>
+    static bool NoVault(Settings s) => Environment.GetEnvironmentVariable("TASKHUB_TEST_NO_VAULT") == "1" && IsTagged(s);
+
+    /// <summary>The secret, or null when there is none. Any other failure (e.g. 1312: no credential set in this logon
+    /// session) throws, so callers don't take "unavailable" for "absent".</summary>
     public static string Read(Settings s, string name)
     {
-        if (!CredRead(Target(s, name), 1 /* GENERIC */, 0, out var p)) return null;
+        if (NoVault(s)) return null;
+        if (!CredRead(Target(s, name), 1 /* GENERIC */, 0, out var p))
+        {
+            var err = Marshal.GetLastWin32Error();
+            if (err == ErrorNotFound) return null;
+            throw new Win32Exception(err, $"Credential Manager unavailable (error {err})");
+        }
         try
         {
             var c = Marshal.PtrToStructure<CREDENTIAL>(p);
             if (c.CredentialBlobSize == 0) return "";
             var b = new byte[c.CredentialBlobSize];
             Marshal.Copy(c.CredentialBlob, b, 0, b.Length);
-            return Encoding.Unicode.GetString(b);
+            try { return Encoding.Unicode.GetString(b); }
+            finally { Array.Clear(b); }
         }
         finally { CredFree(p); }
     }
 
+    /// <summary>Saves the secret and reads it back: CredWrite can report success while nothing readable was kept (a
+    /// logon session without a usable credential set), so only a verified write counts.</summary>
     public static void Write(Settings s, string name, string secret)
     {
+        if (NoVault(s)) throw new Exception("Credential Manager unavailable (test)");
         var blob = Encoding.Unicode.GetBytes(secret);
-        var mem = Marshal.AllocHGlobal(blob.Length);
+        var mem = Marshal.AllocHGlobal(Math.Max(blob.Length, 1));
+        int err = 0;
         try
         {
             Marshal.Copy(blob, 0, mem, blob.Length);
@@ -96,7 +123,7 @@ static class Secrets
                 Type = 1, TargetName = Target(s, name), UserName = Environment.UserName, Persist = 2 /* LOCAL_MACHINE */,
                 CredentialBlob = mem, CredentialBlobSize = (uint)blob.Length, Comment = "TaskHub",
             };
-            if (!CredWrite(ref c, 0)) throw new Exception("Credential Manager: error " + Marshal.GetLastWin32Error());
+            if (!CredWrite(ref c, 0)) err = Marshal.GetLastWin32Error();
         }
         finally
         {
@@ -104,9 +131,29 @@ static class Secrets
             Marshal.FreeHGlobal(mem);
             Array.Clear(blob);
         }
+        if (err != 0) throw new Win32Exception(err, $"Credential Manager unavailable (error {err})");
+        string back;
+        try { back = Read(s, name); }
+        catch (Win32Exception e) { err = e.NativeErrorCode; back = null; }
+        if (back != secret)
+        {
+            if (err == 0) err = back == null ? ErrorNotFound : 13 /* ERROR_INVALID_DATA */;
+            Delete(s, name);
+            throw new Win32Exception(err, $"Credential Manager unavailable (error {err})");
+        }
     }
 
-    public static void Delete(Settings s, string name) => CredDelete(Target(s, name), 1, 0);
+    /// <summary>Deletes the secret; true when it is gone (or was never there), false (logged) when the Credential Manager
+    /// refused.</summary>
+    public static bool Delete(Settings s, string name)
+    {
+        if (NoVault(s)) return true;
+        if (CredDelete(Target(s, name), 1, 0)) return true;
+        var err = Marshal.GetLastWin32Error();
+        if (err == ErrorNotFound) return true;
+        Log.W($"credential {name}: not deleted (error {err})");
+        return false;
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     struct CREDENTIAL

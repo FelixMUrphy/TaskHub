@@ -40,24 +40,53 @@ sealed class TelegramBridge
         new Thread(ProgressWorker) { IsBackground = true, Name = "telegram-progress" }.Start();
     }
 
-    /// <summary>The bot token lives in the Credential Manager (like connector secrets), never in config.json.</summary>
+    /// <summary>The bot token lives in the Credential Manager (like connector secrets). Only when the Credential Manager
+    /// is unavailable (no usable credential set in this logon session) it stays in config.json, with a warning in Settings.</summary>
     volatile string token;
     string Token => token;
     const string Secret = "telegram";
+    /// <summary>The token is in config.json ("telegram_token") because the Credential Manager refused it.</summary>
+    volatile bool inConfig;
+    /// <summary>The last Credential Manager read / write failed: shown as a warning.</summary>
+    volatile bool vaultFailed;
 
-    /// <summary>Reads the token; before 2.9 it was in config.json ("telegram_token"): moved once to the Credential Manager
-    /// and removed from config.json (kept there if the Credential Manager refuses, so nothing is lost).</summary>
+    /// <summary>Reads the token: the Credential Manager's, else the one in config.json. Before 2.9 it was always in
+    /// config.json: moved to the Credential Manager and removed from config.json only after a verified write; kept there
+    /// if the Credential Manager refuses (retried on every start), so nothing is lost and Telegram keeps working.</summary>
     string LoadToken()
     {
         var old = J.Str(S.Get("telegram_token"));
         if (old.Length > 0)
         {
-            try { Secrets.Write(S, Secret, old); S.Set(("telegram_token", null)); Log.W("telegram: token moved to the Credential Manager"); }
-            catch (Exception e) { Log.W("telegram: token not moved: " + e.Message); }
+            try
+            {
+                Secrets.Write(S, Secret, old);
+                S.Set(("telegram_token", null));
+                inConfig = vaultFailed = false;
+                Log.W("telegram: token moved to the Credential Manager");
+            }
+            catch (Exception e) { inConfig = vaultFailed = true; Log.W("telegram: token kept in config.json: " + e.Message); }
             return old;
         }
         try { return Secrets.Read(S, Secret) ?? ""; }
-        catch (Exception e) { Log.W("telegram: token not read: " + e.Message); return ""; }
+        catch (Exception e) { vaultFailed = true; Log.W("telegram: token not read: " + e.Message); return ""; }
+    }
+
+    /// <summary>Keeps a new token: in the Credential Manager, or in config.json when it refuses (logged, warning shown).</summary>
+    void SaveToken(string value)
+    {
+        try
+        {
+            Secrets.Write(S, Secret, value);
+            S.Set(("telegram_token", null), ("telegram_chat", 0));
+            inConfig = vaultFailed = false;
+        }
+        catch (Exception e)
+        {
+            S.Set(("telegram_token", value), ("telegram_chat", 0));
+            inConfig = vaultFailed = true;
+            Log.W("telegram: token kept in config.json: " + e.Message);
+        }
     }
     long Chat => J.Num(S.Get("telegram_chat")) is double d ? (long)d : 0;
     string Api(string method) => (J.Str(S.Get("telegram_api")) is { Length: > 0 } b ? b.TrimEnd('/') : "https://api.telegram.org")
@@ -82,9 +111,8 @@ sealed class TelegramBridge
         token = (token ?? "").Trim();
         if (!System.Text.RegularExpressions.Regex.IsMatch(token, @"^\d{5,}:[A-Za-z0-9_-]{30,}$"))
             throw new ApiError(400, "this does not look like a bot token from @BotFather (123456789:AA...)");
-        Secrets.Write(S, Secret, token);
+        SaveToken(token);
         this.token = token;
-        S.Set(("telegram_token", null), ("telegram_chat", 0));
         PairCode = Convert.ToHexString(RandomNumberGenerator.GetBytes(5)).ToLowerInvariant();
         BotName = null;
         Start();
@@ -102,8 +130,10 @@ sealed class TelegramBridge
 
     public void Disconnect()
     {
-        try { Secrets.Delete(S, Secret); } catch (Exception e) { Log.W("telegram: token not deleted: " + e.Message); }
+        try { if (!Secrets.Delete(S, Secret)) Log.W("telegram: token not deleted from the Credential Manager"); }
+        catch (Exception e) { Log.W("telegram: token not deleted: " + e.Message); }
         token = "";
+        inConfig = vaultFailed = false;
         S.Set(("telegram_token", null), ("telegram_chat", null));
         PairCode = null;
         Start();
@@ -116,6 +146,8 @@ sealed class TelegramBridge
         ["configured"] = Token.Length > 0, ["linked"] = Linked, ["bot"] = BotName, ["status"] = Status,
         ["away_only"] = AwayOnly, ["progress"] = ShowProgress,
         ["link"] = PairCode != null && BotName != null ? $"https://t.me/{BotName}?start={PairCode}" : null,
+        ["storage"] = Token.Length == 0 ? null : inConfig ? "config" : "vault",
+        ["warning"] = vaultFailed ? L.T("tg_vault_warn") : null,
     };
 
     public void Test() => Enqueue(Chat, "✅ <b>TaskHub</b>\n" + Esc(L.T("tg_test_msg", Environment.MachineName)), null);

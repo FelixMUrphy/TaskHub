@@ -1,6 +1,7 @@
 """Telegram bridge against a mock Bot API (127.0.0.1:47897; the test hub's config.json points telegram_api there)."""
-import ctypes, hashlib, json, os, re, subprocess, sys, tempfile, threading, time, urllib.request, urllib.error
+import json, os, re, subprocess, sys, tempfile, threading, time, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import vault
 
 URL = os.environ.get("TASKHUB_URL", "http://127.0.0.1:47899")
 DATA = os.environ.get("TASKHUB_DATA", "")
@@ -36,6 +37,17 @@ def check(name, cond, extra=""):
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  -> {extra}"))
     if not cond:
         fails += 1
+
+
+NO_VAULT = vault.probe()   # None: the Credential Manager works in this logon session (a CI runner may not have one)
+
+
+def check_vault(name, cond, extra=""):
+    """A check that needs a working Credential Manager: skipped (not failed) where there is none."""
+    if NO_VAULT:
+        print(f"SKIP {name} (Credential Manager unavailable: {NO_VAULT})")
+    else:
+        check(name, cond, extra)
 
 
 class Bot(BaseHTTPRequestHandler):
@@ -131,18 +143,11 @@ op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def cred_target(data):
-    """The hub's Credential Manager name for the bot token of a hub with this data folder (Secrets.Target)."""
-    tag = hashlib.sha256(os.path.abspath(data).rstrip("\\").lower().encode()).hexdigest().upper()[:10]
-    return "TaskHub/telegram@" + tag
+    return vault.target(data, "telegram")
 
 
 def cred_exists(target):
-    adv = ctypes.WinDLL("advapi32")
-    p = ctypes.c_void_p()
-    ok = adv.CredReadW(ctypes.c_wchar_p(target), 1, 0, ctypes.byref(p))
-    if ok:
-        adv.CredFree(p)
-    return bool(ok)
+    return vault.exists(target)
 
 
 def config(data):
@@ -342,49 +347,128 @@ n2 = len(sent)
 call("POST", "/api/notify", {"title": "to the phone"})
 m = wait_sent(lambda m: "to the phone" in m["text"])
 check("after relink only the new chat gets notifications", m is not None and m["chat_id"] == 888, sent[n2:])
+s, r = call("GET", "/api/telegram")
+if NO_VAULT:
+    check("no Credential Manager: token kept in config.json, warning", r.get("storage") == "config" and r.get("warning")
+          and DATA and config(DATA).get("telegram_token") == TOKEN, r)
+else:
+    check("hub keeps the token in the Credential Manager", r.get("storage") == "vault" and not r.get("warning"), r)
 if DATA:
-    check("token in the Credential Manager, not in config.json",
-          cred_exists(cred_target(DATA)) and "telegram_token" not in config(DATA), config(DATA).keys())
+    check_vault("token in the Credential Manager, not in config.json",
+                cred_exists(cred_target(DATA)) and "telegram_token" not in config(DATA), config(DATA).keys())
 s, r = call("POST", "/api/telegram", {"disconnect": True})
 if DATA:
-    check("disconnect removes the token from the Credential Manager", not cred_exists(cred_target(DATA)))
+    check_vault("disconnect removes the token from the Credential Manager", not cred_exists(cred_target(DATA)))
+    check("disconnect removes the token from config.json", "telegram_token" not in config(DATA), config(DATA).keys())
 check("disconnect", s == 200 and r.get("configured") is False and r.get("linked") is False, r)
 n1 = len(sent)
 call("POST", "/api/notify", {"title": "after disconnect"})
 time.sleep(1.5)
 check("nothing sent after disconnect", len(sent) == n1, sent[n1:])
+
+
+def start_hub(port, cfg, env=None):
+    """A second hub with its own data folder and config.json; returns (process, url, data folder)."""
+    data = tempfile.mkdtemp(prefix="taskhub-tg%d-" % port)
+    with open(os.path.join(data, "config.json"), "w", encoding="utf-8") as f:
+        json.dump(dict({"toasts": False, "autostart": False, "telegram_api": "http://127.0.0.1:47897"}, **cfg), f)
+    url = "http://127.0.0.1:%d" % port
+    hub = subprocess.Popen([EXE, "--port", str(port), "--data", data, "--no-tray"], env=dict(os.environ, **(env or {})))
+    up = False
+    for _ in range(60):
+        try:
+            up = call("GET", "/api/health", url=url)[0] == 200
+        except OSError:
+            pass
+        if up:
+            break
+        time.sleep(0.5)
+    return hub, url, data, up
+
+
 # a config.json from before 2.9 (token in plain text): moved to the Credential Manager on start, removed from config.json
 if EXE:
-    data2 = tempfile.mkdtemp(prefix="taskhub-tgmigrate-")
-    with open(os.path.join(data2, "config.json"), "w", encoding="utf-8") as f:
-        json.dump({"toasts": False, "autostart": False, "telegram_api": "http://127.0.0.1:47897",
-                   "telegram_token": TOKEN, "telegram_chat": 999}, f)
-    url2 = "http://127.0.0.1:47894"
-    hub2 = subprocess.Popen([EXE, "--port", "47894", "--data", data2, "--no-tray"])
+    hub2, url2, data2, up = start_hub(47894, {"telegram_token": TOKEN, "telegram_chat": 999, "toast_rate": 0, "toast_task_gap": 0})
     try:
-        up = False
-        for _ in range(60):
-            try:
-                up = call("GET", "/api/health", url=url2)[0] == 200
-            except OSError:
-                pass
-            if up:
-                break
-            time.sleep(0.5)
         check("migration hub started", up)
         s, r = call("GET", "/api/telegram", url=url2)
         check("old token still works after the move", s == 200 and r.get("configured") and r.get("linked"), r)
-        check("old token moved: in the Credential Manager, gone from config.json",
-              cred_exists(cred_target(data2)) and "telegram_token" not in config(data2), config(data2))
+        if NO_VAULT:
+            check("no Credential Manager: old token stays in config.json, warning",
+                  r.get("storage") == "config" and r.get("warning") and config(data2).get("telegram_token") == TOKEN, r)
+        else:
+            check("old token moved (hub: storage vault)", r.get("storage") == "vault" and not r.get("warning"), r)
+        check_vault("old token moved: in the Credential Manager, gone from config.json",
+                    cred_exists(cred_target(data2)) and "telegram_token" not in config(data2), config(data2))
         n3 = len(sent)
         call("POST", "/api/notify", {"title": "after the move"}, url=url2)
         m = wait_sent(lambda m: "after the move" in m["text"])
         check("notifications still reach the linked chat", m is not None and m["chat_id"] == 999, sent[n3:])
         call("POST", "/api/telegram", {"disconnect": True}, url=url2)
-        check("migrated token removed on disconnect", not cred_exists(cred_target(data2)))
+        check_vault("migrated token removed on disconnect", not cred_exists(cred_target(data2)))
+        check("migrated token gone from config.json on disconnect", "telegram_token" not in config(data2), config(data2))
     finally:
         hub2.kill()
         hub2.wait(10)
+
+# Credential Manager unavailable (TASKHUB_TEST_NO_VAULT, only honoured for a hub with its own data folder): the old token
+# stays in config.json, Telegram keeps working, Settings shows a warning; pairing keeps the new token there too.
+# The same hub has the default notification limits ("toast_rate": "abc" -> the default 10 per minute): a burst of 50.
+if EXE:
+    hub3, url3, data3, up = start_hub(47892, {"telegram_token": TOKEN, "telegram_chat": 333, "toast_rate": "abc", "language": "en"},
+                                      env={"TASKHUB_TEST_NO_VAULT": "1"})
+    try:
+        check("no-vault hub started", up)
+        s, r = call("GET", "/api/telegram", url=url3)
+        check("no vault: token stays in config.json, still linked", s == 200 and r.get("linked") and r.get("storage") == "config"
+              and config(data3).get("telegram_token") == TOKEN, (r, config(data3)))
+        check("no vault: warning for Settings", isinstance(r.get("warning"), str) and "config.json" in r["warning"], r)
+        check("no vault: token never returned", TOKEN not in json.dumps(r), r)
+        check_vault("no vault: nothing written to the Credential Manager", not cred_exists(cred_target(data3)))
+        n4 = len(sent)
+        call("POST", "/api/notify", {"title": "no vault ping"}, url=url3)
+        m = wait_sent(lambda m: "no vault ping" in m["text"])
+        check("no vault: notifications reach the linked chat", m is not None and m["chat_id"] == 333, sent[n4:])
+
+        # burst: 50 notifications at once -> the hub answers at once, the queue stays bounded, a few are sent
+        # (10 per minute; the rest fold into the latest one), the last one is delivered
+        time.sleep(1)
+        n5 = len(sent)
+        t0 = time.time()
+        codes = [call("POST", "/api/notify", {"title": f"burst {i}", "message": "x"}, url=url3)[0] for i in range(50)]
+        took = time.time() - t0
+        check("burst: 50 notify calls answered quickly", all(c == 200 for c in codes) and took < 10, (codes[:3], took))
+        s, h = call("GET", "/api/health", url=url3)
+        check("burst: queue bounded (/api/health toast_queue)", s == 200 and isinstance(h.get("toast_queue"), int)
+              and h["toast_queue"] <= 100, h)
+        last = wait_sent(lambda m: "burst 49" in m["text"], timeout=40)
+        check("burst: the last notification is delivered", last is not None, [x["text"][:30] for x in sent[n5:]])
+        burst = [x for x in sent[n5:] if "burst " in x["text"]]
+        check("burst: coalesced, not 50 messages", 0 < len(burst) <= 15, len(burst))
+        check("burst: the coalesced one says how many more", last is not None and "more notifications" in last["text"], last)
+        # one task: several toasts within 2 s -> at most two, the latest delivered
+        s, r = call("POST", "/api/tasks", {"name": "Gap task"}, url=url3)
+        gtid = r.get("id")
+        time.sleep(7)   # the bucket refills (one per 6 s)
+        n6 = len(sent)
+        for i in range(6):
+            call("POST", f"/api/tasks/{gtid}/update", {"status": f"gap step {i}", "toast": f"gap step {i}"}, url=url3)
+        m = wait_sent(lambda m: "gap step 5" in m["text"], timeout=40)
+        gaps = [x for x in sent[n6:] if "gap step" in x["text"]]
+        check("per-task gap: latest delivered, the rest folded", m is not None and len(gaps) <= 3, [x["text"][:40] for x in gaps])
+        call("DELETE", f"/api/tasks/{gtid}?force=1", url=url3)
+
+        # pairing with no Credential Manager: the new token is kept in config.json, with the warning
+        call("POST", "/api/telegram", {"disconnect": True}, url=url3)
+        check("no vault: disconnect removes the token from config.json", "telegram_token" not in config(data3), config(data3))
+        s, r = call("POST", "/api/telegram", {"token": TOKEN}, url=url3)
+        check("no vault: pairing still works", s == 200 and (r.get("link") or "").startswith("https://t.me/test_bot?start="), (s, r))
+        check("no vault: paired token kept in config.json, warning", r.get("storage") == "config" and r.get("warning")
+              and config(data3).get("telegram_token") == TOKEN, (r, config(data3).keys()))
+        call("POST", "/api/telegram", {"disconnect": True}, url=url3)
+    finally:
+        hub3.kill()
+        hub3.wait(10)
 
 srv.shutdown()
 print(f"{fails} failure(s)")

@@ -11,7 +11,7 @@ set DATA=%TEMP%\taskhub-tests
 if exist "%DATA%" rmdir /s /q "%DATA%"
 rem the test hub must not show Windows notifications (the burst test would queue dozens of them)
 mkdir "%DATA%"
-> "%DATA%\config.json" echo {"toasts": false, "autostart": false, "telegram_api": "http://127.0.0.1:47897", "connectors": {"github": {"api": "http://127.0.0.1:47896"}}}
+> "%DATA%\config.json" echo {"toasts": false, "autostart": false, "toast_rate": 0, "toast_task_gap": 0, "telegram_api": "http://127.0.0.1:47897", "connectors": {"github": {"api": "http://127.0.0.1:47896"}}}
 set TASKHUB_URL=http://127.0.0.1:47899
 set TASKHUB_DATA=%DATA%
 start "" /b "%EXE%" --port 47899 --data "%DATA%" --no-tray

@@ -53,6 +53,7 @@ sealed class SettingsBridge
             ["telegram"] = t == null ? null : new JsonObject
             {
                 ["configured"] = J.C(t["configured"]), ["linked"] = J.C(t["linked"]), ["bot"] = J.C(t["bot"]), ["status"] = J.C(t["status"]),
+                ["warning"] = J.C(t["warning"]),
             },
             // every connector the same way: what it is, on / off, a short state line; its own window for the details
             ["connectors"] = g == null ? new JsonArray() : new JsonArray(new JsonObject

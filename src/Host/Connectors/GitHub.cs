@@ -161,7 +161,7 @@ sealed class GitHubConnector : IConnector
         {
             ["enabled"] = c.Enabled, ["repos"] = J.StrArray(c.Repos), ["interval"] = c.Interval,
             ["notify_success"] = c.NotifySuccess, ["logs"] = c.Logs, ["auth"] = c.Auth,
-            ["token_set"] = Secrets.Read(S, Id) is { Length: > 0 },
+            ["token_set"] = TokenSet(),
             ["status"] = status, ["login"] = login,
             ["token_expires"] = expires?.ToUnixTimeSeconds(),
             ["rate_remaining"] = rateLeft >= 0 ? rateLeft : null,
@@ -170,6 +170,12 @@ sealed class GitHubConnector : IConnector
     }
 
     int Count() { lock (gate) return active.Count; }
+
+    bool TokenSet()
+    {
+        try { return Secrets.Read(S, Id) is { Length: > 0 }; }
+        catch (Exception e) { Log.W("github: token not read: " + e.Message); return false; }
+    }
 
     // ------------------------------------------------------------ lifecycle
     public void Start()
@@ -286,7 +292,9 @@ sealed class GitHubConnector : IConnector
             return gcmToken;
         }
         // "device" (Sign in with GitHub, OAuth device flow) can come here later: its token would be kept like this one
-        var t = Secrets.Read(S, Id);
+        string t;
+        try { t = Secrets.Read(S, Id); }
+        catch (Exception e) { status = e.Message; pausedUntil = J.Now() + 120; return null; }
         if (string.IsNullOrEmpty(t)) { status = "no token"; pausedUntil = J.Now() + 30; return null; }
         return t;
     }

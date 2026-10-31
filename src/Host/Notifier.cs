@@ -104,6 +104,7 @@ sealed class Notifier : INotifier
         S = s;
         var th = new Thread(Worker) { IsBackground = true, Name = "toasts" };
         th.Start();
+        new Thread(Dispatcher) { IsBackground = true, Name = "toast-gate" }.Start();
     }
 
     public void Init(string iconPng)
@@ -128,8 +129,126 @@ sealed class Notifier : INotifier
         return prefix + t;
     }
 
-    // ------------------------------------------------------------ plain / interactive toasts
+    // ------------------------------------------------------------ rate limit (toasts and the Telegram mirror)
+    // A burst (a loop calling /api/notify, toast:true on every update) must not flood Windows / Telegram or pile up
+    // memory: notifications wait in a bounded list; one task gets one every toast_task_gap seconds (newer ones replace
+    // the waiting one), all together toast_rate per minute (token bucket; while it is empty, waiting notifications
+    // without a task coalesce too). Finished / failed tasks and errors are never replaced or dropped first.
+    sealed class Pending
+    {
+        public string Title, Msg, Level, Tid;
+        public JsonObject Task;
+        public bool DismissOnly, Controls, Final;
+        public int More;                       // notifications folded into this one
+    }
+    const int MaxPending = 100;
+    readonly object gate = new();
+    readonly LinkedList<Pending> pending = new();
+    readonly Dictionary<string, double> lastOfTask = new();
+    double tokens = -1, tokensAt;
+    int dropped;
+
+    /// <summary>Notifications waiting for the rate limit plus toasts waiting to be shown (GET /api/health "toast_queue").</summary>
+    public int QueueLength { get { lock (gate) return pending.Count + queue.Count; } }
+
+    double Rate => J.Num(S.Get("toast_rate")) is double r && r >= 0 ? r : 10;
+    double TaskGap => J.Num(S.Get("toast_task_gap")) is double g && g >= 0 ? g : 2;
+
     public void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false, bool controls = true)
+    {
+        var p = new Pending
+        {
+            Title = title, Msg = msg, Level = level, Tid = taskId, Task = task, DismissOnly = dismissOnly, Controls = controls,
+            Final = level == "error" || (task != null && Hub.IsFinal(J.Str(task["state"]))),
+        };
+        lock (gate)
+        {
+            Refill(J.Now());
+            // the same task (or, while the limit holds them back, any task-less one) already waiting: the newer replaces it
+            bool held = Rate > 0 && tokens < 1;
+            for (var x = pending.First; x != null; x = x.Next)
+            {
+                var o = x.Value;
+                if (o.Final || p.Final && o.Tid == null) continue;
+                if (taskId != null ? o.Tid == taskId : held && o.Tid == null && !p.Final)
+                {
+                    p.More = o.More + 1;
+                    x.Value = p;
+                    Monitor.PulseAll(gate);
+                    return;
+                }
+            }
+            pending.AddLast(p);
+            while (pending.Count > MaxPending)
+            {
+                var victim = pending.First;
+                for (var x = pending.First; x != null; x = x.Next)
+                    if (!x.Value.Final) { victim = x; break; }
+                dropped += 1 + victim.Value.More;
+                pending.Remove(victim);
+            }
+            Monitor.PulseAll(gate);
+        }
+    }
+
+    void Refill(double now)
+    {
+        var rate = Rate;
+        if (rate <= 0) return;
+        double burst = Math.Max(1, rate);
+        if (tokens < 0) { tokens = burst; tokensAt = now; return; }
+        tokens = Math.Min(burst, tokens + (now - tokensAt) * rate / 60);
+        tokensAt = now;
+    }
+
+    /// <summary>Hands waiting notifications on as the limits allow (own thread).</summary>
+    void Dispatcher()
+    {
+        while (true)
+        {
+            Pending p = null;
+            int more = 0;
+            try
+            {
+                lock (gate)
+                {
+                    while (p == null)
+                    {
+                        var now = J.Now();
+                        Refill(now);
+                        double gap = TaskGap, wait = 60;
+                        bool limited = Rate > 0;
+                        for (var x = pending.First; x != null; x = x.Next)
+                        {
+                            var o = x.Value;
+                            double ready = 0;
+                            if (o.Tid != null && lastOfTask.TryGetValue(o.Tid, out var last)) ready = last + gap - now;
+                            // finished / failed tasks and errors don't wait for the global limit (they still use it up)
+                            if (limited && !o.Final && tokens < 1) ready = Math.Max(ready, (1 - tokens) * 60 / Rate);
+                            if (ready <= 0) { p = o; pending.Remove(x); break; }
+                            wait = Math.Min(wait, ready);
+                        }
+                        if (p != null) break;
+                        Monitor.Wait(gate, TimeSpan.FromSeconds(Math.Clamp(wait, 0.05, 60)));
+                    }
+                    if (Rate > 0) tokens = Math.Max(0, tokens - 1);
+                    if (p.Tid != null)
+                    {
+                        lastOfTask[p.Tid] = J.Now();
+                        if (lastOfTask.Count > 500)
+                            foreach (var k in lastOfTask.Where(kv => J.Now() - kv.Value > 60).Select(kv => kv.Key).ToList()) lastOfTask.Remove(k);
+                    }
+                    more = p.More + dropped;
+                    dropped = 0;
+                }
+                var msg = more > 0 ? (string.IsNullOrEmpty(p.Msg) ? "" : p.Msg + "\n") + L.T("toast_more", more) : p.Msg;
+                Deliver(p.Title, msg, p.Level, p.Tid, p.Task, p.DismissOnly, p.Controls);
+            }
+            catch (Exception e) { Log.W("toast gate: " + e.Message); }
+        }
+    }
+
+    void Deliver(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly, bool controls)
     {
         try { Telegram?.Notify(title, msg, level, taskId, task, controls); } catch (Exception e) { Log.W("telegram: " + e.Message); }
         if (!S.Bool("toasts", true)) return;   // Windows toasts disabled (config.json "toasts": false)

@@ -69,6 +69,8 @@ sealed class Settings
         ["toast_seconds"] = 4,              // on-screen time of a plain toast (then it stays in the notification center)
         ["toast_seconds_interactive"] = 8,  // toasts with buttons / inputs
         ["toasts_when_panel_open"] = false, // false: no popup banners while the panel is open
+        ["toast_rate"] = 10,                // notifications per minute (toasts + Telegram; bursts coalesce), 0 = no limit
+        ["toast_task_gap"] = 2,             // seconds between two notifications of one task (the rest coalesce into the latest)
     };
 
     string cfgPath;

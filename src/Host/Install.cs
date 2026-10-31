@@ -502,7 +502,8 @@ static class Install
     public static void PurgeData(Settings s)
     {
         foreach (var name in Secrets.Names)
-            try { Secrets.Delete(s, name); } catch (Exception e) { Log.W($"purge: {name} token: " + e.Message); }
+            try { if (!Secrets.Delete(s, name)) Log.W($"purge: {name} token not deleted"); }
+            catch (Exception e) { Log.W($"purge: {name} token: " + e.Message); }
         try { Directory.Delete(s.DataDir, true); } catch (Exception e) { Log.W("purge: " + e.Message); }
     }
 
