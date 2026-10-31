@@ -256,20 +256,28 @@ no Retry-After) pauses everything 60 s, doubling while 429s follow each other (u
 *2.9, off by default.* Per machine connector (`connectors.runpod`, `connectors.vastai` in `config.json`): `guard` (false),
 `guard_warn` ($, default 10), `guard_stop` ($, default 2; `guard_warn` > `guard_stop` >= 0), `guard_grace_min` (10, 1-120),
 `guard_snooze_min` (15, 5-240), `guard_exempt` (machine ids that are never stopped by the guard). `low_runway_hours` /
-`low_balance` keep their meaning; while the guard is on, their warning is replaced by the guard's (the panel hides them).
+`low_balance` keep their meaning and stay in the panel; while the guard is on, their warning is skipped only for a reading
+the guard's own warning covers (balance ≤ `guard_warn`), so the two never fire for the same crossing.
 Burn = Runpod's `currentSpendPerHr`, else the sum of the running machines' $/h (Vast.ai: `dph_total`); hours to stop =
 (balance − stop) / burn. `GET /api/connectors/<id>` → `guard: {enabled, warn, stop, grace_min, snooze_min, exempt, can_act,
-balance_source, burn_per_hr, hours_to_stop, stop_at, zero_at, unreadable, warned, pending: {seq, deadline, held, capped,
-machines, task}|null}`; the settings rows (`?view=settings`) carry `guard` with the texts in the UI language (forecast,
+balance_source, burn_per_hr, hours_to_stop, stop_at, zero_at, unreadable, warned, stops, no_stop, retry: [machine id],
+pending: {seq, deadline, held, capped, machines, task}|null}`; the settings rows (`?view=settings`) carry `guard` with the texts in the UI language (forecast,
 pending line, machines with `exempt`, the last log lines, a note when it can only warn).
 - balance ≤ warn: one warning per crossing (re-armed when the balance is back above warn + 5 %) with balance, burn, hours.
 - balance ≤ stop: a pending stop of the running, non-exempt machines, shown as the task `<prefix>--guard` (`rp--guard`,
-  `va--guard`; source = the connector) with the buttons `gstop.<seq>` (Stop now) and `gsnooze.<seq>` (Snooze), also in the
-  notification and Telegram. Deadline = now + grace, capped at the projected $0 minus 5 min; Snooze adds `guard_snooze_min`
+  `va--guard`; source = the connector) with the buttons `gstop.<seq>` (Stop now, asks for confirmation first — panel,
+  toast, Telegram) and `gsnooze.<seq>` (Snooze), also in the notification and Telegram. Deadline = now + grace, capped at the projected $0 minus 5 min; Snooze adds `guard_snooze_min`
   (same cap; the reply says until when). A press on a button of an earlier pending stop answers "already handled". A balance
   above stop cancels it. At the deadline the balance is read again: unreadable → nothing is stopped, `held`, retried each
   minute; *Stop now* still acts. Stop = the connector's stop action (never delete), confirmed by polling the list; one result
-  per machine in `guard_log.json` (at most 200 entries, data folder) and in the summary (Windows + Telegram).
+  per machine in `guard_log.json` (at most 200 entries, data folder) and in the summary (Windows + Telegram). A machine
+  whose stop failed is tried again at each following reading while the balance stays below stop (no new grace; quiet until
+  it works); `retry` lists them. The pending stop and the button counter are kept in `guard_<id>.json` (data folder): after
+  a restart the stop goes on with its deadline (at least a minute away), and buttons of an earlier run never match.
+- Only warnings (`stops` false, `no_stop` = why, also the settings note) when the balance isn't money left before a stop:
+  Runpod `billingMode` POSTPAID (GraphQL `myself { billingMode }`, read hourly in its own query), Vast.ai without `credit`
+  or with `has_billing` (a card on file is charged; instances aren't stopped at $0). A reading without an amount counts as
+  unreadable. Before the action probe has answered, a balance below stop is reported once and nothing is stopped yet.
 - Balance unreadable (network, 5xx, 401) for 2 readings in a row while the guard is on: one warning, and "readable again".
 - Read-only key (probe 403): warnings only. While a stop is pending the balance is read every minute.
 

@@ -5,8 +5,12 @@ Stop now / Snooze, Snooze moves the deadline (capped at the projected $0), Stop 
 (fractional, mock) grace time; a top-up cancels it; stale buttons answer "already handled"; "never auto-stop" machines
 and stopped ones are left alone; never a DELETE / destroy; balance unreadable -> warning, nothing stopped at the deadline,
 "readable again"; a read-only key only warns; one machine failing to stop is logged as failed, the others still stop;
-GET /api/guard/log (storage while stopped ≈). Only the isolated test hub, mocks and test-only Credential Manager names."""
-import json, os, re, threading, time, urllib.request, urllib.error, urllib.parse
+GET /api/guard/log (storage while stopped ≈). Review fixes: Stop now asks first; a snooze during the deadline's balance
+read wins; a failed stop is retried at the next reading; the old low-balance warning still works with the guard on; the
+probe not answered yet -> said once; Runpod post-paid / Vast.ai card on file -> warnings only; an answer without an amount
+counts as unreadable; a pending stop survives a hub restart (second hub on 47893 with its own data folder, needs the exe
+path as argv[1]). Only the isolated test hubs, mocks and test-only Credential Manager names."""
+import json, os, re, shutil, subprocess, sys, tempfile, threading, time, urllib.request, urllib.error, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import vault
 
@@ -20,7 +24,8 @@ CHAT = 4242
 fails = 0
 lock = threading.RLock()
 calls = []                     # (service, method, path)
-faults = {"gql500": False, "stop500": set()}
+faults = {"gql500": False, "stop500": set(), "gqlslow": 0, "probe500": False}
+EXE = sys.argv[1] if len(sys.argv) > 1 else None
 balance = {"clientBalance": 50.0, "currentSpendPerHr": 1.0, "spendLimit": 80}
 
 
@@ -84,6 +89,8 @@ class Runpod(Mock):
     def route(self, m, body):
         auth = self.headers.get("Authorization")
         p = self.path.split("?")[0]
+        if p == "/graphql" and faults["gqlslow"]:
+            time.sleep(faults["gqlslow"])   # outside the lock
         with lock:
             calls.append(("rp", m, p))
             if auth not in ("Bearer " + RP_KEY_RO, "Bearer " + RP_KEY_RW):
@@ -101,6 +108,8 @@ class Runpod(Mock):
             mm = re.match(r"^/v2/pods/([^/]+)(/action)?$", p)
             if mm:
                 pid, act = mm.group(1), mm.group(2)
+                if pid == "pod_taskhub_probe" and faults["probe500"]:
+                    return self.reply(500, {"detail": "internal error"})
                 if m == "GET" and not act:
                     return self.reply(200, dict(pods[pid], actions=[])) if pid in pods else self.reply(404, {"detail": "not found"})
                 if m in ("POST", "DELETE") and not rw:
@@ -242,8 +251,8 @@ def press(data, cid):
 op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def call(method, path, body=None):
-    req = urllib.request.Request(URL + path, json.dumps(body).encode() if body is not None else None, method=method,
+def call(method, path, body=None, url=URL):
+    req = urllib.request.Request(url + path, json.dumps(body).encode() if body is not None else None, method=method,
                                  headers={"Content-Type": "application/json", "X-TaskHub": "1"})
     try:
         with op.open(req, timeout=30) as r:
@@ -267,8 +276,8 @@ def wait(pred, timeout=15):
     return None
 
 
-def guard(cid="runpod"):
-    return call("GET", f"/api/connectors/{cid}")[1].get("guard") or {}
+def guard(cid="runpod", url=URL):
+    return call("GET", f"/api/connectors/{cid}", url=url)[1].get("guard") or {}
 
 
 def actions(svc, start=0, method=None):
@@ -335,6 +344,18 @@ check("settings row: machines with 'never auto-stop' (beta on)", any(m["id"] == 
 check("exempt machine says so on its card", wait(lambda: ((next((w for w in (task("rp-pB") or {}).get("widgets", []) if w["id"] == "info"), {})
       .get("value") or {}).get("Auto-stop") == "never")), task("rp-pB"))
 
+# ---- the old low-balance warning still works with the guard on (above guard_warn: the guard says nothing there)
+nl = len(sent)
+call("POST", "/api/connectors/runpod", {"low_balance": 30})
+with lock:
+    balance["clientBalance"] = 25.0
+check("guard on: low_balance $30 still warns at $25 (above guard_warn)", wait_sent(lambda m: "balance is low" in m["text"], nl) is not None,
+      sent[nl:])
+with lock:
+    balance["clientBalance"] = 50.0
+check("low warning re-armed", wait(lambda: call("GET", "/api/connectors/runpod")[1].get("low") is False))
+call("POST", "/api/connectors/runpod", {"low_balance": None})
+
 # ---- warning: once per crossing, with balance / burn / hours; re-armed after a top-up
 n0 = len(sent)
 with lock:
@@ -345,7 +366,7 @@ check("warning -> Telegram: balance, burn, hours until the stop threshold", w1 i
 time.sleep(4)
 check("warning only once per crossing", n_sent(lambda m: "below the warning threshold" in m["text"], n0) == 1,
       n_sent(lambda m: "below the warning threshold" in m["text"], n0))
-check("no old low-balance warning while the guard is on", n_sent(lambda m: "balance is low" in m["text"], n0) == 0)
+check("below guard_warn: no second (old) low-balance warning", n_sent(lambda m: "balance is low" in m["text"], n0) == 0)
 with lock:
     balance["clientBalance"] = 50.0
 check("top-up -> warning re-armed", wait(lambda: guard().get("warned") is False), guard())
@@ -396,8 +417,13 @@ with lock:
 p2 = wait_sent(lambda m: "reached the auto-stop threshold" in m["text"], n3)
 b2 = buttons(p2 or {})
 check("pending stop #2 with new buttons", p2 is not None and b2.get("Stop now") and b2.get("Stop now") != b1.get("Stop now"), b2)
+nq = len(sent)
 ans = press(b2.get("Stop now"), "stopnow")
-check("Stop now -> 'Stopping now…'", ans and "Stopping" in ans, ans)
+q = wait_sent(lambda m: m["text"].startswith("❓") and "alpha" in m["text"], nq)
+check("Stop now asks first (names the machine), nothing stopped yet", ans == "❓" and q is not None and buttons(q).get("✓ yes")
+      and stops("rp", a0) == [], (ans, q, stops("rp", a0)))
+ans = press(buttons(q or {}).get("✓ yes"), "stopnow-yes")
+check("Stop now confirmed -> 'Stopping now…'", ans and "Stopping" in ans, ans)
 done = wait_sent(lambda m: "Auto-stop — stopped: 1, failed: 0" in m["text"], n3, timeout=20)
 check("summary: alpha stopped, storage while stopped ≈ $0.13/day per the Runpod price list", done is not None and "alpha" in done["text"]
       and "≈ $0.13/day" in done["text"] and "Runpod price list" in done["text"], done)
@@ -409,6 +435,31 @@ check("log: when, machine, why, spent, result, storage ≈", s == 200 and e.get(
       and e.get("trigger") == "stop_now" and e.get("result") == "stopped" and e.get("threshold") == 10 and e.get("balance") == 8
       and e.get("burn_per_hr") == 1 and e.get("spent") == 1.5 and abs((e.get("storage_per_day") or 0) - 20 * 0.2 / 30) < 1e-3
       and e.get("storage_approx") is True and e.get("t"), r)
+
+# ---- a Snooze while the deadline's balance read is under way wins: nothing stopped
+with lock:
+    pods["pA"]["status"] = "RUNNING"
+    balance["clientBalance"] = 50.0
+call("POST", "/api/connectors/runpod", {"guard_grace_min": 0.05})
+check("alpha running again, re-armed", wait(lambda: (task("rp-pA") or {}).get("state") == "running" and guard().get("warned") is False),
+      guard())
+ar = len(calls)
+nr = len(sent)
+with lock:
+    balance["clientBalance"] = 8.0
+pr = wait_sent(lambda m: "reached the auto-stop threshold" in m["text"], nr)
+gr0 = wait(lambda: guard().get("pending"))
+faults["gqlslow"] = 4
+while gr0 and time.time() < gr0["deadline"] + 1:
+    time.sleep(0.1)
+ans = press(buttons(pr or {}).get("Snooze 0.1 min"), "snooze-race")
+time.sleep(4)
+check("Snooze during the deadline's (slow) balance read -> not stopped, still pending", ans and "snoozed until" in ans
+      and stops("rp", ar) == [] and guard().get("pending") is not None, (ans, stops("rp", ar), guard()))
+faults["gqlslow"] = 0
+with lock:
+    balance["clientBalance"] = 50.0
+check("top-up -> cancelled, alpha never stopped", wait(lambda: guard().get("pending") is None) and stops("rp", ar) == [], stops("rp", ar))
 
 # ---- pending stop #3: no answer -> stopped after the (fractional) grace; one machine fails, the other still stops
 with lock:
@@ -433,9 +484,16 @@ check("log: delta failed with the error, alpha stopped (auto)", len(r.get("entri
       and any(x["machine_id"] == "pD" and x["result"] == "failed" and "500" in (x.get("error") or "") for x in r["entries"])
       and any(x["machine_id"] == "pA" and x["result"] == "stopped" and x["trigger"] == "auto" for x in r["entries"]), r)
 check("guard task failed (one machine failed)", wait(lambda: (task("rp--guard") or {}).get("state") == "failed"), task("rp--guard"))
-time.sleep(3)
-check("the failed machine is not tried again in the same crossing", guard().get("pending") is None and stops("rp", a3).count("/v2/pods/pD/action") == 1,
-      (guard(), stops("rp", a3)))
+check("the failed machine is tried again at the next reading (no new grace, no new message)",
+      wait(lambda: stops("rp", a3).count("/v2/pods/pD/action") >= 2) and guard().get("retry") == ["pD"]
+      and n_sent(lambda m: "reached the auto-stop threshold" in m["text"], n4) == 1
+      and n_sent(lambda m: "Auto-stop — stopped:" in m["text"], n4) == 1, (stops("rp", a3), guard(), sent[n4:]))
+check("alpha (confirmed stopped) is not stopped again", stops("rp", a3).count("/v2/pods/pA/action") == 1, stops("rp", a3))
+with lock:
+    faults["stop500"].clear()
+ok = wait_sent(lambda m: "Auto-stop — stopped: 1, failed: 0" in m["text"] and "delta — stopped" in m["text"], n4, timeout=20)
+check("retry works once the service answers -> delta stopped, said so", ok is not None and wait(lambda: guard().get("retry") == []),
+      (ok, guard()))
 
 # ---- balance unreadable: warning, nothing stopped at the deadline, readable again
 with lock:
@@ -464,6 +522,56 @@ with lock:
 check("readable again -> said so", wait_sent(lambda m: "can be read again" in m["text"], n5) is not None)
 check("readable again + top-up -> held stop cancelled, nothing stopped", wait(lambda: guard().get("pending") is None) and stops("rp", a4) == [],
       (guard(), stops("rp", a4)))
+na = len(sent)
+with lock:
+    balance["clientBalance"] = None
+check("an answer without a balance counts as unreadable (said once)", wait_sent(lambda m: "can't be read (no balance in the answer)" in m["text"], na)
+      is not None, sent[na:])
+with lock:
+    balance["clientBalance"] = 50.0
+check("…and readable again", wait_sent(lambda m: "can be read again" in m["text"], na) is not None)
+
+# ---- the action probe hasn't answered yet: below stop -> said once, nothing stopped; once it answers, the stop is pending
+faults["probe500"] = True
+s, r = call("POST", "/api/connectors/runpod", {"key": RP_KEY_RW})
+check("probe unanswered -> can_act null", s == 200 and wait(lambda: call("GET", "/api/connectors/runpod")[1].get("can_act") is None
+      and guard().get("warned") is False), r)
+a6 = len(calls)
+n8 = len(sent)
+with lock:
+    balance["clientBalance"] = 8.0
+check("below stop, probe unanswered -> 'hasn't been able to check yet'", wait_sent(lambda m: "able to check yet" in m["text"], n8) is not None,
+      sent[n8:])
+time.sleep(3)
+check("…once, no pending stop, nothing stopped", n_sent(lambda m: "able to check yet" in m["text"], n8) == 1
+      and guard().get("pending") is None and stops("rp", a6) == [], (guard(), stops("rp", a6)))
+faults["probe500"] = False
+call("POST", "/api/connectors/runpod", {"key": RP_KEY_RW})
+check("probe answers -> the stop is pending", wait(lambda: guard().get("pending")) is not None, guard())
+with lock:
+    balance["clientBalance"] = 50.0
+check("top-up -> cancelled", wait(lambda: guard().get("pending") is None), guard())
+
+# ---- Runpod post-paid (billingMode POSTPAID): the balance isn't money left before a stop -> warnings only
+with lock:
+    balance["billingMode"] = "POSTPAID"
+check("post-paid -> stops false, reason given", wait(lambda: guard().get("stops") is False and "post-paid" in (guard().get("no_stop") or "")),
+      guard())
+a7 = len(calls)
+n9 = len(sent)
+with lock:
+    balance["clientBalance"] = 8.0
+pp = wait_sent(lambda m: "below the auto-stop threshold" in m["text"], n9)
+check("post-paid: 'below the auto-stop threshold' + only warns", pp is not None and "post-paid" in pp["text"], pp)
+time.sleep(3)
+check("post-paid: no pending stop, nothing stopped", guard().get("pending") is None and stops("rp", a7) == [], (guard(), stops("rp", a7)))
+v = call("GET", "/api/connectors?view=settings")[1]
+gr = next((c for c in v.get("connectors", []) if c["id"] == "runpod"), {}).get("guard") or {}
+check("settings note says why it only warns", "post-paid" in (gr.get("note") or ""), gr)
+with lock:
+    balance["billingMode"] = "PREPAID"
+    balance["clientBalance"] = 50.0
+check("prepaid again -> stops true", wait(lambda: guard().get("stops") is True and guard().get("warned") is False), guard())
 
 # ---- read-only key: warning only, no stop attempt
 s, r = call("POST", "/api/connectors/runpod", {"key": RP_KEY_RO})
@@ -492,6 +600,21 @@ s, r = call("POST", "/api/connectors/vastai", {"enabled": True, "key": VA_KEY, "
 check("Vast.ai: guard on", s == 200 and (r.get("guard") or {}).get("enabled") is True, (s, r))
 check("Vast.ai: instance running, actions allowed", wait(lambda: (task("va-201") or {}).get("state") == "running"
       and call("GET", "/api/connectors/vastai")[1].get("can_act") is True), task("va-201"))
+vb = len(calls)
+nb = len(sent)
+with lock:
+    user["has_billing"] = True
+    user["credit"] = 8.0
+cc = wait_sent(lambda m: "below the auto-stop threshold" in m["text"] and "card on file" in m["text"], nb)
+time.sleep(3)
+with lock:
+    vput = [c for c in calls[vb:] if c[0] == "va" and c[1] in ("PUT", "DELETE") and c[2] != "/api/v0/instances/0/"]
+check("Vast.ai card on file (has_billing): only warns, nothing stopped", cc is not None and vput == [] and guard("vastai").get("pending") is None,
+      (cc, vput, guard("vastai")))
+with lock:
+    user["has_billing"] = False
+    user["credit"] = 50.0
+check("Vast.ai re-armed", wait(lambda: guard("vastai").get("warned") is False and guard("vastai").get("stops") is True), guard("vastai"))
 v0 = len(calls)
 n7 = len(sent)
 with lock:
@@ -506,10 +629,75 @@ r = call("GET", "/api/guard/log?provider=vastai")[1]
 e = (r.get("entries") or [{}])[0]
 check("log: Vast.ai entry, storage 0.3 × 60 / 30", e.get("provider") == "vastai" and abs((e.get("storage_per_day") or 0) - 0.6) < 1e-6, r)
 r = call("GET", "/api/guard/log")[1]
-check("log: all providers, newest first", [x["provider"] for x in r.get("entries", [])][:1] == ["vastai"] and len(r["entries"]) == 4, r)
+check("log: all providers, newest first", [x["provider"] for x in r.get("entries", [])][:1] == ["vastai"] and len(r["entries"]) == 5, r)
+
+# ---- restart: the pending stop goes on (later deadline kept), the button counter goes past the old one
+call("POST", "/api/connectors/vastai", {"guard": False, "enabled": False, "forget_key": True})
+
+
+def start_hub2(data):
+    h = subprocess.Popen([EXE, "--port", "47893", "--data", data, "--no-tray"])
+    up = wait(lambda: _health(), 30)
+    return h, up
+
+
+def _health():
+    try:
+        return call("GET", "/api/health", url=URL2)[0] == 200
+    except OSError:
+        return False
+
+
+URL2 = "http://127.0.0.1:47893"
+if EXE:
+    data2 = tempfile.mkdtemp(prefix="taskhub-guard2-")
+    with open(os.path.join(data2, "config.json"), "w", encoding="utf-8") as f:
+        json.dump({"toasts": False, "autostart": False, "language": "en", "telegram_api": "http://127.0.0.1:47897", "connectors": {"runpod": {"api": "http://127.0.0.1:47891"}}}, f)
+    hub2 = None
+    try:
+        with lock:
+            pods["pA"]["status"] = "RUNNING"
+            balance["clientBalance"] = 50.0
+        hub2, up = start_hub2(data2)
+        check("restart: second hub started", up)
+        s, r = call("POST", "/api/connectors/runpod", {"enabled": True, "key": RP_KEY_RW, "list_interval": 1, "detail_interval": 1,
+                                                       "billing_interval": 1, "guard": True, "guard_warn": 20, "guard_stop": 10,
+                                                       "guard_grace_min": 0.5, "guard_exempt": ["pB"]}, url=URL2)
+        check("restart: guard on (hub 2)", s == 200, (s, r))
+        check("restart: actions allowed", wait(lambda: call("GET", "/api/connectors/runpod", url=URL2)[1].get("can_act") is True))
+        with lock:
+            balance["clientBalance"] = 8.0
+        p0 = wait(lambda: guard(url=URL2).get("pending"))
+        saved = {}
+        try:
+            with open(os.path.join(data2, "guard_runpod.json"), encoding="utf-8") as f:
+                saved = json.load(f)
+        except (OSError, ValueError):
+            pass
+        check("restart: pending stop saved in guard_runpod.json", p0 and (saved.get("pending") or {}).get("seq") == p0["seq"]
+              and (saved.get("pending") or {}).get("machines") == ["pA"], (p0, saved))
+        hub2.kill()
+        hub2.wait(10)
+        hub2, up = start_hub2(data2)
+        p1 = wait(lambda: guard(url=URL2).get("pending"), 20)
+        t1 = call("GET", "/api/tasks/rp--guard", url=URL2)[1]
+        check("restart: the pending stop goes on (later deadline kept, same machines), new button numbers",
+              up and p0 and p1 and p1["deadline"] >= p0["deadline"] - 0.5 and p1["machines"] == ["pA"] and p1["seq"] > p0["seq"]
+              and t1.get("state") == "running" and [c["id"] for c in t1.get("controls", [])] == ["gstop.%d" % p1["seq"], "gsnooze.%d" % p1["seq"]]
+              and "alpha" in (t1["controls"][0].get("confirm") or ""),
+              (p0, p1, t1))
+        with lock:
+            balance["clientBalance"] = 50.0
+        check("restart: top-up cancels the restored stop", wait(lambda: guard(url=URL2).get("pending") is None, 20))
+        call("POST", "/api/connectors/runpod", {"guard": False, "enabled": False, "forget_key": True}, url=URL2)
+    finally:
+        if hub2:
+            hub2.kill()
+            hub2.wait(10)
+        vault.delete(vault.target(data2, "runpod"))
+        shutil.rmtree(data2, ignore_errors=True)
 
 # ---- clean up (the test hub only)
-call("POST", "/api/connectors/vastai", {"guard": False, "enabled": False, "forget_key": True})
 for tid in ["rp-pA", "rp-pB", "rp-pC", "rp-pD", "rp--guard", "va-201", "va--guard"]:
     call("DELETE", f"/api/tasks/{tid}?force=1")
 call("POST", "/api/telegram", {"disconnect": True})

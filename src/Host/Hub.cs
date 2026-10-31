@@ -9,6 +9,8 @@ sealed class ApiError : Exception
     public int Code;
     /// <summary>A button that is no longer there / no longer applies (Telegram and toasts answer "already handled").</summary>
     public bool Stale { get; init; }
+    /// <summary>The text for the settings page (UI language) when it differs from the API's English message.</summary>
+    public string Ui { get; init; }
     public ApiError(int code, string msg) : base(msg) { Code = code; }
 }
 

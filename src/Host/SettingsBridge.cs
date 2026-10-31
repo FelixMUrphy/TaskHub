@@ -176,7 +176,7 @@ sealed class SettingsBridge
                         }
                         catch (ApiError e) when (e.Code == 400 && e.Message.StartsWith("guard_"))
                         {
-                            err = L.T("g_bad_values", e.Message);   // nothing changed
+                            err = e.Ui ?? L.T("g_bad_values", e.Message);   // nothing changed
                         }
                         // right after saving: the verdict of the check ("Connected, balance $X" / "Connected as @login"...)
                         if (keyed && err == null)

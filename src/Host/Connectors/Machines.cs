@@ -39,6 +39,14 @@ sealed class Balance
     public double? Amount, SpendPerHr, SpendLimit;
     public string Label = "";            // what Amount is (e.g. "credit") when the service has several
     public JsonObject Raw = new();       // the raw values, for checks with a real key
+    /// <summary>Not null: Amount isn't money left before the service stops the machines (post-paid, a card charged
+    /// automatically, an unclear field) - the balance guard only warns; the text says why (UI language).</summary>
+    public string NoStop;
+    /// <summary>Not null: the reading failed (e.g. "HTTP 500"); <see cref="Code"/> is the answer's status (0 = none).</summary>
+    public string Error;
+    public int Code;
+
+    public static Balance Failed(int code) => new() { Error = "HTTP " + code, Code = code };
 }
 
 /// <summary>
@@ -104,7 +112,6 @@ abstract partial class MachineConnector : IConnector
     bool? canAct;                                          // null: not probed yet / probe failed
     double probedAt, nextList, nextBilling, pausedUntil, backoff;
     string keyHash;
-    int lastCode;                                          // the status of the last answer (why a balance read failed)
     // the last verdict on the saved key: "ok" | "revoked" (the service stopped accepting it) | "network" | "unavailable"
     // (saved but not checked yet); null = no key / not checked. Never anything of the key itself.
     string keyCheck;
@@ -130,7 +137,7 @@ abstract partial class MachineConnector : IConnector
         }
     }
 
-    bool Mock => ApiUri.IsLoopback;
+    protected bool Mock => ApiUri.IsLoopback;
 
     protected JsonObject RawConfig => Connectors.Config(S, Id);
 
@@ -204,7 +211,7 @@ abstract partial class MachineConnector : IConnector
         if (keyCheck != "ok") return;
         try
         {
-            if (FetchBalance(key, CancellationToken.None).GetAwaiter().GetResult() is { } bal) { balance = bal; balanceAt = J.Now(); }
+            if (FetchBalance(key, CancellationToken.None).GetAwaiter().GetResult() is { Error: null } bal) { balance = bal; balanceAt = J.Now(); }
         }
         catch (Exception e) { Log.W($"{Id}: balance after the key: " + e.GetBaseException().Message); }
     }
@@ -407,19 +414,32 @@ abstract partial class MachineConnector : IConnector
         string why = "";
         if (tried)
         {
-            lastCode = 0;
-            try { b = await FetchBalance(key, ct); }
-            catch (Exception e) when (e is HttpRequestException || (e is TaskCanceledException && !ct.IsCancellationRequested))
-            { why = e.GetBaseException().Message; status = "offline: " + why; }
-            if (b == null && why.Length == 0) why = lastCode is > 0 and not 200 ? "HTTP " + lastCode : "no answer";
-            if (b == null && lastCode == 429) tried = false;   // rate limit: not an outage
+            (b, why, var code, var offline) = await ReadBalance(key, ct);
+            if (offline) status = "offline: " + why;
+            if (b == null && code == 429) tried = false;   // rate limit: not an outage
         }
         if (b != null) { balance = b; balanceAt = J.Now(); }
         CheckLow(c);
-        if (tried) GuardOnBalance(b != null, why);
+        // an answer without an amount is a missed reading too (the guard is never silently off)
+        if (tried) GuardOnBalance(b?.Amount != null, b != null && b.Amount == null ? "no balance in the answer" : why, key);
         List<Track> all;
         lock (gate) all = machines.Values.Where(t => t.M.State != "terminated").ToList();
         foreach (var t in all) Show(t, c, false);
+    }
+
+    /// <summary>One balance reading, its own status (no shared state): (balance, why it failed, HTTP status, network
+    /// error). Any exception counts as unreadable (only the loop's own cancellation goes through).</summary>
+    async Task<(Balance B, string Why, int Code, bool Offline)> ReadBalance(string key, CancellationToken ct)
+    {
+        try
+        {
+            var b = await FetchBalance(key, ct);
+            if (b == null) return (null, "no answer", 0, false);
+            if (b.Error != null) return (null, b.Error, b.Code, false);
+            return (b, "", 200, false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception e) { return (null, e.GetBaseException().Message, 0, e is HttpRequestException or TaskCanceledException); }
     }
 
     async Task RunProbe(string key, CancellationToken ct)
@@ -644,8 +664,10 @@ abstract partial class MachineConnector : IConnector
         if (balance?.Amount is not double a) return;
         var rw = Runway();
         bool now = (c.LowRunwayHours > 0 && rw is double h && h < c.LowRunwayHours) || (c.LowBalance is double lb && a < lb);
-        // the balance guard (opt-in) has its own warning: not two at once
-        if (now && !low && !GCfg.On)
+        // the balance guard (opt-in) has its own warning at guard_warn: when that one covers this reading, not two at once
+        var g = GCfg;
+        bool guardSays = g.On && BalanceSource && a <= g.Warn;
+        if (now && !low && !guardSays)
         {
             var msg = L.T("m_low", Title, Money(a), rw is double h2 ? Hours(h2) : "—");
             if (ZeroBalanceNote.Length > 0) msg += " " + ZeroBalanceNote;
@@ -833,7 +855,6 @@ abstract partial class MachineConnector : IConnector
         cts2.CancelAfter(TimeSpan.FromSeconds(30));
         using var r = await http.Send(req, cts2.Token);
         var res = new Resp { Code = (int)r.StatusCode };
-        lastCode = res.Code;
         var text = await r.Content.ReadAsStringAsync(cts2.Token);
         try { res.Body = text.Length > 0 ? J.Parse(text) : null; } catch { }
         OnHeaders(r);

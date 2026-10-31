@@ -30,8 +30,8 @@ it.
   privacy policy applies to these requests. Turning the connector off stops them (the token stays saved); *Remove* deletes the token.
 - **Runpod connector** (TaskHub 2.9 and later; off by default, earlier versions don't have it). If you paste a Runpod API
   key and turn it on, TaskHub asks `api.runpod.io` with that key (in the `Authorization` header) for your pods and their
-  live load, your pod billing of the last 30 days and (GraphQL, can be turned off) your balance, spend per hour and spend
-  limit, and shows them as tasks; nothing about your PC or your other tasks is sent. To find out whether the key may run
+  live load, your pod billing of the last 30 days and (GraphQL, can be turned off) your balance, spend per hour, spend
+  limit and billing mode (prepaid / post-paid), and shows them as tasks; nothing about your PC or your other tasks is sent. To find out whether the key may run
   actions, TaskHub sends one harmless request a day — "stop" for a pod that does not exist. Stop, start, restart and delete
   are sent only when you press the button and confirm. The key is kept in the Windows Credential Manager of your user
   account, not in TaskHub's files. Runpod's own privacy policy applies to these requests. Turning the connector off stops
@@ -51,7 +51,9 @@ it.
   the spend per hour, the time left, the names of the machines it stops and what their storage costs while stopped — are
   shown on Windows and, if you connected Telegram, sent to your Telegram chat like other notifications. A record of each stop
   (time, provider, machine id and name, balance, threshold, spend, result, storage estimate) is kept only on your PC in
-  `%APPDATA%\TaskHub\guard_log.json` (at most 200 entries); it is deleted with that folder.
+  `%APPDATA%\TaskHub\guard_log.json` (at most 200 entries); a stop that is still pending (its deadline and machine ids) is
+  kept in `guard_runpod.json` / `guard_vastai.json` in the same folder so it survives a restart. Both are deleted with that
+  folder.
 - **Update check** (only in the version installed from GitHub, not in the Microsoft Store version). Once a day TaskHub
   asks `api.github.com` for the latest release number. It sends no personal data, and you can turn the check off in the
   tray menu (*Updates*; from TaskHub 2.9: Settings in the panel → *System*).

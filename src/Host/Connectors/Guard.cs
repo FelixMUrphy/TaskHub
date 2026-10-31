@@ -9,8 +9,11 @@ namespace TaskHub;
 /// ones in guard_exempt) with "Stop now" / "Snooze N min" (toast, Telegram, panel); no answer -> stopped when the grace
 /// time runs out (never later than the projected $0, minus a margin). Stop only - never delete / terminate / destroy.
 /// At the deadline the balance is read again: unreadable -> nothing is stopped ("held"), the user is told. A top-up
-/// above the stop threshold cancels it. Every stop goes to guard_log.json (<see cref="GuardLog"/>).
-/// State lives under the connector's <c>gate</c>; the pending stop is shown as the task "&lt;prefix&gt;--guard".
+/// above the stop threshold cancels it. Every stop goes to guard_log.json (<see cref="GuardLog"/>). A machine whose stop
+/// failed is tried again at the next reading (no new grace). The pending stop survives a restart (guard_&lt;id&gt;.json).
+/// When the balance isn't money left before a stop (<see cref="Balance.NoStop"/>: Runpod post-paid, Vast.ai card on file),
+/// the guard only warns. State lives under the connector's <c>gate</c>; the pending stop is shown as the task
+/// "&lt;prefix&gt;--guard".
 /// </summary>
 abstract partial class MachineConnector
 {
@@ -40,17 +43,22 @@ abstract partial class MachineConnector
 
     sealed class PendingStop
     {
-        public int Seq;
+        public int Seq, Ver;               // Ver: bumped by Snooze (a deadline check that raced with it doesn't stop)
+        public bool Retry;                 // a quiet retry of failed stops (no buttons, not saved)
         public double Created, Deadline;
         public double Balance, Burn;
         public bool Held, HeldWarned, Capped;
         public List<string> Ids = new();
+        public Dictionary<string, string> Names = new();   // id -> name when the stop was announced (kept over a restart)
     }
 
     PendingStop pending;
     int guardSeq;
-    bool gWarned, gBelowWarned;          // warning / "below stop, can't or nothing to stop" sent for this crossing
-    readonly HashSet<string> gTried = new();   // machines a stop was tried on during this crossing (not tried again)
+    bool gWarned, gBelowWarned, gProbeWarned;   // warning / "below stop, can't or nothing to stop" / "not probed yet" sent
+    readonly HashSet<string> gTried = new();    // machines confirmed stopped in this crossing (not stopped again if restarted)
+    readonly HashSet<string> gFailed = new();   // machines whose stop failed in this crossing: retried at each reading
+    bool gStopping;                       // a stop is running (no new pending stop meanwhile)
+    bool gLoaded;                         // guard_<id>.json read
     int gMisses;                          // balance readings missed in a row (guard on)
     bool gOutage;                         // the "balance unreadable" warning was sent
     string gMissWhy = "";
@@ -67,6 +75,9 @@ abstract partial class MachineConnector
         ("guard_grace_min", 1, 120, 0.02), ("guard_snooze_min", 5, 240, 0.02),
     };
 
+    /// <summary>A 400 for a guard setting: the English message for the API, the text for the settings page.</summary>
+    static ApiError GuardBad(string msg, string ui) => new(400, msg) { Ui = ui };
+
     /// <summary>guard, guard_warn, guard_stop, guard_grace_min, guard_snooze_min, guard_exempt; warn > stop >= 0. Applied to
     /// <paramref name="c"/> only when all of them are valid.</summary>
     void ConfigureGuard(JsonObject b, JsonObject c)
@@ -76,7 +87,8 @@ abstract partial class MachineConnector
         {
             if (!b.ContainsKey(k)) continue;
             double lo = Mock ? loMock : lo0;
-            if (J.Num(b[k]) is not double d || d < lo || d > hi) throw new ApiError(400, $"{k} must be {J.Fmt(lo)}-{J.Fmt(hi)}");
+            if (J.Num(b[k]) is not double d || d < lo || d > hi)
+                throw GuardBad($"{k} must be {J.Fmt(lo)}-{J.Fmt(hi)}", L.T(k == "guard_grace_min" ? "g_err_grace" : "g_err_snooze", J.Fmt(lo), J.Fmt(hi)));
             n[k] = d;
         }
         foreach (var k in new[] { "guard_warn", "guard_stop" })
@@ -84,22 +96,23 @@ abstract partial class MachineConnector
             if (!b.ContainsKey(k)) continue;
             if (b[k] == null || J.Str(b[k]) == "") n.Remove(k);
             else if (J.Num(b[k]) is double d && d >= 0 && d <= 1e6) n[k] = d;
-            else throw new ApiError(400, $"{k} must be a number >= 0 (dollars)");
+            else throw GuardBad($"{k} must be a number >= 0 (dollars)", L.T("g_err_money"));
         }
         if (b.ContainsKey("guard")) n["guard"] = J.Truthy(b["guard"]);
         if (b.ContainsKey("guard_exempt"))
         {
             if (b["guard_exempt"] is not JsonArray ea || ea.Count > 500 || ea.Any(x => !J.IsStr(x) || J.Str(x).Length is 0 or > 100))
-                throw new ApiError(400, "guard_exempt must be a list of machine ids");
+                throw GuardBad("guard_exempt must be a list of machine ids", L.T("g_err_exempt"));
             n["guard_exempt"] = J.StrArray(ea.Select(x => J.Str(x)).Distinct());
         }
         double warn = J.Num(n["guard_warn"]) ?? GuardWarnDefault, stop = J.Num(n["guard_stop"]) ?? GuardStopDefault;
-        if (stop < 0) throw new ApiError(400, "guard_stop must be >= 0");
-        if (warn <= stop) throw new ApiError(400, $"guard_warn ({J.Fmt(warn)}) must be above guard_stop ({J.Fmt(stop)})");
+        if (stop < 0) throw GuardBad("guard_stop must be >= 0", L.T("g_err_money"));
+        if (warn <= stop)
+            throw GuardBad($"guard_warn ({J.Fmt(warn)}) must be above guard_stop ({J.Fmt(stop)})", L.T("g_err_order", Money(warn), Money(stop)));
         foreach (var k in new[] { "guard", "guard_warn", "guard_stop", "guard_grace_min", "guard_snooze_min", "guard_exempt" })
             if (n.ContainsKey(k)) c[k] = J.C(n[k]); else c.Remove(k);
         bool rearm = b.ContainsKey("guard_warn") || b.ContainsKey("guard_stop") || b.ContainsKey("guard");
-        if (rearm) lock (gate) { gWarned = false; gBelowWarned = false; gTried.Clear(); }
+        if (rearm) lock (gate) { gWarned = false; gBelowWarned = false; gProbeWarned = false; gTried.Clear(); gFailed.Clear(); }
         // the guard (or the whole connector, or its key) off: a pending stop goes with it
         if ((b.ContainsKey("guard") && !J.Truthy(b["guard"])) || (b.ContainsKey("enabled") && !J.Truthy(b["enabled"])) || J.Truthy(b["forget_key"]))
             CancelPending(L.T("g_off"));
@@ -130,6 +143,12 @@ abstract partial class MachineConnector
                 .OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>Some machine that isn't "never auto-stop" runs (also one the user started again after the guard stopped it).</summary>
+    bool AnyStoppable(GuardConf g)
+    {
+        lock (gate) return machines.Values.Any(t => t.M.Active && !g.Exempt.Contains(t.M.Id));
+    }
+
     (double? Sp, bool Est) SpentOf(Machine m)
     {
         if (spent != null && spent.TryGetValue(m.Id, out var s1)) return (s1, SpendLags);
@@ -150,8 +169,9 @@ abstract partial class MachineConnector
     }
 
     // ------------------------------------------------------------ the balance was read (or not)
-    /// <summary>After each balance reading: warning, pending stop, top-up. <paramref name="ok"/> false = the reading failed.</summary>
-    void GuardOnBalance(bool ok, string why)
+    /// <summary>After each balance reading: warning, pending stop, top-up, a retry of failed stops. <paramref name="ok"/>
+    /// false = the reading failed (or had no amount). <paramref name="key"/>: for a retry (null = no retry now).</summary>
+    void GuardOnBalance(bool ok, string why, string key = null)
     {
         var g = GCfg;
         if (!g.On || !BalanceSource) { lock (gate) { gMisses = 0; gOutage = false; } return; }
@@ -165,7 +185,7 @@ abstract partial class MachineConnector
         if (a > g.Warn + hw) lock (gate) gWarned = false;   // topped up: warn again next time
         if (a > g.Stop)
         {
-            if (a > g.Stop + hs) lock (gate) { gBelowWarned = false; gTried.Clear(); }
+            if (a > g.Stop + hs) lock (gate) { gBelowWarned = false; gProbeWarned = false; gTried.Clear(); gFailed.Clear(); }
             if (pending != null) CancelPending(L.T("g_topup", Money(a), Money(g.Stop)));
         }
         if (a <= g.Warn && a > g.Stop)
@@ -178,22 +198,49 @@ abstract partial class MachineConnector
                     ? L.T("g_warn", Money(a), Money(g.Warn), Money(burn), Hours(h), Money(g.Stop))
                     : L.T("g_warn_flat", Money(a), Money(g.Warn));
                 if (canAct == false) msg += " " + L.T("g_readonly");
+                else if (balance.NoStop is { Length: > 0 } ns) msg += " " + ns;
                 GuardNotify(msg);
                 Log.W($"{Id}: guard warning, balance {a}, burn {burn}");
             }
         }
         if (a <= g.Stop)
         {
-            lock (gate) gWarned = true;   // no separate warning any more in this crossing
-            if (pending != null || canAct == null) return;   // not probed yet: wait for the probe
+            lock (gate) { gWarned = true; if (pending != null || gStopping) return; }   // no separate warning any more in this crossing
             var targets = GuardTargets(g);
-            if (canAct == false || targets.Count == 0)
+            var noStop = balance.NoStop;
+            if (canAct == false || noStop != null || targets.Count == 0)
             {
+                // "nothing to stop" only when nothing stoppable runs (not when the user started a stopped one again)
+                if (canAct != false && noStop == null && AnyStoppable(g)) return;
                 bool send;
                 lock (gate) { send = !gBelowWarned; gBelowWarned = true; }
                 if (!send) return;
                 GuardNotify(canAct == false ? L.T("g_below_ro", Money(a), Money(g.Stop)) + " " + L.T("g_readonly")
+                    : noStop != null ? L.T("g_below_ro", Money(a), Money(g.Stop)) + " " + noStop
                     : L.T("g_nothing", Money(a), Money(g.Stop)));
+                return;
+            }
+            if (canAct == null)
+            {
+                // the probe hasn't answered yet: nothing stopped, but said once (it is tried again at each reading)
+                bool send;
+                lock (gate) { send = !gProbeWarned; gProbeWarned = true; }
+                if (send) { GuardNotify(L.T("g_probe_wait", Money(a), Money(g.Stop))); Log.W($"{Id}: guard: below stop, actions not probed yet"); }
+                return;
+            }
+            // only machines whose stop already failed (they had their grace): tried again now, quietly unless it works
+            List<Machine> retry;
+            lock (gate) retry = targets.Where(m => gFailed.Contains(m.Id)).ToList();
+            if (retry.Count == targets.Count)
+            {
+                if (key == null) return;
+                PendingStop p;
+                lock (gate)
+                {
+                    if (pending != null || gStopping) return;
+                    pending = p = new PendingStop { Retry = true, Seq = ++guardSeq, Created = J.Now(), Deadline = J.Now(), Balance = a, Burn = burn, Ids = retry.Select(m => m.Id).ToList() };
+                }
+                _ = Task.Run(() => RunStop(p, "retry", key, CancellationToken.None, -1));
                 return;
             }
             StartPending(g, a, burn, targets);
@@ -236,13 +283,15 @@ abstract partial class MachineConnector
         PendingStop p;
         lock (gate)
         {
-            if (pending != null) return;
+            if (pending != null || gStopping) return;
             pending = p = new PendingStop
             {
                 Seq = ++guardSeq, Created = now, Deadline = dl, Balance = a, Burn = burn, Capped = capped,
-                Ids = targets.Select(m => m.Id).ToList(),
+                Ids = targets.Select(m => m.Id).ToList(), Names = targets.ToDictionary(m => m.Id, m => m.Name ?? m.Id),
             };
+            nextBilling = Math.Min(nextBilling, now + (Mock ? 1 : 60));   // a top-up during the grace is seen
         }
+        SaveGuard();
         var names = string.Join(", ", targets.Select(m => m.Name ?? m.Id));
         var text = L.T("g_pending", Money(a), Money(g.Stop), Money(burn), J.Cut(names, 600), When(dl));
         if (capped && ZeroAt() is double z2) text += " " + L.T("g_capped", When(z2));
@@ -251,10 +300,18 @@ abstract partial class MachineConnector
         Log.W($"{Id}: guard: pending stop #{p.Seq} of {p.Ids.Count} machine(s) at {dl:0} (balance {a}, burn {burn})");
     }
 
+    string PendingNames(PendingStop p)
+    {
+        lock (gate)
+            return J.Cut(string.Join(", ", p.Ids.Select(id => machines.TryGetValue(id, out var t) && t.M.Name is { Length: > 0 } n && n != id ? n
+                : p.Names.GetValueOrDefault(id, id))), 150);
+    }
+
     JsonArray GuardControls(PendingStop p, GuardConf g) => new(
         new JsonObject
         {
             ["id"] = "gstop." + p.Seq, ["label"] = L.T("g_stop_now"), ["kind"] = "connector", ["style"] = "danger", ["toast"] = true,
+            ["confirm"] = L.T("g_stop_now_q", PendingNames(p)),   // asks first, like a machine's Stop
             ["states"] = new JsonArray("running", "paused", "stale"),
         },
         new JsonObject
@@ -293,29 +350,32 @@ abstract partial class MachineConnector
         PendingStop p;
         lock (gate) { p = pending; pending = null; }
         if (p == null) return;
+        SaveGuard();
         Try(() => hub.Update(GuardTid, new JsonObject { ["controls"] = new JsonArray(), ["log"] = J.Cut(why, 1900) }, trusted: true));
         Try(() => hub.Finish(GuardTid, new JsonObject { ["state"] = "done", ["message"] = J.Cut(why, 300) }));
         GuardNotify(why, "info");
         Log.W($"{Id}: guard: pending stop #{p.Seq} cancelled ({why})");
     }
 
-    /// <summary>Each loop round: a pending stop whose time has come. The balance is read again first - unreadable: held.</summary>
+    /// <summary>Each loop round: a pending stop whose time has come. The balance is read again first - unreadable (any
+    /// error): held. A Snooze / top-up during that read wins (checked again under the lock).</summary>
     async Task GuardTick(string key, CancellationToken ct)
     {
-        var p = pending;
-        if (p == null || J.Now() < p.Deadline) return;
+        PendingStop p;
+        int ver;
+        lock (gate) { p = pending; ver = p?.Ver ?? 0; }
+        if (p == null || p.Retry || J.Now() < p.Deadline) return;
         var g = GCfg;
         if (!g.On) { CancelPending(L.T("g_off")); return; }
-        Balance b = null;
-        string why = "";
-        lastCode = 0;
-        try { b = await FetchBalance(key, ct); }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested) { why = e.GetBaseException().Message; }
-        if (why.Length == 0 && lastCode is > 0 and not 200) why = "HTTP " + lastCode;
+        var (b, why, _, _) = await ReadBalance(key, ct);
         if (b?.Amount is not double a)
         {
             bool warn;
-            lock (gate) { warn = !p.HeldWarned; p.HeldWarned = true; p.Held = true; p.Deadline = J.Now() + (Mock ? 1 : 60); }
+            lock (gate)
+            {
+                if (pending != p || p.Ver != ver) return;   // snoozed / cancelled meanwhile
+                warn = !p.HeldWarned; p.HeldWarned = true; p.Held = true; p.Deadline = J.Now() + (Mock ? 1 : 60);
+            }
             if (warn)
             {
                 ShowPending(p, g, L.T("g_held"), register: false);
@@ -326,7 +386,8 @@ abstract partial class MachineConnector
         }
         balance = b; balanceAt = J.Now();
         if (a > g.Stop) { CancelPending(L.T("g_topup", Money(a), Money(g.Stop))); return; }
-        await RunStop(p, "auto", key, ct);
+        if (b.NoStop is { Length: > 0 } ns) { CancelPending(ns); return; }
+        await RunStop(p, "auto", key, ct, ver);
     }
 
     // ------------------------------------------------------------ buttons
@@ -352,7 +413,7 @@ abstract partial class MachineConnector
         {
             var key = Secrets.Read(S, Id);
             if (string.IsNullOrEmpty(key)) throw new ApiError(400, $"no {Title} API key");
-            _ = Task.Run(() => RunStop(p, "stop_now", key, CancellationToken.None));   // the user asked: acts even if the balance can't be read
+            _ = Task.Run(() => RunStop(p, "stop_now", key, CancellationToken.None, -1));   // the user asked: acts even if the balance can't be read
             return new JsonObject { ["ok"] = true, ["message"] = L.T("g_stopping") };
         }
         if (act != "snooze") throw new ApiError(400, "act must be stop_now or snooze");
@@ -365,8 +426,10 @@ abstract partial class MachineConnector
             p.Capped = false;
             if (ZeroAt() is double z && z - Margin < dl) { dl = Math.Max(now, z - Margin); p.Capped = true; }
             p.Deadline = dl;
+            p.Ver++;
             text = L.T("g_snoozed", When(dl)) + (p.Capped && ZeroAt() is double z2 ? " " + L.T("g_capped", When(z2)) : "");
         }
+        SaveGuard();
         ShowPending(p, g, text, register: false);
         GuardNotify(text, "info");
         Log.W($"{Id}: guard: pending stop #{p.Seq} snoozed to {p.Deadline:0}");
@@ -375,21 +438,28 @@ abstract partial class MachineConnector
 
     // ------------------------------------------------------------ the stop
     /// <summary>Stops the pending machines (never deletes), confirms each by polling the list, logs every machine, says what
-    /// was stopped and what its storage costs while stopped. Failures are reported per machine.</summary>
-    async Task RunStop(PendingStop p, string trigger, string key, CancellationToken ct)
+    /// was stopped and what its storage costs while stopped. Failures are reported per machine and tried again at the next
+    /// reading ("retry": quiet unless something got stopped). <paramref name="ver"/> &gt;= 0 (auto): only if the pending
+    /// stop is still due and wasn't snoozed meanwhile.</summary>
+    async Task RunStop(PendingStop p, string trigger, string key, CancellationToken ct, int ver)
     {
-        lock (gate) { if (pending != p) return; pending = null; }
+        lock (gate)
+        {
+            if (pending != p || gStopping) return;
+            if (ver >= 0 && (p.Ver != ver || J.Now() < p.Deadline)) return;
+            pending = null;
+            gStopping = true;
+        }
+        SaveGuard();
+        bool retry = trigger == "retry";
         await stopRun.WaitAsync(CancellationToken.None);
         try
         {
             var g = GCfg;
             List<Machine> ms;
             lock (gate)
-            {
                 ms = p.Ids.Select(id => machines.TryGetValue(id, out var t) ? t.M : null)
                     .Where(m => m != null && m.Active && !g.Exempt.Contains(m.Id)).ToList();
-                foreach (var m in ms) gTried.Add(m.Id);
-            }
             double? bal = balance?.Amount, burn = SpendRate();
             var results = new List<(Machine M, string Error)>();
             var sent = new List<Machine>();
@@ -411,6 +481,7 @@ abstract partial class MachineConnector
                 }
                 catch (Exception e) { err = e.GetBaseException().Message; }
                 if (err == null) sent.Add(m); else results.Add((m, err));
+                if (retry && err != null) continue;   // the card already says it failed
                 var tid = Tid(m.Id);
                 Try(() => hub.Update(tid, new JsonObject
                 {
@@ -436,6 +507,15 @@ abstract partial class MachineConnector
             }
             foreach (var m in left.Values) results.Add((m, L.T("g_not_confirmed", lastState.GetValueOrDefault(m.Id, m.State))));
             nextList = 0;   // the tasks follow at once
+            lock (gate)
+                foreach (var (m, err) in results)
+                    if (err == null) { gTried.Add(m.Id); gFailed.Remove(m.Id); }
+                    else gFailed.Add(m.Id);
+            if (retry && results.All(x => x.Error != null))
+            {
+                Log.W($"{Id}: guard: retry #{p.Seq}: still failing ({string.Join(", ", results.Select(x => x.M.Id))})");
+                return;
+            }
             // the log and the summary
             var entries = new List<JsonObject>();
             var lines = new List<string>();
@@ -459,15 +539,22 @@ abstract partial class MachineConnector
             GuardLog.Add(S, entries);
             var head = L.T("g_done", okN, failN);
             var text = head + (lines.Count > 0 ? "\n" + string.Join("\n", lines) : "");
-            Try(() => hub.Update(GuardTid, new JsonObject
+            if (!retry)
             {
-                ["log"] = J.Cut(text, 1900), ["level"] = failN > 0 ? "error" : "info", ["controls"] = new JsonArray(),
-            }, trusted: true));
-            Try(() => hub.Finish(GuardTid, new JsonObject { ["state"] = failN > 0 ? "failed" : "done", ["message"] = J.Cut(head, 300) }));
+                Try(() => hub.Update(GuardTid, new JsonObject
+                {
+                    ["log"] = J.Cut(text, 1900), ["level"] = failN > 0 ? "error" : "info", ["controls"] = new JsonArray(),
+                }, trusted: true));
+                Try(() => hub.Finish(GuardTid, new JsonObject { ["state"] = failN > 0 ? "failed" : "done", ["message"] = J.Cut(head, 300) }));
+            }
             GuardNotify(text, failN > 0 ? "error" : "warn");
             Log.W($"{Id}: guard: stop #{p.Seq} ({trigger}): {okN} stopped, {failN} failed");
         }
-        finally { stopRun.Release(); }
+        finally
+        {
+            lock (gate) gStopping = false;
+            stopRun.Release();
+        }
     }
 
     string StorageText(double? perDay, string note) =>
@@ -490,7 +577,8 @@ abstract partial class MachineConnector
             ["burn_per_hr"] = SpendRate(), ["hours_to_stop"] = h is double hh ? Math.Round(hh, 3) : null,
             ["stop_at"] = h is double h2 && balance?.Amount > g.Stop ? Math.Round(J.Now() + h2 * 3600, 1) : null,
             ["zero_at"] = ZeroAt() is double z ? Math.Round(z, 1) : null,
-            ["unreadable"] = outage, ["warned"] = gWarned,
+            ["unreadable"] = outage, ["warned"] = gWarned, ["stops"] = balance?.NoStop == null, ["no_stop"] = balance?.NoStop,
+            ["retry"] = J.StrArray(FailedIds()),
             ["pending"] = p == null ? null : new JsonObject
             {
                 ["seq"] = p.Seq, ["deadline"] = Math.Round(p.Deadline, 2), ["held"] = p.Held, ["capped"] = p.Capped,
@@ -507,9 +595,10 @@ abstract partial class MachineConnector
         PendingStop p;
         bool outage;
         lock (gate) { p = pending; outage = gOutage; }
-        string note = !BalanceSource || (balance == null && keyCheck == "ok" && probedAt > 0 && J.Now() - probedAt > 120) ? L.T("g_no_balance")
+        string note = !BalanceSource || (balance?.Amount == null && keyCheck == "ok" && probedAt > 0 && J.Now() - probedAt > 120) ? L.T("g_no_balance")
             : outage ? L.T("g_unreadable", J.Cut(gMissWhy, 100))
-            : canAct == false ? L.T("g_readonly") : null;
+            : canAct == false ? L.T("g_readonly")
+            : balance?.NoStop is { Length: > 0 } ns ? ns : null;
         string forecast = "";
         if (balance?.Amount is double a)
         {
@@ -530,14 +619,85 @@ abstract partial class MachineConnector
             ["note"] = note, ["forecast"] = forecast, ["machines"] = ms, ["log"] = log, ["exempt"] = J.StrArray(g.Exempt.OrderBy(x => x)),
             ["pending"] = p == null ? null : new JsonObject
             {
-                ["text"] = PendingShort(p), ["stop_label"] = L.T("g_stop_now"), ["snooze_label"] = L.T("g_snooze", J.Fmt(Math.Round(g.SnoozeMin, 2))),
+                ["text"] = PendingShort(p), ["stop_label"] = L.T("g_stop_now"), ["stop_q"] = L.T("g_stop_now_q", PendingNames(p)), ["snooze_label"] = L.T("g_snooze", J.Fmt(Math.Round(g.SnoozeMin, 2))),
             },
         };
     }
 
-    /// <summary>After a restart: a pending stop shown by the hub is gone with the old process - say so, drop its buttons.</summary>
+    List<string> FailedIds() { lock (gate) return gFailed.OrderBy(x => x).ToList(); }
+
+    // ------------------------------------------------------------ restart
+    string GuardFile => S.File_("guard_" + Id + ".json");
+
+    /// <summary>guard_&lt;id&gt;.json: the button counter and the pending stop (atomic: .tmp + move), so a restart neither
+    /// loses a pending stop nor lets an old toast's "gstop.N" match a new one.</summary>
+    void SaveGuard()
+    {
+        JsonObject o;
+        lock (gate)
+        {
+            var p = pending;
+            o = new JsonObject
+            {
+                ["seq"] = guardSeq,
+                ["pending"] = p == null || p.Retry || gStopping ? null : new JsonObject
+                {
+                    ["seq"] = p.Seq, ["created"] = p.Created, ["deadline"] = p.Deadline, ["balance"] = p.Balance, ["burn"] = p.Burn,
+                    ["held"] = p.Held, ["machines"] = J.StrArray(p.Ids),
+                    ["names"] = new JsonObject(p.Names.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode)JsonValue.Create(kv.Value)))),
+                },
+            };
+        }
+        lock (GuardLog.FileLock)
+            try
+            {
+                File.WriteAllText(GuardFile + ".tmp", o.ToJsonString(J.Pretty));
+                File.Move(GuardFile + ".tmp", GuardFile, true);
+            }
+            catch (Exception e) { Log.W($"{Id}: {Path.GetFileName(GuardFile)} not saved: " + e.Message); }
+    }
+
+    /// <summary>After a restart: the counter goes on past the saved one (and past any number an older run could have used),
+    /// a saved pending stop goes on with its deadline (never sooner than a minute from now); a guard task shown without
+    /// one is closed.</summary>
     void AdoptGuard()
     {
+        JsonObject saved = null;
+        bool first;
+        lock (gate) { first = !gLoaded; gLoaded = true; }
+        if (first)
+        {
+            try { if (File.Exists(GuardFile)) saved = J.Parse(File.ReadAllText(GuardFile)) as JsonObject; }
+            catch (Exception e) { Log.W($"{Id}: {Path.GetFileName(GuardFile)}: " + e.Message); }
+            // seconds since 2024 also seed it: old buttons stay unmatched even if the file is lost
+            var seed = Math.Max((int)Math.Min(J.Num(saved?["seq"]) ?? 0, int.MaxValue / 2), (int)((J.Now() - 1.704e9) / 2));
+            lock (gate) guardSeq = Math.Max(guardSeq, seed) + 1;
+        }
+        var g = GCfg;
+        if (first && g.On && Cfg.Enabled && saved?["pending"] is JsonObject sp && sp["machines"] is JsonArray ids && ids.Count > 0)
+        {
+            var now = J.Now();
+            PendingStop p;
+            lock (gate)
+            {
+                if (pending != null) return;
+                pending = p = new PendingStop
+                {
+                    Seq = ++guardSeq, Created = J.Num(sp["created"]) ?? now,
+                    Deadline = Math.Max(J.Num(sp["deadline"]) ?? now, now + (Mock ? 2 : 60)),   // the later one
+                    Balance = J.Num(sp["balance"]) ?? 0, Burn = J.Num(sp["burn"]) ?? 0, Held = J.Truthy(sp["held"]),
+                    Ids = ids.Select(x => J.Str(x)).Where(x => x.Length > 0).ToList(),
+                };
+                if (sp["names"] is JsonObject nm) foreach (var (k, v) in nm) if (J.Str(v).Length > 0) p.Names[k] = J.Str(v);
+            }
+            SaveGuard();
+            var text = L.T("g_restored", When(p.Deadline));
+            ShowPending(p, g, text, register: true);
+            GuardNotify(text + " " + PendingShort(p), "warn", withButtons: true);
+            Log.W($"{Id}: guard: pending stop restored as #{p.Seq}, deadline {p.Deadline:0}");
+            return;
+        }
+        if (first && (g.On || saved != null)) SaveGuard();
         var t = TryTask(GuardTid);
         if (t == null || !Hub.IsActive(J.Str(t["state"]))) return;
         lock (gate) if (pending != null) return;
@@ -552,6 +712,7 @@ static class GuardLog
 {
     const int Max = 200;
     static readonly object L_ = new();
+    public static readonly object FileLock = new();   // guard_<id>.json writes
 
     static string PathOf(Settings s) => s.File_("guard_log.json");
 

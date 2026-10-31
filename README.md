@@ -197,7 +197,11 @@ Each provider has its own two thresholds in $: **warn** (default $10) and **stop
   be stopped is reported as failed, never as stopped.
 - If the balance can't be read (no network, the service is down, the key was revoked) TaskHub warns once and, at the
   deadline, stops **nothing** ("auto-stop held, check manually") until it can read the balance again. A read-only key can
-  only warn — the settings say so.
+  only warn — the settings say so. So does an account the provider doesn't stop at $0 (Runpod post-paid; Vast.ai with a
+  card on file charged automatically): the guard only warns there.
+- *Stop now* asks for confirmation first. A machine that failed to stop is tried again at the next balance reading. A
+  pending stop survives a TaskHub restart. The old *low balance* warning keeps working with the guard on (no double
+  warning at the guard's threshold).
 - After a stop TaskHub says what was stopped and what its storage costs while stopped — **≈, per the provider's price
   list**: Runpod — the container disk is wiped and not billed, the volume disk costs $0.20 / GB / month while stopped, a
   network volume $0.07 / GB / month as before ([Runpod pricing](https://docs.runpod.io/pods/pricing),

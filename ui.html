@@ -901,7 +901,7 @@ const connRow=c=>{
   if (th){
     h+=numv("idle_minutes","s_idle_min",1,1440,1,th.idle_minutes);
     // the balance guard on: its warning replaces the old low-balance one (the keys stay as they are)
-    if (!(gd && gd.enabled)) h+=numv("low_runway_hours","s_low_runway",0,720,1,th.low_runway_hours)+numv("low_balance","s_low_bal",0,1000000,1,th.low_balance);
+    h+=numv("low_runway_hours","s_low_runway",0,720,1,th.low_runway_hours)+numv("low_balance","s_low_bal",0,1000000,1,th.low_balance);
   }
   // balance guard (2.9): warn / stop thresholds, time to answer, snooze; forecast; a pending stop with Stop now / Snooze;
   // "never auto-stop" per machine; the last stops. Texts in the UI language come from the host.
@@ -911,7 +911,7 @@ const connRow=c=>{
       h+=numv("guard_warn","s_guard_warn",0,1000000,1,gd.warn)+numv("guard_stop","s_guard_stop",0,1000000,1,gd.stop)
         +numv("guard_grace_min","s_guard_grace",1,120,1,gd.grace_min)+numv("guard_snooze_min","s_guard_snooze",5,240,5,gd.snooze_min);
       if (gd.forecast) h+=srow(gd.forecast,"","","sub");
-      if (gd.pending) h+=srow("⚠ "+gd.pending.text,"",`<button class="btn" data-gact="stop_now" data-conn="${id}">${esc(gd.pending.stop_label)}</button>`
+      if (gd.pending) h+=srow("⚠ "+gd.pending.text,"",`<button class="btn" data-gact="stop_now" data-conn="${id}" data-q="${esc(gd.pending.stop_q||"")}">${esc(gd.pending.stop_label)}</button>`
         +`<button class="btn" data-gact="snooze" data-conn="${id}">${esc(gd.pending.snooze_label)}</button>`,"sub");
       for (const m of gd.machines||[]) h+=srow(m.name, T("s_guard_exempt"), tgl("gex",m.exempt,` data-conn="${id}" data-mid="${esc(m.id)}"`), "sub");
       if ((gd.log||[]).length) h+=`<div class="srow sub"><div class="sl"><div>${esc(T("s_guard_log"))}</div>${gd.log.map(l=>`<div class="sd">${esc(l)}</div>`).join("")}</div></div>`;
@@ -962,7 +962,11 @@ $("#sethost").addEventListener("click",e=>{
   const t=e.target.closest("button"); if (!t || t.disabled) return;
   if (t.dataset.do){ host({settings:"do",what:t.dataset.do}); return; }
   if (t.dataset.ck){ connKey(t.dataset.conn, t.dataset.ck); return; }
-  if (t.dataset.gact){ host({settings:"do",what:"guard",connector:t.dataset.conn,act:t.dataset.gact}); return; }
+  if (t.dataset.gact){
+    const go=()=>host({settings:"do",what:"guard",connector:t.dataset.conn,act:t.dataset.gact});
+    if (t.dataset.q) ask(t.dataset.q).then(ok=>{ if (ok) go(); }); else go();   // Stop now asks first
+    return;
+  }
   const k=t.dataset.k, on=!t.classList.contains("on");
   t.classList.toggle("on",on); t.setAttribute("aria-checked",on?"true":"false");   // at once; the host's reply confirms or reverts
   e.currentTarget.__h=null;   // the next render (reply / poll) redraws even if the state did not change - a failed change flips back

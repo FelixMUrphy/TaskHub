@@ -147,10 +147,30 @@ sealed class RunpodConnector : MachineConnector
         return d;
     }
 
+    string billingMode;      // myself.billingMode: PREPAID | POSTPAID (null = unknown), read hourly, per key
+    double billingModeAt;
+    int billingModeKey;
+
+    /// <summary>The balance; on a post-paid account (invoiced afterwards, pods aren't stopped at $0) clientBalance isn't
+    /// money left before a stop: the guard only warns (<see cref="Balance.NoStop"/>, see .ai/gotchas.md).</summary>
     protected override async Task<Balance> FetchBalance(string key, CancellationToken ct)
     {
         if (!GraphQl) return null;
-        return await RunpodGraphQlBalance.Fetch((body, c) => Call(HttpMethod.Post, "/graphql", body, key, c), ct);
+        Task<Resp> Post(JsonNode body, CancellationToken c) => Call(HttpMethod.Post, "/graphql", body, key, c);
+        var b = await RunpodGraphQlBalance.Fetch(Post, ct);
+        if (b is not { Error: null }) return b;
+        var kh = key.GetHashCode();
+        if (kh != billingModeKey || J.Now() - billingModeAt > (Mock ? 2 : 3600))
+        {
+            if (kh != billingModeKey) billingMode = null;
+            billingModeKey = kh;
+            billingModeAt = J.Now();
+            try { billingMode = await RunpodGraphQlBalance.BillingMode(Post, ct) ?? billingMode; }
+            catch (Exception e) when (!ct.IsCancellationRequested) { Log.W("runpod: billingMode: " + e.GetBaseException().Message); }
+        }
+        if (billingMode != null) b.Raw["billingMode"] = billingMode;
+        if (billingMode == "POSTPAID") b.NoStop = L.T("g_nostop_postpaid");
+        return b;
     }
 
     // ------------------------------------------------------------ actions
@@ -200,13 +220,22 @@ static class RunpodGraphQlBalance
         if (r.Code != 200 || r.Body?["data"]?["myself"] is not JsonObject me)
         {
             if (r.Code != 200 || r.Body?["errors"] != null) Log.W($"runpod: balance (GraphQL) HTTP {r.Code}");
-            return null;
+            return r.Code != 200 ? Balance.Failed(r.Code) : new Balance { Error = "no balance in the answer", Code = 200 };
         }
         var b = new Balance
         {
             Amount = J.Num(me["clientBalance"]), SpendPerHr = J.Num(me["currentSpendPerHr"]), SpendLimit = J.Num(me["spendLimit"]),
         };
         foreach (var k in new[] { "clientBalance", "currentSpendPerHr", "spendLimit" }) b.Raw[k] = J.C(me[k]);
-        return b.Amount == null && b.SpendPerHr == null ? null : b;
+        return b.Amount == null && b.SpendPerHr == null ? new Balance { Error = "no balance in the answer", Code = 200 } : b;
+    }
+
+    /// <summary>`myself { billingMode }` (PREPAID | POSTPAID, GraphQL spec) in its own query, so an unknown field can't
+    /// break the balance; null when not answered.</summary>
+    public static async Task<string> BillingMode(Func<JsonNode, CancellationToken, Task<MachineConnector.Resp>> post, CancellationToken ct)
+    {
+        var r = await post(new JsonObject { ["query"] = "query TaskHubBillingMode { myself { billingMode } }" }, ct);
+        var v = r.Code == 200 ? J.Str(r.Body?["data"]?["myself"]?["billingMode"]).ToUpperInvariant() : "";
+        return v is "PREPAID" or "POSTPAID" ? v : null;
     }
 }
