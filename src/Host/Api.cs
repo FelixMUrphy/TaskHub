@@ -114,6 +114,16 @@ sealed class Api
         });
         R("GET", "/api/connectors", (c, q, g) =>
         {
+            // the rows of the settings page's Connectors section (read-only; never a key): {connectors: [...]}
+            if (q.TryGetValue("view", out var view) && view == "settings")
+            {
+                var all = Conns?.All.ToList() ?? new List<IConnector>();
+                return V(new JsonObject
+                {
+                    ["connectors"] = SettingsBridge.ConnectorRows(all.OfType<GitHubConnector>().FirstOrDefault(), all.OfType<MachineConnector>()),
+                    ["lang"] = L.Lang,
+                });
+            }
             var o = new JsonObject();
             foreach (var k in Conns?.All ?? Enumerable.Empty<IConnector>()) o[k.Id] = k.State();
             return V(o);

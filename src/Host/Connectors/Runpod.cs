@@ -38,7 +38,7 @@ sealed class RunpodConnector : MachineConnector
         for (int page = 0; page < 50; page++)
         {
             var r = await Call(HttpMethod.Get, "/v2/pods?limit=100" + (cursor != null ? "&cursor=" + Uri.EscapeDataString(cursor) : ""), null, key, ct);
-            if (r.Code == 401) { status = "key rejected"; return null; }
+            if (r.Code == 401) { KeyRejected(); return null; }
             if (r.Code == 403) { status = "no access to pods (pods:read)"; return null; }
             if (r.Code != 200) { if (!r.Limited) status = $"Runpod: HTTP {r.Code}"; return null; }
             foreach (var p in (r.Body?["pods"] as JsonArray ?? new JsonArray()).OfType<JsonObject>()) res.Add(Map(p));

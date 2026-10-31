@@ -241,7 +241,7 @@ sealed class Notifier : INotifier
                     more = p.More + dropped;
                     dropped = 0;
                 }
-                var msg = more > 0 ? (string.IsNullOrEmpty(p.Msg) ? "" : p.Msg + "\n") + L.T("toast_more", more) : p.Msg;
+                var msg = more > 0 ? (string.IsNullOrEmpty(p.Msg) ? "" : p.Msg + "\n") + L.N("toast_more", more) : p.Msg;
                 Deliver(p.Title, msg, p.Level, p.Tid, p.Task, p.DismissOnly, p.Controls);
             }
             catch (Exception e) { Log.W("toast gate: " + e.Message); }

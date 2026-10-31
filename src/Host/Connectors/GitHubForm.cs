@@ -154,7 +154,7 @@ sealed class GitHubForm : Form
         if (J.Truthy(s["enabled"]))
         {
             var n = (s["repos"] as JsonArray)?.Count ?? 0;
-            lines.Add(st == "ok" ? L.T("gh_watching", n) + (login.Length > 0 ? "  @" + login : "") : st);
+            lines.Add(st == "ok" ? L.N("gh_watching", n) + (login.Length > 0 ? "  @" + login : "") : st);
             foreach (var (repo, rs) in s["repo_status"] as JsonObject ?? new JsonObject())
                 if (J.Str(rs) is { Length: > 0 } v && v != "ok") lines.Add("• " + repo + ": " + v);
             if (J.Num(s["rate_remaining"]) is double rl && rl < 1000) lines.Add("API: " + J.Fmt(rl) + " requests left this hour");

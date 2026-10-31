@@ -104,6 +104,10 @@ abstract class MachineConnector : IConnector
     bool? canAct;                                          // null: not probed yet / probe failed
     double probedAt, nextList, nextBilling, pausedUntil, backoff;
     string keyHash;
+    // the last verdict on the saved key: "ok" | "revoked" (the service stopped accepting it) | "network" | "unavailable"
+    // (saved but not checked yet); null = no key / not checked. Never anything of the key itself.
+    string keyCheck;
+    int keyCheckCode;
 
     protected MachineConnector(Settings s, Hub h)
     {
@@ -169,26 +173,56 @@ abstract class MachineConnector : IConnector
         ExtraConfig(b, c);
         if (J.IsStr(b["key"])) SetKey(J.Str(b["key"]));   // a rejected key: nothing is changed
         Connectors.SetConfig(S, Id, c);
-        if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); canAct = null; keyHash = null; }
+        if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); canAct = null; keyHash = null; keyCheck = null; balance = null; }
         Start();
         return State();
     }
 
     static readonly Regex KeyRx = new(@"^[\x21-\x7E]{8,400}$");
 
-    /// <summary>Checks the key with the service, keeps it in the Credential Manager (never config.json), probes what it may do.</summary>
+    /// <summary>Checks the key with the service, keeps it in the Credential Manager (never config.json), probes what it may do.
+    /// A key the service rejects (401 / 403) is not kept (400). When the service can't be asked (no network, 5xx, 429) the
+    /// key is kept and checked again by the loop: key_check "network" / "unavailable". A working key: "ok", and the balance
+    /// is read at once (for "Connected, balance $X").</summary>
     public void SetKey(string key)
     {
         key = (key ?? "").Trim();
         if (!KeyRx.IsMatch(key)) throw new ApiError(400, $"this does not look like a {Title} API key");
-        var r = CheckKey(key, CancellationToken.None).GetAwaiter().GetResult();
-        if (r.Code is 401 or 403) throw new ApiError(400, $"{Title} rejected the key");
-        if (r.Code != 200) throw new ApiError(502, $"{Title}: HTTP {r.Code}");
+        Resp r = null;
+        try { r = CheckKey(key, CancellationToken.None).GetAwaiter().GetResult(); }
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException)
+        { Log.W($"{Id}: key not checked: " + e.GetBaseException().Message); }
+        if (r?.Code is 401 or 403) throw new ApiError(400, $"{Title} rejected the key");
         try { Secrets.Write(S, Id, key); }
         catch (Exception e) { throw new ApiError(500, "the key was not saved: " + e.Message); }
         keyHash = null;   // probe again
         canAct = null;
+        balance = null;   // the old key's account
+        SetCheck(r == null ? "network" : r.Code == 200 ? "ok" : "unavailable", r?.Code ?? 0);
+        if (keyCheck != "ok") return;
+        try
+        {
+            if (FetchBalance(key, CancellationToken.None).GetAwaiter().GetResult() is { } bal) { balance = bal; balanceAt = J.Now(); }
+        }
+        catch (Exception e) { Log.W($"{Id}: balance after the key: " + e.GetBaseException().Message); }
     }
+
+    protected void SetCheck(string verdict, int code = 0) { keyCheck = verdict; keyCheckCode = code; }
+
+    /// <summary>The service said 401 to the saved key (the adapters' list call): revoked / expired.</summary>
+    protected void KeyRejected() { status = "key rejected"; SetCheck("revoked"); }
+
+    /// <summary>The verdict on the saved key in words: "Connected, balance $X" / revoked / no network / unavailable.</summary>
+    string CheckText() => keyCheck switch
+    {
+        "ok" => balance?.Amount is not double a ? L.T("k_ok")
+            : balance.Label.Length == 0 ? L.T("k_ok_balance", Money(a))
+            : L.T("k_ok") + " · " + balance.Label + " " + Money(a),   // labelled (Vast.ai: "Balance $x · Credit $y")
+        "revoked" => L.T("k_revoked", Title),
+        "network" => L.T("k_network", Title),
+        "unavailable" => L.T("k_unavailable", Title, keyCheckCode > 0 ? "HTTP " + keyCheckCode : "?"),
+        _ => null,
+    };
 
     bool KeySet()
     {
@@ -212,6 +246,7 @@ abstract class MachineConnector : IConnector
         var s = new JsonObject
         {
             ["enabled"] = c.Enabled, ["key_set"] = KeySet(), ["status"] = status,
+            ["key_check"] = keyCheck, ["key_check_text"] = CheckText(),
             ["can_act"] = canAct, ["probed_at"] = probedAt > 0 ? probedAt : null,
             ["machines"] = list, ["running"] = running,
             ["idle_minutes"] = c.IdleMinutes, ["idle_util"] = c.IdleUtil,
@@ -233,12 +268,20 @@ abstract class MachineConnector : IConnector
     string Summary()
     {
         var parts = new List<string>();
+        // first the verdict on the key: "Connected, balance $X" (the balance then isn't repeated below), revoked...
+        string bl = BalanceLine();
+        if (keyCheck == "ok" && balance?.Amount is double)
+        {
+            parts.Add((low ? "⚠ " : "") + CheckText());
+            bl = Runway() is double h ? L.T("m_runway", Hours(h)) : "";
+        }
+        else if (CheckText() is { } ct) parts.Add(ct);
         if (canAct == false) parts.Add(L.T("m_readonly"));
         else if (canAct == true) parts.Add(L.T("m_can_act"));
         int running;
         lock (gate) running = machines.Values.Count(t => t.M.Active);
-        if (running > 0) parts.Add(L.T("m_running_n", running));
-        if (BalanceLine() is { Length: > 0 } bl) parts.Add(bl);
+        if (running > 0) parts.Add(L.N("m_running_n", running));
+        if (bl.Length > 0) parts.Add(bl);
         return string.Join(" · ", parts);
     }
 
@@ -320,6 +363,7 @@ abstract class MachineConnector : IConnector
             var list = await List(key, ct);
             if (list == null) { if (status == "ok" || status == "starting") status = "list failed"; return; }
             status = "ok";
+            if (keyCheck != "ok") SetCheck("ok");
             Reconcile(list, c);
         }
         List<Track> due;

@@ -3,6 +3,7 @@ connectors.github.api there). Runs become tasks, progress by steps, ETA from ear
 cancel / re-run buttons, artifacts / release links, ETag polling, the token kept out of config.json and responses."""
 import hashlib, json, os, re, threading, time, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import vault
 
 URL = os.environ.get("TASKHUB_URL", "http://127.0.0.1:47899")
 DATA = os.environ.get("TASKHUB_DATA", os.path.join(os.environ.get("TEMP", "."), "taskhub-tests"))
@@ -219,6 +220,8 @@ check("good token -> saved, login known, token never returned", s == 200 and r.g
       and r.get("login") == "tester" and TOKEN not in json.dumps(r), (s, r))
 cfg = open(os.path.join(DATA, "config.json"), encoding="utf-8").read()
 check("token not in config.json", TOKEN not in cfg and "github_pat_" not in cfg, cfg[:300])
+check("token checked right after saving -> 'Connected as @tester'", r.get("token_check") == "ok"
+      and r.get("token_check_text") == "Connected as @tester", r)
 
 # ---- a run in progress becomes a task; the finished old one does not
 t = wait(lambda: task("gh-101"))
@@ -346,6 +349,54 @@ check("nothing polled while paused", len(calls) == n, calls[n:])
 call("POST", "/api/connectors/github", {"enabled": True})   # a restart clears the pause
 check("polling again after a restart", wait(lambda: len(calls) > n), len(calls) - n)
 
+# ---- the settings page's row (2.9): never the token; counts in each language's plural forms; off keeps the token
+NO_VAULT = vault.probe()
+GT = vault.target(DATA, "github")
+
+
+def row():
+    v = call("GET", "/api/connectors?view=settings")[1]
+    return json.dumps(v, ensure_ascii=False), next((c for c in v.get("connectors", []) if c["id"] == "github"), None)
+
+
+txt, rw = row()
+check("settings rows never contain the token", rw is not None and TOKEN not in txt and "github_pat_" not in txt, txt[:300])
+check("settings row: on, token saved and working, 'Connected as @tester · N repositories'", rw and rw["enabled"] and rw["key_set"]
+      and rw["key_check"] == "ok" and rw["summary"].startswith("Connected as @tester") and " repositor" in rw["summary"]
+      and rw["help_url"].endswith("/docs/keys/github.md") and rw.get("setup") == "github", rw)
+saved = call("GET", "/api/connectors/github")[1]["repos"]
+PL = {
+    "en": {1: "1 repository", 2: "2 repositories", 5: "5 repositories"},
+    "de": {1: "1 Repository", 2: "2 Repositorys"},
+    "fr": {1: "1 dépôt", 2: "2 dépôts"},
+    "uk": {1: "1 репозиторій", 2: "2 репозиторії", 5: "5 репозиторіїв", 11: "11 репозиторіїв", 12: "12 репозиторіїв",
+           21: "21 репозиторій", 22: "22 репозиторії"},
+    "pl": {1: "1 repozytorium", 2: "2 repozytoria", 5: "5 repozytoriów", 12: "12 repozytoriów", 21: "21 repozytoriów",
+           22: "22 repozytoria"},
+    "ja": {1: "1 個のリポジトリ", 5: "5 個のリポジトリ"},
+    "zh": {2: "2 个仓库"},
+}
+for n in sorted({n for d in PL.values() for n in d}):
+    call("POST", "/api/connectors/github", {"repos": [f"o/p{i}" for i in range(n)]})
+    for lang, d in PL.items():
+        if n not in d:
+            continue
+        call("POST", "/api/settings", {"language": lang})
+        txt, rw = row()
+        got = rw and rw["summary"]
+        check(f"plural: {lang} {n} -> '{d[n]}'", got and re.search(r"(^| · )" + re.escape(d[n]) + r"( · |$)", got), got)
+        if lang == "uk" and n == 1:
+            check("how-to page in Ukrainian", rw["help_url"].endswith("/docs/keys/github.uk.md"), rw["help_url"])
+call("POST", "/api/settings", {"language": "en"})
+call("POST", "/api/connectors/github", {"repos": saved})
+s, r = call("POST", "/api/connectors/github", {"enabled": False})
+check("off keeps the token", s == 200 and r.get("status") == "off" and r.get("token_set") is True
+      and (bool(NO_VAULT) or vault.read(GT) == TOKEN), r)
+n = len(calls)
+s, r = call("POST", "/api/connectors/github", {"enabled": True})
+check("on again: polls with the saved token, no re-entry", s == 200 and wait(lambda: any(c[2] == "Bearer " + TOKEN for c in calls[n:])),
+      calls[n:][:3])
+
 # ---- off / forget
 s, r = call("POST", "/api/connectors/github", {"enabled": False, "forget_token": True})
 check("disable + forget token", s == 200 and r.get("status") == "off" and r.get("token_set") is False, r)
@@ -354,6 +405,14 @@ time.sleep(4)
 check("nothing polled when off", len(calls) == n, calls[n:])
 for tid in ["gh-101", "gh-102", "gh-103", "gh-104"] + [f"gh-{200 + i}" for i in range(30)]:
     call("DELETE", f"/api/tasks/{tid}?force=1")
+# ---- no network when the token is saved (the mock is down): kept, said so
 srv.shutdown()
+srv.server_close()
+s, r = call("POST", "/api/connectors/github", {"token": TOKEN})
+check("no network on save -> token saved, 'Couldn't reach GitHub'", s == 200 and r.get("token_check") == "network"
+      and "Couldn't reach GitHub" in (r.get("token_check_text") or "") and r.get("token_set") is True, (s, r))
+s, r = call("POST", "/api/connectors/github", {"forget_token": True})
+check("remove deletes the token", s == 200 and r.get("token_set") is False and r.get("token_check") is None
+      and (bool(NO_VAULT) or not vault.exists(GT)), r)
 print(f"{fails} failure(s)")
 raise SystemExit(1 if fails else 0)

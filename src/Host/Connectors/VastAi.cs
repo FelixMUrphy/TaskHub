@@ -41,7 +41,7 @@ sealed class VastAiConnector : MachineConnector
         {
             var r = await Call(HttpMethod.Get, "/api/v1/instances/?limit=25&order_by=" + Order +
                 (after != null ? "&after_token=" + Uri.EscapeDataString(after) : ""), null, key, ct);
-            if (r.Code == 401) { status = "key rejected"; return null; }
+            if (r.Code == 401) { KeyRejected(); return null; }
             if (r.Code == 403) { status = "no access to instances (instance_read)"; return null; }
             if (r.Code != 200) { if (!r.Limited) status = $"Vast.ai: HTTP {r.Code}" + (ErrText(r) is { Length: > 0 } e ? " · " + e : ""); return null; }
             foreach (var p in (r.Body?["instances"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())

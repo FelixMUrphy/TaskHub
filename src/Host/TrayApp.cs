@@ -147,8 +147,8 @@ sealed class TrayApp : ApplicationContext
             var p = J.Num(t["progress"]) is double pr ? $" {Math.Round(pr * 100)}%" : "";
             parts.Add(J.Cut(J.Str(t["name"]), 28) + p + (J.Str(t["state"]) == "stale" ? " ⚠" : ""));
         }
-        if (s.Failed.Count > 0) parts.Add(L.T("failed_n", s.Failed.Count));
-        var head = "TaskHub — " + L.T("active_n", s.ActiveT.Count) + (hub.Muted ? " " + L.T("muted") : "");
+        if (s.Failed.Count > 0) parts.Add(L.N("failed_n", s.Failed.Count));
+        var head = "TaskHub — " + L.N("active_n", s.ActiveT.Count) + (hub.Muted ? " " + L.T("muted") : "");
         return J.Cut(head + (parts.Count > 0 ? "\n" + string.Join("\n", parts) : ""), 127);
     }
 

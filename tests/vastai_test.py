@@ -19,7 +19,7 @@ PAGE = 2
 fails = 0
 lock = threading.RLock()
 calls = []                     # (method, path, auth header, body)
-faults = {"r429": 0, "busy": False, "no_gpu": False, "schedule": False}
+faults = {"r429": 0, "busy": False, "no_gpu": False, "schedule": False, "r503": 0}
 user = {"balance": 0.0, "credit": 50.0, "can_pay": True, "api_key": USER_KEY, "email": "someone@example.com"}
 
 
@@ -94,6 +94,9 @@ class Api(BaseHTTPRequestHandler):
         p = path.split("?")[0]
         q = dict(urllib.parse.parse_qsl(path.split("?", 1)[1])) if "?" in path else {}
         with lock:
+            if faults["r503"] > 0:   # Vast.ai down for a moment
+                faults["r503"] -= 1
+                return self.reply(503, {"detail": "Service Unavailable"})
             if faults["r429"] > 0:
                 faults["r429"] -= 1
                 return self.reply(429, {"detail": "API requests too frequent endpoint threshold=2.0"})
@@ -414,6 +417,23 @@ check("key only in the Authorization header", not bad and hdr_ok, bad[:2])
 
 # ---- Runpod and Vast.ai side by side: separate credentials
 check("separate Credential Manager entries", vault.target(DATA, "vastai") != vault.target(DATA, "runpod"))
+
+# ---- the settings page's row (2.9): never a key (nor the account details of users/current); off keeps the key
+v = call("GET", "/api/connectors?view=settings")[1]
+txt = json.dumps(v, ensure_ascii=False)
+rw = next((c for c in v.get("connectors", []) if c["id"] == "vastai"), None)
+check("settings rows: no key, no account details", rw is not None and KEY_RO not in txt and KEY_RW not in txt and USER_KEY not in txt
+      and "someone@example.com" not in txt, txt[:300])
+check("settings row: connected, both balances labelled", rw and rw["key_check"] == "ok" and rw["summary"].startswith("Connected")
+      and "Credit $50.0" in rw["summary"] and rw["help_url"].endswith("/docs/keys/vastai.md"), rw)
+s, r = call("POST", "/api/connectors/vastai", {"enabled": False})
+check("off keeps the key", s == 200 and r.get("key_set") is True and vault.exists(TARGET), r)
+# Vast.ai unavailable (503) when a key is saved: kept, said so
+with lock:
+    faults["r503"] = 1
+s, r = call("POST", "/api/connectors/vastai", {"key": KEY_RO})
+check("service unavailable on save -> key saved, 'unavailable (HTTP 503)'", s == 200 and r.get("key_check") == "unavailable"
+      and "HTTP 503" in (r.get("key_check_text") or "") and vault.read(TARGET) == KEY_RO, (s, r))
 
 # ---- off / forget
 s, r = call("POST", "/api/connectors/vastai", {"enabled": False, "forget_key": True})

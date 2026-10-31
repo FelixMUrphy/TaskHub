@@ -27,7 +27,7 @@ it.
   also turn on the log option, the end of a failed job's log is downloaded from GitHub's log storage through the one-time
   link GitHub returns, without the token. The token is kept in the Windows Credential Manager of your user account, not in
   TaskHub's files (or, if you choose so, TaskHub uses the token the Git Credential Manager already keeps). GitHub's own
-  privacy policy applies to these requests. Turning the connector off stops them; *Forget token* deletes the token.
+  privacy policy applies to these requests. Turning the connector off stops them (the token stays saved); *Remove* deletes the token.
 - **Runpod connector** (TaskHub 2.9 and later; off by default, earlier versions don't have it). If you paste a Runpod API
   key and turn it on, TaskHub asks `api.runpod.io` with that key (in the `Authorization` header) for your pods and their
   live load, your pod billing of the last 30 days and (GraphQL, can be turned off) your balance, spend per hour and spend
@@ -35,7 +35,7 @@ it.
   actions, TaskHub sends one harmless request a day — "stop" for a pod that does not exist. Stop, start, restart and delete
   are sent only when you press the button and confirm. The key is kept in the Windows Credential Manager of your user
   account, not in TaskHub's files. Runpod's own privacy policy applies to these requests. Turning the connector off stops
-  them; *Forget key* deletes the key.
+  them (the key stays saved); *Remove* deletes the key.
 - **Vast.ai connector** (TaskHub 2.9 and later; off by default, earlier versions don't have it). If you paste a Vast.ai API
   key and turn it on, TaskHub asks `console.vast.ai` with that key (in the `Authorization` header) for your instances and
   their load, your instance charges of the last 30 days and your account's balance and credit (that answer also contains
@@ -43,8 +43,8 @@ it.
   nothing about your PC or your other tasks is sent. To find out whether the key may run actions, TaskHub sends one harmless
   request a day — setting a label on an instance that does not exist. Stop, start, reboot and destroy are sent only when you
   press the button and confirm. The key is kept in the Windows Credential Manager of your user account, not in TaskHub's
-  files. Vast.ai's own privacy policy applies to these requests. Turning the connector off stops them; *Forget key* deletes
-  the key.
+  files. Vast.ai's own privacy policy applies to these requests. Turning the connector off stops them (the key stays saved);
+  *Remove* deletes the key.
 - **Update check** (only in the version installed from GitHub, not in the Microsoft Store version). Once a day TaskHub
   asks `api.github.com` for the latest release number. It sends no personal data, and you can turn the check off in the
   tray menu (*Updates*; from TaskHub 2.9: Settings in the panel → *System*).

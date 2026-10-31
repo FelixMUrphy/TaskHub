@@ -150,7 +150,7 @@ followed and reported (*repository moved to …*); GitHub's rate limits pause po
 ### Runpod
 *From version 2.9; off until you turn it on.* Settings → *Connectors* → *Runpod*: paste an API key from the
 Runpod console (*Settings → API Keys*; kept in the Windows Credential Manager, never in
-`config.json`; *Forget key* deletes it). A read-only key is enough to watch: TaskHub checks once (and daily) whether the key
+`config.json`; turning the connector off keeps it, *Remove* deletes it). A read-only key is enough to watch: TaskHub checks once (and daily) whether the key
 may run actions and shows the Stop / Start / Restart / Delete buttons only if it may. Each pod is a task (`rp-<pod id>`):
 active while it runs or starts, finished *stopped* when it stops and *terminated* when it is deleted; GPU (type × count),
 region, image, price per hour, spent so far (≈, from Runpod's billing), uptime, the SSH command and https links to its HTTP
@@ -166,7 +166,7 @@ skip the balance). Details: [API.md → Connectors](API.md#connectors-runpod).
 ### Vast.ai
 *From version 2.9; off until you turn it on.* Settings → *Connectors* → *Vast.ai*: paste an API key from the Vast.ai console
 (its API keys page; a key with `instance_read`, `user_read` and `billing_read` is enough to watch, actions need
-`instance_write`). It is kept in the Windows Credential Manager, never in `config.json`; *Forget key* deletes it. Like Runpod,
+`instance_write`). It is kept in the Windows Credential Manager, never in `config.json`; turning the connector off keeps it, *Remove* deletes it. Like Runpod,
 TaskHub checks once (and daily) whether the key may run actions and shows the Stop / Start / Reboot / Delete buttons only if it
 may. Each instance is a task (`va-<id>`, named by its label): active while it runs or starts, finished *stopped* when it stops
 and *terminated* when it is destroyed; GPU (type × count), location, image, price per hour, spent so far (≈, from Vast.ai's

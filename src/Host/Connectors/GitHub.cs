@@ -44,6 +44,9 @@ sealed class GitHubConnector : IConnector
     readonly Dictionary<string, (double? secs, double at)> expected = new();   // repo/workflow -> usual duration
 
     string login, status = "off", gcmToken;
+    // the last verdict on the saved token: "ok" | "revoked" | "network" | "unavailable"; null = none / not checked
+    string tokenCheck;
+    int tokenCheckCode;
     double gcmAt, pausedUntil, lastExpiryWarn;
     DateTimeOffset? expires;
     int rateLeft = -1;
@@ -126,7 +129,7 @@ sealed class GitHubConnector : IConnector
             if (b.ContainsKey(k)) c[k] = J.Truthy(b[k]);
         if (J.IsStr(b["token"])) SetToken(J.Str(b["token"]));   // a rejected token: nothing is changed
         Connectors.SetConfig(S, Id, c);
-        if (J.Truthy(b["forget_token"])) { Secrets.Delete(S, Id); login = null; expires = null; }
+        if (J.Truthy(b["forget_token"])) { Secrets.Delete(S, Id); login = null; expires = null; tokenCheck = null; }
         Start();
         return State();
     }
@@ -138,17 +141,37 @@ sealed class GitHubConnector : IConnector
         return m.Success ? m.Groups[1].Value : s;
     }
 
-    /// <summary>Checks a fine-grained (or classic) token with GitHub, then keeps it in the Credential Manager.</summary>
+    /// <summary>Checks a fine-grained (or classic) token with GitHub, then keeps it in the Credential Manager. A token GitHub
+    /// rejects (401) is not kept (400); when GitHub can't be asked (no network, 5xx, rate limit) it is kept and checked again
+    /// by the loop (token_check "network" / "unavailable"); a working one: "ok" with the login.</summary>
     public void SetToken(string token)
     {
         token = (token ?? "").Trim();
         if (!TokenRx.IsMatch(token)) throw new ApiError(400, "this does not look like a GitHub token (github_pat_... or ghp_...)");
-        var r = Call(HttpMethod.Get, "/user", null, token, CancellationToken.None).GetAwaiter().GetResult();
-        if (r.Code == 401) throw new ApiError(400, "GitHub rejected the token");
-        if (r.Code != 200) throw new ApiError(502, $"GitHub: HTTP {r.Code}");
-        Secrets.Write(S, Id, token);
-        login = J.Str(r.Body?["login"]);
+        Resp r = null;
+        try { r = Call(HttpMethod.Get, "/user", null, token, CancellationToken.None).GetAwaiter().GetResult(); }
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException)
+        { Log.W("github: token not checked: " + e.GetBaseException().Message); }
+        if (r?.Code == 401) throw new ApiError(400, "GitHub rejected the token");
+        try { Secrets.Write(S, Id, token); }
+        catch (Exception e) { throw new ApiError(500, "the token was not saved: " + e.Message); }
+        login = r?.Code == 200 ? J.Str(r.Body?["login"]) : null;
+        if (login == "") login = null;
+        tokenCheck = r == null ? "network" : r.Code == 200 ? "ok" : "unavailable";
+        tokenCheckCode = r?.Code ?? 0;
     }
+
+    /// <summary>The verdict on the saved token in words ("Connected as @login" / revoked / no network / unavailable).</summary>
+    public string CheckText() => tokenCheck switch
+    {
+        "ok" => login != null ? L.T("k_ok_login", "@" + login) : L.T("k_ok"),
+        "revoked" => L.T("k_revoked", "GitHub"),
+        "network" => L.T("k_network", "GitHub"),
+        "unavailable" => L.T("k_unavailable", "GitHub", tokenCheckCode > 0 ? "HTTP " + tokenCheckCode : "?"),
+        _ => null,
+    };
+
+    public int RepoCount => Cfg.Repos.Count;
 
     public JsonObject State()
     {
@@ -163,6 +186,7 @@ sealed class GitHubConnector : IConnector
             ["notify_success"] = c.NotifySuccess, ["logs"] = c.Logs, ["auth"] = c.Auth,
             ["token_set"] = TokenSet(),
             ["status"] = status, ["login"] = login,
+            ["token_check"] = c.Auth == "token" ? tokenCheck : null, ["token_check_text"] = c.Auth == "token" ? CheckText() : null,
             ["token_expires"] = expires?.ToUnixTimeSeconds(),
             ["rate_remaining"] = rateLeft >= 0 ? rateLeft : null,
             ["repo_status"] = rst, ["active_runs"] = Count(),
@@ -248,6 +272,7 @@ sealed class GitHubConnector : IConnector
             login = J.Str(me.Body?["login"]);
         }
         status = "ok";
+        if (c.Auth == "token") tokenCheck = "ok";
         WarnExpiry();
         bool slow = rateLeft >= 0 && rateLeft < 500;   // close to the hourly limit: everything at a quarter of the pace
         foreach (var repo in c.Repos)
@@ -274,6 +299,7 @@ sealed class GitHubConnector : IConnector
     void Rejected(Conf c)
     {
         status = "token rejected";
+        if (c.Auth == "token") tokenCheck = "revoked";
         login = null;
         gcmToken = null;
         pausedUntil = J.Now() + 300;

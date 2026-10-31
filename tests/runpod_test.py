@@ -17,6 +17,7 @@ fails = 0
 lock = threading.RLock()
 calls = []                     # (method, path, auth header)
 faults = {"r429": 0, "gpu_taken": False, "force409": False}
+revoked = set()            # keys the mock no longer accepts (401), as if revoked in the Runpod console
 balance = {"clientBalance": 50.0, "currentSpendPerHr": 1.0, "spendLimit": 80}
 
 
@@ -97,7 +98,7 @@ class Api(BaseHTTPRequestHandler):
         path = self.path
         with lock:
             calls.append((m, path, auth))
-        if auth not in ("Bearer " + KEY_RO, "Bearer " + KEY_RW):
+        if auth not in ("Bearer " + KEY_RO, "Bearer " + KEY_RW) or auth in revoked:
             return self.problem(401, "Unauthorized", "invalid api key")
         rw = auth == "Bearer " + KEY_RW
         p = path.split("?")[0]
@@ -184,6 +185,12 @@ def ctl_ids(t):
     return [c["id"] for c in (t or {}).get("controls", []) if t["state"] in c["states"]]
 
 
+def row(cid):
+    """The settings page's row of a connector (GET /api/connectors?view=settings) and the whole answer as text."""
+    v = call("GET", "/api/connectors?view=settings")[1]
+    return json.dumps(v, ensure_ascii=False), next((c for c in v.get("connectors", []) if c["id"] == cid), None)
+
+
 def chart(t, wid):
     return next((w for w in (t or {}).get("widgets", []) if w["id"] == wid), None)
 
@@ -215,6 +222,8 @@ check("read-only key saved, never returned", s == 200 and r.get("key_set") is Tr
 check("key in the Credential Manager", vault.read(TARGET) == KEY_RO, TARGET)
 cfg = open(os.path.join(DATA, "config.json"), encoding="utf-8").read()
 check("key not in config.json", KEY_RO not in cfg and "rpa_" not in cfg, cfg[:300])
+check("key checked right after saving -> 'Connected, balance $50.0'", r.get("key_check") == "ok"
+      and r.get("key_check_text") == "Connected, balance $50.0", r)
 
 # ---- pods -> tasks (both list pages), a pod already stopped is shown quietly
 t1 = when("rp-pod1", lambda x: x["state"] == "running")
@@ -358,6 +367,40 @@ with lock:
     hosts_ok = all(c[2] in ("Bearer " + KEY_RO, "Bearer " + KEY_RW, "Bearer rpa_UNKNOWN" + "X" * 30) for c in calls)
 check("key only in the Authorization header", not bad and hosts_ok, bad[:2])
 
+# ---- the settings page's row (2.9): never the key; off keeps the key, on again needs no re-entry; a revoked key
+txt, rw = row("runpod")
+check("settings rows never contain a key", rw is not None and KEY_RO not in txt and KEY_RW not in txt and "rpa_" not in txt, txt[:300])
+check("settings row: on, key saved and working, 'Connected, balance $…'", rw and rw["enabled"] and rw["uses_key"] and rw["key_set"]
+      and rw["key_check"] == "ok" and rw["summary"].startswith("Connected, balance $"), rw)
+check("settings row: thresholds", rw and rw.get("thresholds", {}).get("low_runway_hours") == 12, rw)
+check("how-to-get-a-key page: English", rw and rw["help_url"] == "https://github.com/FelixMUrphy/TaskHub/blob/main/docs/keys/runpod.md", rw)
+call("POST", "/api/settings", {"language": "uk"})
+txt, rw = row("runpod")
+check("how-to page in Ukrainian (exists) + the row in Ukrainian", rw and rw["help_url"].endswith("/docs/keys/runpod.uk.md")
+      and rw["summary"].startswith("Під’єднано, баланс $"), rw)
+call("POST", "/api/settings", {"language": "de"})
+txt, rw = row("runpod")
+check("how-to page: German not there -> English", rw and rw["help_url"].endswith("/docs/keys/runpod.md"), rw)
+call("POST", "/api/settings", {"language": "en"})
+s, r = call("POST", "/api/connectors/runpod", {"enabled": False})
+check("off keeps the key (Credential Manager)", s == 200 and r.get("status") == "off" and r.get("key_set") is True
+      and vault.read(TARGET) == KEY_RW, r)
+txt, rw = row("runpod")
+check("off: the row has no state line", rw and rw["enabled"] is False and rw["summary"] == "", rw)
+with lock:
+    n = len(calls)
+s, r = call("POST", "/api/connectors/runpod", {"enabled": True})
+check("on again: polls with the saved key, no re-entry", s == 200 and wait(lambda: any(c[2] == "Bearer " + KEY_RW and c[1].startswith("/v2/pods?")
+      for c in calls[n:])) and wait(lambda: state().get("status") == "ok"), state())
+revoked.add("Bearer " + KEY_RW)
+st = wait(lambda: (lambda x: x if x.get("key_check") == "revoked" else None)(state()))
+check("key revoked at Runpod -> key_check 'revoked', said so", st and "no longer accepts" in (st.get("key_check_text") or ""), st)
+txt, rw = row("runpod")
+check("revoked: the row says so (the how-to link comes back)", rw and rw["key_check"] == "revoked" and rw["key_set"]
+      and "no longer accepts" in rw["summary"], rw)
+revoked.clear()
+check("accepted again -> 'ok'", wait(lambda: state().get("key_check") == "ok"), state())
+
 # ---- GraphQL balance module off
 call("POST", "/api/connectors/runpod", {"graphql_balance": False})
 time.sleep(0.5)
@@ -379,6 +422,13 @@ check("nothing polled when off", len(calls) == n, calls[n:])
 call("POST", "/api/connectors/runpod", {"graphql_balance": True, "low_runway_hours": 12})
 for tid in ["rp-pod1", "rp-pod2", "rp-pod3", "rp-pod4"]:
     call("DELETE", f"/api/tasks/{tid}?force=1")
+# ---- no network when the key is saved (the mock is down): kept, said so, checked again later
 srv.shutdown()
+srv.server_close()
+s, r = call("POST", "/api/connectors/runpod", {"key": KEY_RO})
+check("no network on save -> key saved, 'Couldn't reach Runpod'", s == 200 and r.get("key_check") == "network"
+      and "Couldn't reach Runpod" in (r.get("key_check_text") or "") and vault.read(TARGET) == KEY_RO, (s, r))
+s, r = call("POST", "/api/connectors/runpod", {"forget_key": True})
+check("remove deletes the key", s == 200 and r.get("key_set") is False and r.get("key_check") is None and not vault.exists(TARGET), r)
 print(f"{fails} failure(s)")
 raise SystemExit(1 if fails else 0)
