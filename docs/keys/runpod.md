@@ -30,7 +30,7 @@ you type the name.
 
 ## Where the key is kept
 - Only in the Windows Credential Manager — never in `config.json`.
-- Sent only to `api.runpod.io` (REST for pods and billing, GraphQL for the balance).
+- Sent only to `api.runpod.io` (REST for pods, network volume sizes and billing, GraphQL for the balance).
 
 ## Revoke it
 - **At Runpod:** <https://console.runpod.io/user/credentials> → the trash icon next to the key → **Revoke Key**

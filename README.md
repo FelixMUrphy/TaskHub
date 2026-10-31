@@ -204,11 +204,14 @@ Each provider has its own two thresholds in $: **warn** (default $10) and **stop
   warning at the guard's threshold).
 - After a stop TaskHub says what was stopped and what its storage costs while stopped — **≈, per the provider's price
   list**: Runpod — the container disk is wiped and not billed, the volume disk costs $0.20 / GB / month while stopped, a
-  network volume $0.07 / GB / month as before ([Runpod pricing](https://docs.runpod.io/pods/pricing),
+  network volume $0.07 / GB / month as before (its size read from Runpod from 2.9.1; [Runpod pricing](https://docs.runpod.io/pods/pricing),
   [storage types](https://docs.runpod.io/pods/storage/types)); Vast.ai — the instance's storage price × its disk size
   (host-specific; [Vast.ai pricing](https://docs.vast.ai/guides/instances/pricing)). The settings show the forecast ("at the
   current spend the balance reaches the stop threshold at …") and the last stops; every stop (when, which machine, why,
   spent so far, result, storage ≈) is kept in `guard_log.json` in the data folder (`GET /api/guard/log`).
+- **Runpod books charges in steps**: its balance doesn't move continuously but drops every few minutes (about every
+  10 min in a test), so the stop threshold can be crossed up to ~10 min late — set it with some margin (the settings
+  say so).
 Details: [API.md → Balance guard](API.md#balance-guard).
 
 ## Install details

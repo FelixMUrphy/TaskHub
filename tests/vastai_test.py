@@ -309,7 +309,7 @@ st = wait(lambda: (lambda x: x if x.get("balance") else None)(state()))
 b = (st or {}).get("balance") or {}
 check("credit as amount, runway = 50 / (4 active × $0.40/h)", b.get("amount") == 50 and abs((b.get("runway_hours") or 0) - 31.25) < 0.01, b)
 check("raw balance and credit kept", b.get("raw", {}).get("balance") == 0 and b.get("raw", {}).get("credit") == 50, b.get("raw"))
-check("both labelled in the summary", st and "Balance $0.00" in st.get("summary", "") and "Credit $50.0" in st["summary"], st and st.get("summary"))
+check("both labelled in the summary", st and "Balance $0.00" in st.get("summary", "") and "Credit $50.00" in st["summary"], st and st.get("summary"))
 dump = json.dumps(state()) + json.dumps(task("va-101")) + open(os.path.join(DATA, "config.json"), encoding="utf-8").read()
 check("the user's API key from /users/current never kept", USER_KEY not in dump and "someone@example.com" not in dump)
 
@@ -438,7 +438,7 @@ rw = next((c for c in v.get("connectors", []) if c["id"] == "vastai"), None)
 check("settings rows: no key, no account details", rw is not None and KEY_RO not in txt and KEY_RW not in txt and USER_KEY not in txt
       and "someone@example.com" not in txt, txt[:300])
 check("settings row: connected, both balances labelled", rw and rw["key_check"] == "ok" and rw["summary"].startswith("Connected")
-      and "Credit $50.0" in rw["summary"] and rw["help_url"].endswith("/docs/keys/vastai.md"), rw)
+      and "Credit $50.00" in rw["summary"] and rw["help_url"].endswith("/docs/keys/vastai.md"), rw)
 s, r = call("POST", "/api/connectors/vastai", {"enabled": False})
 check("off keeps the key", s == 200 and r.get("key_set") is True and vault.exists(TARGET), r)
 # Vast.ai unavailable (503) when a key is saved: kept, said so
