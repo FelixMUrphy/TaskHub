@@ -156,7 +156,7 @@ When every GPU of a pod stays under 5 % for 30 minutes (`idle_minutes`, `idle_ut
 in Telegram, with a Stop button. Balance and runway (balance ÷ current spend per hour) are shown in Settings and on the pods;
 below 12 hours (`low_runway_hours`, or under `low_balance` $) TaskHub warns once — at $0 Runpod stops pods and terminates the
 ones without a network volume. Stop, start and restart ask for a confirmation (stop and restart also work from the
-notification and Telegram); delete works only in the panel, after typing the pod's name. TaskHub talks only to
+notification and Telegram); delete works only in the panel, after typing the pod's name (never through the HTTP API). TaskHub talks only to
 `api.runpod.io`: REST v2 for pods and billing, and GraphQL for the balance (`graphql_balance`, on by default; turn it off to
 skip the balance). Details: [API.md → Connectors](API.md#connectors-runpod).
 

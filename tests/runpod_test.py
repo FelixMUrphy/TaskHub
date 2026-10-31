@@ -1,7 +1,7 @@
 """Runpod connector against a mock Runpod API (127.0.0.1:47891; the test hub's config.json points connectors.runpod.api
 there). Pods become tasks (rp-<podId>), paging by cursor, live load from GET by id -> charts, GPU idle -> attention,
 balance (GraphQL module) -> runway + low-balance warning, read-only vs write key (probe) -> buttons, stop / start /
-restart, 409 and "GPU taken", delete only after typing the name, terminated pods, 429 + Retry-After, the key kept in the
+restart, 409 and "GPU taken", delete only in the panel (never over HTTP), terminated pods, 429 + Retry-After, the key kept in the
 Credential Manager (never config.json, never in a URL)."""
 import json, os, re, threading, time, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -320,14 +320,15 @@ check("start with the GPU taken -> 'No free GPU' text", s == 409 and "No free GP
 with lock:
     faults["gpu_taken"] = False
 
-# ---- delete: only with the exact name (panel); a wrong name deletes nothing
-s, r = call("POST", "/api/tasks/rp-pod2/controls/delete", {"value": "old-bo"})
-check("delete with a wrong name -> 400, pod kept", s == 400 and "doesn't match" in r.get("error", "") and "pod2" in pods, (s, r))
-s, r = call("POST", "/api/tasks/rp-pod2/controls/delete", {})
-check("delete without a name -> 400", s == 400 and "pod2" in pods, (s, r))
-s, r = call("POST", "/api/tasks/rp-pod2/controls/delete", {"value": "old-box"})
-check("delete with the exact name -> DELETE /v2/pods/pod2", s == 200 and "pod2" not in pods
-      and any(c[0] == "DELETE" and c[1] == "/v2/pods/pod2" for c in calls), (s, r))
+# ---- delete: only through the panel's WebView2 bridge (typed name) - never over HTTP, not even with the exact name.
+# (The bridge path itself can't be driven from Python; the name check sits behind it.)
+check("delete marked panel-only", dele.get("panel_only") is True, dele)
+for v in ("old-box", "old-bo", None):
+    s, r = call("POST", "/api/tasks/rp-pod2/controls/delete", {} if v is None else {"value": v})
+    check(f"HTTP delete (value {v!r}) -> 403, pod untouched", s == 403 and "pod2" in pods and "only in the TaskHub panel" in r.get("error", ""), (s, r))
+with lock:
+    check("no DELETE ever sent to Runpod", not any(c[0] == "DELETE" for c in calls))
+    del pods["pod2"]   # deleted in Runpod's console
 t2 = when("rp-pod2", lambda x: x["message"] == "terminated")
 check("deleted pod -> task 'terminated', no buttons", t2 is not None and ctl_ids(t2) == [], t2 and (t2["message"], ctl_ids(t2)))
 

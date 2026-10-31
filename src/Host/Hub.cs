@@ -297,6 +297,9 @@ sealed class Hub
             ["input"] = NormInput(c["input"]),
             ["toast"] = J.Truthy(c["toast"]),
         };
+        // irreversible connector actions (delete a rented machine): only through the panel's own WebView2 messages, never
+        // the HTTP API, toasts or Telegram - Trigger refuses them unless via == "panel"
+        if (trusted && J.Truthy(c["panel_only"])) { r["panel_only"] = true; r["toast"] = false; }
         if (kind == "shell")
         {
             var cmd = c["command"];
@@ -913,7 +916,8 @@ sealed class Hub
 
     // ------------------------------------------------------------ controls & commands
     /// <summary>A "connector" control pressed: (source, task, control, value, via) -> the connector that made the task.
-    /// via: null from the panel / API, "toast" or "telegram" otherwise (some actions are offered in the panel only).</summary>
+    /// via: null from the HTTP API (also the panel's ordinary buttons), "toast", "telegram", or "panel" (the panel's WebView2
+    /// bridge - the only way to panel_only controls).</summary>
     public Func<string, string, string, JsonNode, string, JsonObject> ConnectorControl;
 
     public JsonObject Trigger(string tid, string cid, JsonObject b, string via = null)
@@ -930,6 +934,8 @@ sealed class Hub
             if (c == null) throw new ApiError(404, $"control '{cid}' not found");
             if (J.Str(c["kind"]) == "kill" && J.Num(t["pid"]) is double kp && kp > 0 && In(tid).Ct == null)
                 throw new ApiError(409, "kill refused: the process's creation time wasn't known at registration, so the pid can't be told from a reused one");
+            if (J.Truthy(c["panel_only"]) && via != "panel")
+                throw new ApiError(403, $"control '{cid}' works only in the TaskHub panel, not through the HTTP API, toasts or Telegram");
             var states = (c["states"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x)).ToList();
             if (!states.Contains(St(t))) throw new ApiError(409, $"control '{cid}' not available in state '{St(t)}'");
             value = CheckValue(c["input"] as JsonObject, value);

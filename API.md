@@ -172,7 +172,7 @@ in Telegram), `hint`, `states` (when shown; default running/paused/stale), `inpu
 | `signal` | queued for the process → it receives via `GET /commands?wait=25` → replies with `ack` |
 | `shell` | hub runs `command` (list or string; placeholders `{value}` `{pid}` `{task_id}`; see *Shell values* below), the last 25 output lines and the exit code → task log; `cwd`, `timeout` (s, default 300, 1–86400) |
 | `open` | hub opens `target` (file, folder, URL) |
-| `connector` | only on tasks of a built-in connector (not accepted from API clients): the connector does it (e.g. cancel / re-run on GitHub) |
+| `connector` | only on tasks of a built-in connector (not accepted from API clients): the connector does it (e.g. cancel / re-run on GitHub); `panel_only` ones (delete a Runpod pod) answer 403 over HTTP - only the panel's own page can trigger them (2.9) |
 | `kill` | hub kills `pid` with its whole process tree (only if it is still the process the task registered, never a reused pid); task → cancelled. 2.9: refused (409) when the process's start time couldn't be read at registration; if the process is still running after the kill (e.g. it runs elevated: access denied) → 500 with the reason and the task stays as it was (before 2.9: marked cancelled anyway) |
 
 `input`: `{"type": "text"|"number"|"select"|"bool", "label", "default", "options": [...], "min", "max", "step"}`.
@@ -221,8 +221,8 @@ source `runpod`, project `Runpod`, `meta.runpod = {id, name, state, status}`. RU
 SSH, balance), `gpu` (chart: GPU = highest util of its GPUs, VRAM) and `load` (chart: CPU, RAM), 240 points, from TaskHub's own
 polls (Runpod keeps no history). Links: `https://<pod>-<port>.proxy.runpod.net` for each `<port>/http`.
 Buttons (only when the key may run actions - probed with `POST /v2/pods/pod_taskhub_probe/action` when the key changes and
-daily: 403 = read-only): stop / restart (running; also in toasts and Telegram), start (stopped), delete (panel only, value =
-the pod's exact name; refused from toasts / Telegram) - each with a confirmation. Errors: 409 *not possible in the current
+daily: 403 = read-only): stop / restart (running; also in toasts and Telegram), start (stopped), delete (panel only: sent as a WebView2
+message after typing the pod's exact name; HTTP, toasts and Telegram get 403) - each with a confirmation. Errors: 409 *not possible in the current
 state*, *no free GPU* for a start whose host is full, 403 *the key may not do this*.
 GPU idle: every GPU under `idle_util` % (5) for `idle_minutes` (30) → `attention` + a warning (Windows + Telegram, with Stop),
 once per idle period. Balance: GraphQL `myself {clientBalance currentSpendPerHr spendLimit}` (`graphql_balance`, default on);

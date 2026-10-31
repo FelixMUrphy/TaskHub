@@ -634,6 +634,10 @@ async function onControl(el, tid, c, btn){
   inp.addEventListener("keydown",e=>{ if(e.key==="Enter") ok(); if(e.key==="Escape"){ e.stopPropagation(); close(); } });
 }
 async function send(tid,c,value,btn){
+  if (c.panel_only){   // irreversible: only through the WebView2 bridge of the native panel, never the HTTP API
+    if (!NATIVE){ snack(T("error")); return; }
+    host({control:{task:tid,id:c.id,value:value===undefined?null:value}}); return;
+  }
   if (btn) btn.disabled=true;
   try{ await api("POST",`/api/tasks/${tid}/controls/${c.id}`, value===undefined?{}:{value}); snack(T("sent",c.label)); }
   catch(e){ snack(T("error")+": "+e.message); }
@@ -988,6 +992,7 @@ if (NATIVE){ document.documentElement.classList.add("native"); try{ window.chrom
   if(d && d.paint){ requestAnimationFrame(()=>requestAnimationFrame(()=>host("painted"))); }
   if(d && d.open_settings) openSet();
   if(d && d.settings_state) settingsReply(d);
+  if(d && d.control_reply){ const r=d.control_reply, t=findTask(r.task), c=t && (t.controls||[]).find(x=>x.id===r.id); snack(r.ok? T("sent",c?c.label:r.id) : T("error")+": "+(r.error||"")); }
   if(d && d.hidden){ panelShown(false); closeSet(); const a=document.activeElement; if (a && a.closest && a.closest("header,#set")) a.blur(); } }); }catch(e){} host("look"); }
 else { for (const id of ["transpl","transpr","ctranspl","ctranspr"]) $("#"+id).style.display="none"; }
 applyLang();

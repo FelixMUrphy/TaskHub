@@ -436,6 +436,22 @@ sealed class PanelForm : Form
         try { web.CoreWebView2?.PostWebMessageAsJson(r.ToJsonString(J.Out)); } catch { }
     }
 
+    /// <summary>A panel_only control (e.g. delete a rented machine after typing its name): pressed on our own page and sent as a
+    /// WebView2 message, never over HTTP. The answer goes back as {"control_reply": {id, ok, error?}}.</summary>
+    async Task PanelControl(JsonObject c)
+    {
+        var tid = J.Str(c["task"]);
+        var cid = J.Str(c["id"]);
+        var reply = new JsonObject { ["id"] = cid, ["task"] = tid };
+        try
+        {
+            await Task.Run(() => hub.Trigger(tid, cid, new JsonObject { ["value"] = J.C(c["value"]) }, "panel"));
+            reply["ok"] = true;
+        }
+        catch (Exception e) { reply["ok"] = false; reply["error"] = e.Message; }
+        try { web.CoreWebView2?.PostWebMessageAsJson(new JsonObject { ["control_reply"] = reply }.ToJsonString(J.Out)); } catch { }
+    }
+
     /// <summary>Tray menu -> Settings: the panel opens on its settings page.</summary>
     public void OpenSettings()
     {
@@ -459,6 +475,7 @@ sealed class PanelForm : Form
                 if (o?["open"] != null) SafeOpen(J.Str(o["open"]), true);
                 if (o?["settings"] != null && SettingsPage != null)
                     _ = ReplySettings(o);
+                if (o?["control"] is JsonObject ctl) _ = PanelControl(ctl);
             }
             catch { }
             return;

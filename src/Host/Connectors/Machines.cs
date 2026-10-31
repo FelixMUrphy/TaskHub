@@ -531,7 +531,7 @@ abstract class MachineConnector : IConnector
         a.Add(new JsonObject
         {
             ["id"] = "delete", ["label"] = L.T("m_delete"), ["kind"] = "connector", ["style"] = "danger",
-            ["confirm"] = L.T("m_delete_q", name), ["states"] = J.StrArray(Hub.AllStates),
+            ["confirm"] = L.T("m_delete_q", name), ["states"] = J.StrArray(Hub.AllStates), ["panel_only"] = true,
             ["input"] = new JsonObject { ["type"] = "text", ["label"] = L.T("m_delete_type", name) },
         });
         return a;
@@ -693,7 +693,7 @@ abstract class MachineConnector : IConnector
         if (action == "delete")
         {
             // irreversible: only from the panel, and only after the exact name was typed
-            if (via != null) throw new ApiError(403, L.T("m_delete_panel"));
+            if (via != "panel") throw new ApiError(403, L.T("m_delete_panel"));
             if (J.Str(value) != (m.Name ?? m.Id)) throw new ApiError(400, L.T("m_delete_mismatch"));
         }
         var key = Secrets.Read(S, Id);
