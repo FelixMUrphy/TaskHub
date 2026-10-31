@@ -16,15 +16,88 @@ sealed class Notifier : INotifier
 {
     readonly Settings S;
     public Hub Hub;
-    public Action<string> OpenPanel;           // task id or null
     public Action<string, string> Balloon;     // fallback: tray balloon (title, msg)
     public Func<bool> PanelOpen;               // true -> no popup banners, toasts go silently to the notification center
     public TelegramBridge Telegram;            // every notification is mirrored there (if linked)
     readonly BlockingCollection<Action> queue = new();
     readonly HashSet<string> progressDismissed = new();
     readonly Dictionary<string, uint> progressSeq = new();
-    int failures;
+    int failures;                              // toasts failed in a row (worker thread)
+    DateTime toastsOffUntil;                   // after 3 failures: tray balloons for a while, then toasts are tried again
+    const int ContentTooLarge = unchecked((int)0x803E0115);   // payload > 5 KB: this toast's fault, not the system's
     string iconPath;
+
+    // a toast click can start the hub (COM activation) before the tray wires the panel: the click waits here
+    readonly object activationLock = new();
+    Action<string> openPanel;
+    bool openPending;
+    string openPendingTask;
+
+    /// <summary>Opens the panel (task id or null) on the UI thread. Set by the tray; a click that came earlier is replayed then.</summary>
+    public Action<string> OpenPanel
+    {
+        set
+        {
+            bool replay;
+            string tid;
+            lock (activationLock)
+            {
+                openPanel = value;
+                replay = value != null && openPending;
+                tid = openPendingTask;
+                if (replay) { openPending = false; openPendingTask = null; }
+            }
+            if (replay) value(tid);
+        }
+    }
+
+    void DoOpenPanel(string tid)
+    {
+        Action<string> a;
+        lock (activationLock)
+        {
+            a = openPanel;
+            if (a == null) { openPending = true; openPendingTask = tid; return; }
+        }
+        a(tid);
+    }
+
+    // ------------------------------------------------------------ Windows' own switch for our notifications
+    string systemSetting = "unknown";
+    DateTime systemSettingAt;
+
+    /// <summary>"enabled", "disabled_app" (Settings -> Notifications -> TaskHub), "disabled_user" (all notifications off),
+    /// "disabled_policy", "disabled_manifest" or "unknown". Turned off there, toasts are dropped silently (Show doesn't
+    /// fail). Cached for 30 s.</summary>
+    public string SystemSetting
+    {
+        get
+        {
+            lock (activationLock)
+            {
+                if ((DateTime.UtcNow - systemSettingAt).TotalSeconds < 30) return systemSetting;
+                systemSettingAt = DateTime.UtcNow;
+            }
+            string v;
+            try
+            {
+                v = ToastNotificationManagerCompat.CreateToastNotifier().Setting switch
+                {
+                    NotificationSetting.Enabled => "enabled",
+                    NotificationSetting.DisabledForApplication => "disabled_app",
+                    NotificationSetting.DisabledForUser => "disabled_user",
+                    NotificationSetting.DisabledByGroupPolicy => "disabled_policy",
+                    NotificationSetting.DisabledByManifest => "disabled_manifest",
+                    _ => "unknown",
+                };
+            }
+            catch (Exception e) { v = "unknown"; Log.W("toast setting: " + e.Message); }
+            lock (activationLock) systemSetting = v;
+            return v;
+        }
+    }
+
+    public bool SystemDisabled => SystemSetting.StartsWith("disabled");
 
     public Notifier(Settings s)
     {
@@ -82,11 +155,18 @@ sealed class Notifier : INotifier
     void ShowToast(string title, string msg, string level, string tid, JsonObject task, bool dismissOnly = false, bool controls = true,
         string action = null)
     {
-        if (failures >= 3) { Balloon?.Invoke(title, msg); return; }
+        if (DateTime.UtcNow < toastsOffUntil) { Balloon?.Invoke(title, msg); return; }
+        // notifications turned off in Windows: a failure would go unseen - the tray balloon instead
+        if (level == "error" && SystemDisabled) { Balloon?.Invoke(title, msg); return; }
         try
         {
             var e = new Shown(title, msg, level, tid, task, dismissOnly && tid == null, controls, action);
             var b = Build(e, task, out bool interactive);
+            if (TooLarge(b))   // > 5 KB is refused: without the task's buttons / inputs then
+            {
+                e = e with { Controls = false };
+                b = Build(e, task, out interactive);
+            }
             var tag = Tag(tid ?? "n") + Guid.NewGuid().ToString("N")[..6];
             bool quiet = Quiet();
             Post(b, tag, quiet);
@@ -103,10 +183,24 @@ sealed class Notifier : INotifier
         }
         catch (Exception ex)
         {
-            failures++;
+            // only system failures count towards the switch (not a payload that was too large); after 3 in a row
+            // balloons for 10 minutes, then toasts get another chance
+            if (ex.HResult != ContentTooLarge && ++failures >= 3)
+            {
+                failures = 0;
+                toastsOffUntil = DateTime.UtcNow.AddMinutes(10);
+                Log.W("toasts failing: tray balloons for 10 minutes");
+            }
             Log.W("toast failed: " + ex);
             Balloon?.Invoke(title, msg);
         }
+    }
+
+    /// <summary>Windows refuses a toast over 5 KB (0x803E0115); leave room for the attributes Show adds.</summary>
+    static bool TooLarge(ToastContentBuilder b)
+    {
+        try { return b.GetToastContent().GetContent().Length > 4500; }
+        catch { return false; }
     }
 
     /// <summary>Forget toasts no longer in the notification center (dismissed, clicked, cleared) - otherwise quiet toasts,
@@ -147,7 +241,7 @@ sealed class Notifier : INotifier
                 {
                     if (inputs >= 3) continue;
                     var iid = "v_" + cid;
-                    var lbl = J.Truthy(inp["label"]) ? J.Str(inp["label"]) : J.Str(c["label"]);
+                    var lbl = J.Cut(J.Truthy(inp["label"]) ? J.Str(inp["label"]) : J.Str(c["label"]), 60);
                     var typ = J.Str(inp["type"]);
                     var cur = c["last_value"] ?? inp["default"];   // current value, not the registration default
                     if (typ == "select")
@@ -155,14 +249,16 @@ sealed class Notifier : INotifier
                         var opts = (inp["options"] as JsonArray).Select(x => J.Str(x)).Take(5).ToList();
                         var def = J.Str(cur);
                         if (!opts.Contains(def)) def = opts[0];
-                        b.AddComboBox(iid, lbl, def, opts.Select(o => (o, o)).ToArray());
+                        // the option itself is the id (it is the value sent back); only the shown text is shortened
+                        b.AddComboBox(iid, lbl, def, opts.Select(o => (o, J.Cut(o, 60))).ToArray());
                     }
                     else if (typ == "bool")
                         b.AddComboBox(iid, lbl, J.Truthy(cur) ? "true" : "false", ("true", L.T("yes")), ("false", L.T("no")));
                     else
                     {
-                        var ph = J.Truthy(inp["placeholder"]) ? J.Str(inp["placeholder"]) : "";
-                        b.AddToastInput(new ToastTextBox(iid) { Title = lbl, PlaceholderContent = ph, DefaultInput = cur == null ? "" : J.Str(cur) });
+                        var ph = J.Truthy(inp["placeholder"]) ? J.Cut(J.Str(inp["placeholder"]), 60) : "";
+                        // the last value can be up to 2000 characters; the whole toast must stay under 5 KB
+                        b.AddToastInput(new ToastTextBox(iid) { Title = lbl, PlaceholderContent = ph, DefaultInput = cur == null ? "" : J.Cut(J.Str(cur), 200) });
                     }
                     inputs++;
                 }
@@ -319,10 +415,26 @@ sealed class Notifier : INotifier
             var cid = J.Str(c["id"]);
             var yes = new ToastButton().SetContent(L.T("yes"))
                 .AddArgument("action", "ctl").AddArgument("task", tid).AddArgument("cid", cid).AddArgument("ok", "1");
-            if (value != null) yes.AddArgument("val", J.Dump(value));
+            if (value != null)
+            {
+                // the value rides in the button; a long one (text up to 2000 characters) would push the toast over 5 KB,
+                // so it waits here and the button carries a key (lost only if the hub restarts in between)
+                var dump = J.Dump(value);
+                if (dump.Length <= 500) yes.AddArgument("val", dump);
+                else
+                {
+                    var key = Guid.NewGuid().ToString("N")[..12];
+                    lock (confirmValues)
+                    {
+                        if (confirmValues.Count > 50) confirmValues.Clear();
+                        confirmValues[key] = dump;
+                    }
+                    yes.AddArgument("valkey", key);
+                }
+            }
             var b = new ToastContentBuilder()
                 .AddArgument("action", "none").AddArgument("task", tid)
-                .AddText(J.Cut(J.Str(c["label"]) + (value != null ? " = " + J.Str(value) : ""), 150))
+                .AddText(J.Cut(J.Cut(J.Str(c["label"]), 60) + (value != null ? " = " + J.Cut(J.Str(value), 100) : ""), 150))
                 .AddText(J.Cut(J.Str(c["confirm"]), 500))
                 .AddButton(yes)
                 .AddButton(new ToastButton().SetContent(L.T("no")).AddArgument("action", "none"));
@@ -330,6 +442,8 @@ sealed class Notifier : INotifier
         }
         catch (Exception ex) { Log.W("confirm toast failed: " + ex.Message); }
     }
+
+    readonly Dictionary<string, string> confirmValues = new();   // long values of confirmation toasts (key -> JSON)
 
     // ------------------------------------------------------------ activation (button clicks)
     void OnActivated(ToastNotificationActivatedEventArgsCompat e)
@@ -354,6 +468,13 @@ sealed class Notifier : INotifier
                     }
                     catch { }
                     if (args.TryGetValue("val", out string vj)) value = J.Parse(vj);   // from a confirmation toast
+                    else if (args.TryGetValue("valkey", out string vk))
+                    {
+                        string kept;
+                        lock (confirmValues) confirmValues.Remove(vk, out kept);
+                        if (kept == null) { DoOpenPanel(tid); break; }   // the hub restarted meanwhile: the panel asks again
+                        value = J.Parse(kept);
+                    }
                     else if (ctl?["input"] is JsonObject inp && e.UserInput.TryGetValue("v_" + cid, out var raw))
                     {
                         var s = raw?.ToString() ?? "";
@@ -400,7 +521,7 @@ sealed class Notifier : INotifier
                 case "none":
                     break;      // informational toast (e.g. agent hooks): clicking only dismisses it
                 default:
-                    OpenPanel?.Invoke(tid);
+                    DoOpenPanel(tid);
                     break;
             }
         }

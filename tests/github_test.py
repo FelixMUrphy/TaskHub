@@ -12,6 +12,8 @@ fails = 0
 lock = threading.RLock()
 calls = []                 # (method, path, auth header)
 stats = {"200": 0, "304": 0}
+faults = {"secondary": 0}  # next N runs-list calls: 403 secondary rate limit (remaining > 0, no retry-after)
+PAGE = 20                  # the mock pages runs lists by 20, whatever per_page asks: paging via the Link header
 EXP = (time.time() + 3 * 86400)
 EXP_S = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(EXP))
 
@@ -111,7 +113,11 @@ class Api(BaseHTTPRequestHandler):
             return self.reply(200, {"login": "tester"})
         if path.startswith("/repos/o/missing/"):
             return self.reply(404, {"message": "Not Found"})
+        if path.startswith("/repos/o/old/"):   # renamed: GitHub answers 301 to the new place
+            return self.reply(301, {"message": "Moved Permanently"},
+                              {"Location": f"http://127.0.0.1:{PORT}/repos/o/r/" + path[len("/repos/o/old/"):]})
         p = path.split("?")[0]
+        q = dict(kv.split("=", 1) for kv in path.split("?", 1)[1].split("&")) if "?" in path else {}
         mm = re.match(r"^/repos/o/r/actions/(.*)$", p)
         if not mm:
             mr = re.match(r"^/repos/o/r/releases/tags/(.+)$", p)
@@ -121,8 +127,17 @@ class Api(BaseHTTPRequestHandler):
         rest = mm.group(1)
         with lock:
             if m == "GET" and rest == "runs":
-                lst = [{k: v for k, v in r.items() if k != "jobs"} for r in sorted(runs.values(), key=lambda r: -r["id"])]
-                return self.reply(200, {"total_count": len(lst), "workflow_runs": lst})
+                if faults["secondary"] > 0:
+                    faults["secondary"] -= 1
+                    return self.reply(403, {"message": "You have exceeded a secondary rate limit. Please wait a few minutes."})
+                lst = [dict({k: v for k, v in r.items() if k != "jobs"}, repository={"full_name": "o/r"})
+                       for r in sorted(runs.values(), key=lambda r: -r["id"])]
+                page = int(q.get("page", 1))
+                part = lst[(page - 1) * PAGE:page * PAGE]
+                hdr = {}
+                if page * PAGE < len(lst):
+                    hdr["Link"] = f'<http://127.0.0.1:{PORT}/repos/o/r/actions/runs?per_page=100&page={page + 1}>; rel="next"'
+                return self.reply(200, {"total_count": len(lst), "workflow_runs": part}, hdr)
             if m == "GET" and rest == "workflows/7/runs":
                 return self.reply(200, {"workflow_runs": history})
             x = re.match(r"^runs/(\d+)(?:/(.*))?$", rest)
@@ -280,13 +295,64 @@ with lock:
     hosts = {c[1].split("/")[1] for c in calls}
 check("only the API and its log link were called", hosts <= {"user", "repos", "logblob"}, hosts)
 
+# ---- a run that needs approval (action_required): waiting for you, followed until it completes (2.9)
+with lock:
+    r104 = mkrun(104, "completed", "action_required", title="PR from a fork")
+t = wait(lambda: task("gh-104"))
+check("action_required -> running task waiting for approval", t is not None and t["state"] == "running"
+      and t.get("attention") == "Waiting for approval on GitHub", t and (t["state"], t.get("attention")))
+with lock:
+    r104["status"], r104["conclusion"] = "in_progress", None
+time.sleep(4)
+check("approved -> still followed, attention cleared",
+      (lambda x: x and x["state"] == "running" and not x.get("attention"))(wait(lambda: (lambda x: x if x and not x.get("attention") else None)(task("gh-104")))),
+      task("gh-104"))
+with lock:
+    r104["status"], r104["conclusion"] = "completed", "success"
+check("approved run completes -> done", wait(lambda: (lambda x: x if x and x["state"] == "done" else None)(task("gh-104"))) is not None,
+      task("gh-104"))
+
+# ---- a burst of new runs, more than one page: the next page is fetched too (Link header)
+with lock:
+    for i in range(30):
+        mkrun(200 + i, "completed", "success", title=f"Burst {i}")
+t = wait(lambda: task("gh-200") and task("gh-229"), timeout=30)
+with lock:
+    paged = [c for c in calls if "/actions/runs?" in c[1] and "page=2" in c[1]]
+check("30 new runs (pages of 20) -> all shown, page 2 fetched", t is not None and paged, (task("gh-200") is not None, len(paged)))
+check("only the API host called for page 2", all(c[2] == "Bearer " + TOKEN for c in paged), paged[:2])
+
+# ---- renamed repository: 301 followed on the API host, the new name reported
+s, r = call("POST", "/api/connectors/github", {"repos": ["o/r", "o/old"]})
+r = wait(lambda: (lambda x: x if (x.get("repo_status") or {}).get("o/old", "").startswith("repository moved") else None)(
+    call("GET", "/api/connectors/github")[1]))
+check("301 for a repo -> 'repository moved to o/r'", r is not None and r["repo_status"]["o/old"] == "repository moved to o/r",
+      call("GET", "/api/connectors/github")[1].get("repo_status"))
+with lock:
+    moved = [c for c in calls if c[1].startswith("/repos/o/old/")]
+check("redirect followed with the token only to the API host", moved and all(c[2] == "Bearer " + TOKEN for c in calls
+      if c[1].startswith("/repos/o/r/actions/runs?")), len(moved))
+
+# ---- secondary rate limit: 403 "rate limit" with requests left -> everything pauses (>= 60 s), not "no access"
+s, r = call("POST", "/api/connectors/github", {"repos": ["o/r"]})
+with lock:
+    faults["secondary"] = 1
+r = wait(lambda: (lambda x: x if "rate limit" in (x.get("status") or "") else None)(call("GET", "/api/connectors/github")[1]))
+check("secondary rate limit -> paused, said so", r is not None and r["repo_status"].get("o/r") != "no access (Actions: read)", r)
+time.sleep(0.5)
+n = len(calls)
+time.sleep(4)
+check("nothing polled while paused", len(calls) == n, calls[n:])
+call("POST", "/api/connectors/github", {"enabled": True})   # a restart clears the pause
+check("polling again after a restart", wait(lambda: len(calls) > n), len(calls) - n)
+
 # ---- off / forget
 s, r = call("POST", "/api/connectors/github", {"enabled": False, "forget_token": True})
 check("disable + forget token", s == 200 and r.get("status") == "off" and r.get("token_set") is False, r)
 n = len(calls)
 time.sleep(4)
 check("nothing polled when off", len(calls) == n, calls[n:])
-for tid in ("gh-101", "gh-102", "gh-103"):
+for tid in ["gh-101", "gh-102", "gh-103", "gh-104"] + [f"gh-{200 + i}" for i in range(30)]:
     call("DELETE", f"/api/tasks/{tid}?force=1")
 srv.shutdown()
 print(f"{fails} failure(s)")

@@ -207,6 +207,36 @@ time.sleep(0.5)
 s, t = call("GET", "/api/tasks/t-kill")
 check("kill -> cancelled + process dead", t["state"] == "cancelled" and p.poll() is not None, (t["state"], p.poll()))
 
+# a process TaskHub can't kill (its DACL denies PROCESS_TERMINATE, like an elevated one): the task stays, an error comes back
+import ctypes
+from ctypes import wintypes
+p3 = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+adv = ctypes.WinDLL("advapi32", use_last_error=True)
+sd = ctypes.c_void_p()
+adv.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+adv.GetSecurityDescriptorDacl.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.BOOL), ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.BOOL)]
+adv.SetSecurityInfo.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.DWORD, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+present, dacl, dflt = wintypes.BOOL(), ctypes.c_void_p(), wintypes.BOOL()
+ok = adv.ConvertStringSecurityDescriptorToSecurityDescriptorW("D:(D;;0x0001;;;WD)(A;;GA;;;WD)", 1, ctypes.byref(sd), None) \
+    and adv.GetSecurityDescriptorDacl(sd, ctypes.byref(present), ctypes.byref(dacl), ctypes.byref(dflt)) \
+    and adv.SetSecurityInfo(int(p3._handle), 6, 4, None, None, dacl, None) == 0   # SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION
+if ok:
+    call("POST", "/api/tasks", {"id": "t-nokill", "name": "can't kill me", "pid": p3.pid, "notify": {"finish": False}})
+    s, r = call("POST", "/api/tasks/t-nokill/controls/kill", timeout=30)
+    s2, t = call("GET", "/api/tasks/t-nokill")
+    if p3.poll() is not None:
+        print("SKIP kill failure: the hub could kill the protected process (running elevated?)")
+    else:
+        check("kill failed -> error, task still running", s == 500 and "still running" in str(r) and t["state"] == "running",
+              (s, r, t["state"]))
+    call("DELETE", "/api/tasks/t-nokill?force=1")
+else:
+    print("SKIP kill failure: could not protect the test process")
+p3.kill()   # our handle has PROCESS_TERMINATE from before the DACL change
+s, r = call("GET", "/api/health")
+check("health: Windows notification setting reported", r.get("notifications") in
+      ("enabled", "disabled_app", "disabled_user", "disabled_policy", "disabled_manifest", "unknown"), r)
+
 p2 = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1)"])
 call("POST", "/api/tasks", {"id": "t-lost", "name": "will be lost", "pid": p2.pid, "notify": {"fail": False}})
 p2.wait()

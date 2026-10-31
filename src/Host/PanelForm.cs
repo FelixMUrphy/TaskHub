@@ -16,7 +16,10 @@ sealed class PanelForm : Form
 {
     readonly Settings S;
     readonly Hub hub;
-    readonly WebView2 web;
+    WebView2 web;                        // replaced when the WebView2 browser process dies (Recreate)
+    bool initRunning, initTried, recreating, asking;
+    public bool RuntimeMissing;          // no WebView2 Runtime on this PC: the panel can't open (asked again on the next open)
+    public const string RuntimeUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
     const int Grip = 6;                  // resize edge (px at 96 dpi)
     const int MinWidth = 320, MaxWidth = 960;
     const double SlideMs = 180;
@@ -53,8 +56,9 @@ sealed class PanelForm : Form
         dark = EffectiveDark();
         BackColor = SolidBack(dark);
         try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath); } catch { }
-        web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };   // undocked (fixed size) while sliding
-        Controls.Add(web);        Size = new Size(MinWidth, 400);
+        web = NewWeb();
+        Controls.Add(web);
+        Size = new Size(MinWidth, 400);
         Deactivate += (_, _) => OnDeactivated();
         VisibleChanged += (_, _) => IsShown = Visible;
         ResizeEnd += (_, _) => SaveWidth();
@@ -239,7 +243,35 @@ sealed class PanelForm : Form
         base.WndProc(ref m);
     }
 
-    public async Task InitAsync()
+    WebView2 NewWeb() => new() { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };   // undocked (fixed size) while sliding
+
+    /// <summary>The installed WebView2 Runtime's version, null if there is none (Windows 10 doesn't always have it).</summary>
+    public static string RuntimeVersion()
+    {
+        try { return CoreWebView2Environment.GetAvailableBrowserVersionString(null); }
+        catch { return null; }
+    }
+
+    /// <summary>Starts WebView2 with the panel page (UI thread; a second call while one runs, or once it runs, does nothing).
+    /// False if the WebView2 Runtime is missing (RuntimeMissing).</summary>
+    public async Task<bool> InitAsync()
+    {
+        if (initRunning || web.CoreWebView2 != null) return true;
+        initTried = true;
+        if (RuntimeVersion() == null)
+        {
+            RuntimeMissing = true;
+            Log.W("WebView2 Runtime not installed: the panel can't open");
+            return false;
+        }
+        RuntimeMissing = false;
+        initRunning = true;
+        try { await Init(); }
+        finally { initRunning = false; }
+        return true;
+    }
+
+    async Task Init()
     {
         var env = await CoreWebView2Environment.CreateAsync(null, S.File_("webview2"),
             new CoreWebView2EnvironmentOptions("--disable-features=Translate"));
@@ -277,9 +309,81 @@ sealed class PanelForm : Form
             if (PanelVisible) PostShown(true);
             if (pendingTask != null) { hub.SetFocus(pendingTask); pendingTask = null; }
         };
-        cw.ProcessFailed += (_, e) => { Log.W("webview process failed: " + e.ProcessFailedKind); ReloadSoon(); };
+        cw.ProcessFailed += (_, e) => OnProcessFailed(e.ProcessFailedKind);
         ApplyLook();
         web.Source = new Uri(S.Url + "/ui");
+    }
+
+    /// <summary>A WebView2 process died. The browser process takes the whole control with it: a new one is made; a page
+    /// (renderer) that died or hangs is reloaded; GPU / utility processes come back by themselves.</summary>
+    void OnProcessFailed(CoreWebView2ProcessFailedKind kind)
+    {
+        Log.W("webview process failed: " + kind);
+        switch (kind)
+        {
+            case CoreWebView2ProcessFailedKind.BrowserProcessExited:
+                BeginInvoke(Recreate);
+                break;
+            case CoreWebView2ProcessFailedKind.RenderProcessExited:
+            case CoreWebView2ProcessFailedKind.RenderProcessUnresponsive:
+                ReloadSoon();
+                break;
+        }
+    }
+
+    /// <summary>A fresh WebView2 control and environment in place of the dead one (UI thread, once at a time). The old
+    /// browser process may still hold the profile folder for a moment: a few tries, further apart each time.</summary>
+    async void Recreate()
+    {
+        if (recreating) return;
+        recreating = true;
+        try
+        {
+            for (int i = 1; i <= 5; i++)
+            {
+                ready = false;
+                lookSent = null;
+                painted?.TrySetResult(false);
+                var old = web;
+                web = NewWeb();
+                if (old.Dock == DockStyle.None) { web.Dock = DockStyle.None; web.Bounds = old.Bounds; }   // mid-slide
+                Controls.Add(web);
+                Controls.Remove(old);
+                try { old.Dispose(); } catch (Exception e) { Log.W("old webview: " + e.Message); }
+                await Task.Delay(1000 * i);
+                try
+                {
+                    await InitAsync();
+                    if (web.CoreWebView2 != null) { Log.W("panel: WebView2 re-created"); return; }
+                    if (RuntimeMissing) return;
+                }
+                catch (Exception e) { Log.W($"panel re-create ({i}): " + e.Message); }
+            }
+        }
+        finally { recreating = false; }
+    }
+
+    /// <summary>The panel could not start (no runtime, or WebView2 failed): try again now, on an open.</summary>
+    async Task RetryInit(string task)
+    {
+        try { await InitAsync(); }
+        catch (Exception e) { Log.W("panel unavailable: " + e.Message); }
+        if (web.CoreWebView2 != null) { ShowPanel(task); return; }
+        if (RuntimeMissing) AskRuntime();
+    }
+
+    /// <summary>No WebView2 Runtime: says so and offers Microsoft's download page (TaskHub itself, toasts and the API work).</summary>
+    public void AskRuntime()
+    {
+        if (asking) return;
+        asking = true;
+        try
+        {
+            if (SetupForm.Ask(S, L.T("webview2_missing"), L.T("webview2_download"), L.T("setup_close")) == true)
+                Hub.OpenTarget(RuntimeUrl);
+        }
+        catch (Exception e) { Log.W("runtime question: " + e.Message); }
+        finally { asking = false; }
     }
 
     void ReloadSoon()
@@ -504,6 +608,8 @@ sealed class PanelForm : Form
 
     public void ShowPanel(string task)
     {
+        // WebView2 isn't running (runtime missing, start failed, being re-created): nothing to slide in yet
+        if (web.CoreWebView2 == null && initTried && !initRunning && !recreating) { _ = RetryInit(task); return; }
         if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
         if (!Visible || hiding) _ = SlideIn();
         Activate();

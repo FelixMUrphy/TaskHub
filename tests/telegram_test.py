@@ -8,7 +8,26 @@ EXE = sys.argv[1] if len(sys.argv) > 1 else None
 TOKEN = "123456789:" + "A" * 35
 fails = 0
 sent, answers, updates, edits, photos = [], [], [], [], []
+rejected, limited = [], []      # 400s the mock answered; times of 429 answers
+faults = {"429": 0}             # next N sendMessage calls answer 429 (retry_after 1 s)
 lock = threading.Condition()
+ENTITY = re.compile(r"&(?!(lt|gt|amp|quot|#\d+|#x[0-9a-fA-F]+);)")
+
+
+def html_error(text):
+    """What Telegram would refuse in an HTML message: unknown tags, a bare & / cut entity, > 4096 after parsing, bad UTF-16."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return "Bad Request: strings must be encoded in UTF-8"
+    if re.search(r"<(?!/?(b|i|u|s|code|pre|a)[ >])", text) or ENTITY.search(text) or re.search(r"<[^>]*$", text):
+        return "Bad Request: can't parse entities"
+    if "FORCE_PARSE_ERR" in text:
+        return "Bad Request: can't parse entities: forced by the test"
+    plain = re.sub(r"<[^>]*>", "", text).replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&amp;", "&")
+    if len(plain) > 4096:
+        return "Bad Request: message is too long"
+    return None
 uid = [100]
 
 
@@ -42,12 +61,23 @@ class Bot(BaseHTTPRequestHandler):
             return self.reply(200, {"ok": True, "result": res})
         if method == "sendMessage":
             with lock:
-                sent.append(body)
+                if faults["429"] > 0:
+                    faults["429"] -= 1
+                    limited.append(time.time())
+                    return self.reply(429, {"ok": False, "error_code": 429, "description": "Too Many Requests: retry after 1",
+                                            "parameters": {"retry_after": 1}})
+        if method in ("sendMessage", "editMessageText"):
+            text = body.get("text", "")
+            err = html_error(text) if body.get("parse_mode") == "HTML" else (None if len(text) <= 4096 else "Bad Request: message is too long")
+            if err:
+                with lock:
+                    rejected.append((err, text[:80]))
+                return self.reply(400, {"ok": False, "error_code": 400, "description": err})
+        if method == "sendMessage":
+            with lock:
+                sent.append(dict(body, _t=time.time()))
                 lock.notify_all()
             return self.reply(200, {"ok": True, "result": {"message_id": len(sent)}})
-        if method in ("sendMessage", "editMessageText") and body.get("parse_mode") == "HTML" and \
-                re.search(r"<(?!/?(b|i|u|s|code|pre|a)[ >])", body.get("text", "")):
-            return self.reply(400, {"ok": False, "description": "Bad Request: can't parse entities"})
         if method == "editMessageText":
             with lock:
                 edits.append(body)
@@ -272,6 +302,36 @@ s, r = call("POST", "/api/telegram", {"progress": False})
 check("progress option can be switched off", r.get("progress") is False, r)
 call("POST", "/api/telegram", {"progress": True})
 call("DELETE", f"/api/tasks/{ptid}?force=1")
+# ---- reliability (2.9): 429 honoured and the message retried; long texts cut before escaping; plain-text fallback
+with lock:
+    faults["429"] = 2
+call("POST", "/api/notify", {"title": "after 429"})
+m = wait_sent(lambda m: m["text"].startswith("<b>after 429"), timeout=15)
+check("429 -> retried after retry_after, not dropped", m is not None and len(limited) == 2 and m["_t"] - limited[0] >= 1.8,
+      (m and m["_t"] - limited[0], limited))
+nr = len(rejected)
+long_msg = ("a & b < c > d \"q\" 😀 Ünïcödé " * 300)   # ~9000 characters, entities and emoji everywhere
+call("POST", "/api/notify", {"title": "x" + "😀" * 300, "message": long_msg})
+m = wait_sent(lambda m: m["text"].startswith("<b>x😀"), timeout=15)
+check("long text with entities / emoji delivered as HTML (cut before escaping)", m is not None and m.get("parse_mode") == "HTML"
+      and "&amp;" in m["text"] and "😀" in m["text"] and "&#" not in m["text"], (rejected[nr:], m and m["text"][:120]))
+check("no 400 from cut tags / entities / half emoji", len(rejected) == nr, rejected[nr:])
+call("POST", "/api/notify", {"title": "FORCE_PARSE_ERR <tag>", "message": "x & y"})
+m = wait_sent(lambda m: "FORCE_PARSE_ERR" in m["text"], timeout=10)
+check("'can't parse entities' -> sent again as plain text", m is not None and "parse_mode" not in m
+      and m["text"].startswith("FORCE_PARSE_ERR <tag>") and "x & y" in m["text"], m)
+many = []
+for i in range(40):
+    s, r = call("POST", "/api/tasks", {"name": f"Batch & job {i} 😀 " + "n" * 150, "status": "step <" + "s" * 200 + ">"})
+    many.append(r.get("id"))
+n = len(sent)
+msg(555, "/tasks")
+m = wait_sent(lambda x: sent.index(x) >= n and "Batch &amp; job" in x["text"], timeout=15)
+check("/tasks with many long tasks -> delivered, capped with '… +N'", m is not None and m.get("parse_mode") == "HTML"
+      and "… +" in m["text"], (rejected[nr:], m and m["text"][-60:]))
+for t in many:
+    call("DELETE", f"/api/tasks/{t}?force=1")
+
 # relink to another chat (e.g. the phone account) without re-entering the token
 s, r = call("POST", "/api/telegram", {"relink": True})
 code2 = (r.get("link") or "").rsplit("start=", 1)[-1]

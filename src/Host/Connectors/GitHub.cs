@@ -47,7 +47,7 @@ sealed class GitHubConnector : IConnector
     double gcmAt, pausedUntil, lastExpiryWarn;
     DateTimeOffset? expires;
     int rateLeft = -1;
-    double rateReset;
+    double rateReset, secondaryWait;   // secondary rate limit: 60 s, doubled while it repeats
 
     public GitHubConnector(Settings s, Hub h)
     {
@@ -176,7 +176,7 @@ sealed class GitHubConnector : IConnector
     {
         Stop();
         var c = Cfg;
-        lock (gate) { repos.Clear(); known.Clear(); active.Clear(); pausedUntil = 0; }
+        lock (gate) { repos.Clear(); known.Clear(); active.Clear(); pausedUntil = 0; secondaryWait = 0; }
         if (!c.Enabled) { status = "off"; return; }
         cts = new CancellationTokenSource();
         var ct = cts.Token;
@@ -249,6 +249,7 @@ sealed class GitHubConnector : IConnector
             RepoState rs;
             lock (gate) if (!repos.TryGetValue(repo, out rs)) repos[repo] = rs = new RepoState();
             if (now < rs.NextPoll) continue;
+            if (J.Now() < pausedUntil) return;   // a rate limit hit by the previous request
             bool busy;
             lock (gate) busy = active.Values.Any(r => r.Repo.Equals(repo, StringComparison.OrdinalIgnoreCase));
             rs.NextPoll = now + (busy ? c.ActiveEvery : c.Interval) * (slow ? 4 : 1);
@@ -258,6 +259,7 @@ sealed class GitHubConnector : IConnector
         lock (gate) due = active.Values.Where(r => now >= r.NextPoll).ToList();
         foreach (var run in due)
         {
+            if (J.Now() < pausedUntil) return;
             run.NextPoll = now + c.ActiveEvery * (slow ? 4 : 1);
             await PollRun(run, token, c, ct);
         }
@@ -346,20 +348,38 @@ sealed class GitHubConnector : IConnector
     // ------------------------------------------------------------ runs
     async Task PollRepo(string repo, RepoState rs, string token, Conf c, CancellationToken ct)
     {
-        var r = await Call(HttpMethod.Get, $"/repos/{repo}/actions/runs?per_page=20", rs.Etag, token, ct);
+        var r = await Call(HttpMethod.Get, $"/repos/{repo}/actions/runs?per_page=100", rs.Etag, token, ct);
         if (r.Code == 304) return;
+        if (r.Limited) return;   // paused; the status says until when
         if (r.Code == 401) { Rejected(c); return; }
         if (r.Code is 403 or 404) { rs.Status = r.Code == 404 ? "not found or no access" : "no access (Actions: read)"; return; }
         if (r.Code != 200) { rs.Status = $"HTTP {r.Code}"; return; }
         rs.Etag = r.ETag;
-        rs.Status = "ok";
-        var runs = (r.Body?["workflow_runs"] as JsonArray ?? new JsonArray()).OfType<JsonObject>()
-            .OrderBy(x => J.Num(x["id"]) ?? 0).ToList();
+        var page = (r.Body?["workflow_runs"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().ToList();
+        // renamed / transferred: GitHub answers 301 to the new place (followed); say where, so the list can be updated
+        if (r.Redirected)
+        {
+            var moved = J.Str(page.FirstOrDefault()?["repository"]?["full_name"]);
+            rs.Status = moved.Length > 0 && !moved.Equals(repo, StringComparison.OrdinalIgnoreCase) ? "repository moved to " + moved : "repository moved";
+        }
+        else rs.Status = "ok";
+        // more new runs than one page (a burst of pushes): the next pages too, while everything on a page is new
+        var all = new List<JsonObject>(page);
+        var next = r.Next;
+        for (int pages = 1; !rs.Baseline && next != null && pages < 5 && page.Count > 0 && AllNew(page); pages++)
+        {
+            var rn = await Send(HttpMethod.Get, next, null, token, ct);
+            if (rn.Code != 200) break;
+            page = (rn.Body?["workflow_runs"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().ToList();
+            all.AddRange(page);
+            next = rn.Next;
+        }
+        var runs = all.GroupBy(x => J.Num(x["id"]) ?? 0).Select(g => g.First()).OrderBy(x => J.Num(x["id"]) ?? 0).ToList();
         foreach (var j in runs)
         {
             long id = (long)(J.Num(j["id"]) ?? 0);
             int attempt = (int)(J.Num(j["run_attempt"]) ?? 1);
-            bool done = J.Str(j["status"]) == "completed";
+            bool done = Done(j);
             bool follow;
             lock (gate)
             {
@@ -379,20 +399,37 @@ sealed class GitHubConnector : IConnector
         rs.Baseline = false;
     }
 
+    bool AllNew(List<JsonObject> page)
+    {
+        lock (gate)
+            return page.All(x => (long)(J.Num(x["id"]) ?? 0) is var id && !known.ContainsKey(id) && !active.ContainsKey(id));
+    }
+
+    /// <summary>Finished for good. "action_required" (a run that needs someone's approval, e.g. from a fork) is not:
+    /// once approved the same run goes on.</summary>
+    static bool Done(JsonObject j) => J.Str(j?["status"]) == "completed" && !NeedsApproval(j);
+    static bool NeedsApproval(JsonObject j) => J.Str(j?["conclusion"]) == "action_required" || J.Str(j?["status"]) == "action_required";
+
     async Task PollRun(Run run, string token, Conf c, CancellationToken ct)
     {
         var r = await Call(HttpMethod.Get, $"/repos/{run.Repo}/actions/runs/{run.Id}", run.RunEtag, token, ct);
+        if (r.Limited) return;
         if (r.Code == 401) { Rejected(c); return; }
-        if (r.Code == 404)   // deleted on GitHub (or access lost)
+        // deleted on GitHub (or access lost), or sent somewhere we don't follow: not "running" forever
+        if (r.Code is 404 or 410 || r.Code is >= 300 and < 400 and not 304)
         {
             lock (gate) active.Remove(run.Id);
-            Try(() => hub.Finish(Tid(run.Id), new JsonObject { ["state"] = "lost", ["message"] = "run not found on GitHub" }));
+            Try(() => hub.Finish(Tid(run.Id), new JsonObject
+            {
+                ["state"] = "lost", ["message"] = r.Code is 404 or 410 ? "run not found on GitHub" : $"run moved on GitHub (HTTP {r.Code})",
+            }));
             return;
         }
         if (r.Code == 200) { run.RunEtag = r.ETag; run.Json = r.Body as JsonObject; }
         if (run.Json == null) return;
         int attempt = (int)(J.Num(run.Json["run_attempt"]) ?? 1);
-        bool done = J.Str(run.Json["status"]) == "completed";
+        bool done = Done(run.Json);
+        if (NeedsApproval(run.Json)) run.NextPoll = J.Now() + c.Interval;   // may wait for days: at the idle pace
         // just re-run from here: GitHub needs a moment before the new attempt shows up - not "finished" again meanwhile
         if (run.AwaitAttempt > 0)
         {
@@ -463,7 +500,7 @@ sealed class GitHubConnector : IConnector
         var st = J.Str(run.Json?["status"]);
         var u = new JsonObject
         {
-            ["attention"] = st == "waiting" ? L.T("gh_waiting") : "",
+            ["attention"] = st == "waiting" || NeedsApproval(run.Json) ? L.T("gh_waiting") : "",
         };
         var jobs = (run.Jobs ?? new JsonArray()).OfType<JsonObject>().ToList();
         if (jobs.Count == 0) { u["status"] = st is "queued" or "requested" or "pending" or "waiting" ? L.T("gh_queued") : ""; return u; }
@@ -497,7 +534,7 @@ sealed class GitHubConnector : IConnector
         {
             "success" or "neutral" or "skipped" => "done",
             "cancelled" or "stale" => "cancelled",
-            _ => "failed",   // failure, timed_out, startup_failure, action_required
+            _ => "failed",   // failure, timed_out, startup_failure (action_required is not finished: see Done)
         };
         if (run.Jobs == null)
         {
@@ -555,7 +592,7 @@ sealed class GitHubConnector : IConnector
         var tail = new Queue<string>();
         try
         {
-            var r = await Call(HttpMethod.Get, $"/repos/{repo}/actions/jobs/{jobId}/logs", null, token, ct);
+            var r = await Call(HttpMethod.Get, $"/repos/{repo}/actions/jobs/{jobId}/logs", null, token, ct, follow: false);
             if (r.Code is not (301 or 302 or 307) || r.Location == null) return new();
             if (!LogHostOk(r.Location)) { Log.W("github: log link to an unexpected host " + r.Location.Host); return new(); }
             using var req = new HttpRequestMessage(HttpMethod.Get, r.Location);
@@ -642,12 +679,47 @@ sealed class GitHubConnector : IConnector
     }
 
     // ------------------------------------------------------------ HTTP
-    sealed class Resp { public int Code; public JsonNode Body; public string ETag; public Uri Location; }
+    sealed class Resp
+    {
+        public int Code; public JsonNode Body; public string ETag; public Uri Location, Next;
+        public bool Limited;      // rate limited: everything paused (pausedUntil)
+        public bool Redirected;   // answered from where a redirect led (301: the repository was renamed / moved)
+    }
 
-    async Task<Resp> Call(HttpMethod m, string path, string etag, string token, CancellationToken ct)
+    Task<Resp> Call(HttpMethod m, string path, string etag, string token, CancellationToken ct, bool follow = true)
     {
         var baseUri = ApiUri;
-        using var req = new HttpRequestMessage(m, new Uri(baseUri, baseUri.AbsolutePath.TrimEnd('/') + path));
+        return Send(m, new Uri(baseUri, baseUri.AbsolutePath.TrimEnd('/') + path), etag, token, ct, follow);
+    }
+
+    static bool SameHost(Uri a, Uri b) =>
+        a.Scheme == b.Scheme && string.Equals(a.Host, b.Host, StringComparison.OrdinalIgnoreCase) && a.Port == b.Port;
+
+    /// <summary>A request to the API. Redirects (301 renamed repository, 302 / 307) are followed only within the API host,
+    /// so the token never goes anywhere else; a link to another host comes back as it is (Location).</summary>
+    async Task<Resp> Send(HttpMethod m, Uri uri, string etag, string token, CancellationToken ct, bool follow = true)
+    {
+        var api = ApiUri;
+        if (!SameHost(uri, api)) throw new InvalidOperationException("not the API host: " + uri.Host);
+        bool redirected = false;
+        for (int hop = 0; ; hop++)
+        {
+            var res = await SendOnce(m, uri, etag, token, ct);
+            if (follow && hop < 3 && res.Code is 301 or 302 or 307 or 308 && res.Location != null && SameHost(res.Location, api))
+            {
+                uri = res.Location;
+                redirected = true;
+                continue;
+            }
+            res.Redirected = redirected;
+            return res;
+        }
+    }
+
+    async Task<Resp> SendOnce(HttpMethod m, Uri uri, string etag, string token, CancellationToken ct)
+    {
+        var path = uri.AbsolutePath;
+        using var req = new HttpRequestMessage(m, uri);
         req.Headers.Accept.ParseAdd("application/vnd.github+json");
         req.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
         req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
@@ -659,19 +731,17 @@ sealed class GitHubConnector : IConnector
         if (res.Location != null && !res.Location.IsAbsoluteUri) res.Location = new Uri(req.RequestUri, res.Location);
         if (r.Headers.TryGetValues("x-ratelimit-remaining", out var rl) && int.TryParse(rl.First(), out var left)) rateLeft = left;
         if (r.Headers.TryGetValues("x-ratelimit-reset", out var rr) && double.TryParse(rr.First(), CultureInfo.InvariantCulture, out var reset)) rateReset = reset;
+        if (r.Headers.TryGetValues("Link", out var lk))
+        {
+            var mn = Regex.Match(string.Join(",", lk), @"<([^>]+)>\s*;\s*rel=""next""");
+            if (mn.Success && Uri.TryCreate(mn.Groups[1].Value, UriKind.Absolute, out var nu) && SameHost(nu, ApiUri)) res.Next = nu;
+        }
         if (r.Headers.TryGetValues("github-authentication-token-expiration", out var ex))
         {
             var s = ex.First().Trim().Replace(" UTC", " +00:00");
             if (DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var d)) expires = d;
         }
-        else if (path == "/user" && res.Code == 200) expires = null;
-        // out of requests for this hour (or a secondary limit): wait until GitHub says so
-        if ((res.Code is 403 or 429) && (rateLeft == 0 || r.Headers.RetryAfter != null))
-        {
-            var until = r.Headers.RetryAfter?.Delta is TimeSpan ra ? J.Now() + ra.TotalSeconds : Math.Max(rateReset, J.Now() + 60);
-            pausedUntil = Math.Min(until, J.Now() + 3600);
-            status = "rate limit, waiting until " + DateTimeOffset.FromUnixTimeSeconds((long)pausedUntil).ToLocalTime().ToString("HH:mm");
-        }
+        else if (path.EndsWith("/user") && res.Code == 200) expires = null;
         if (res.Code is >= 200 and < 300 && m == HttpMethod.Get)
         {
             var text = await r.Content.ReadAsStringAsync(cts2.Token);
@@ -681,6 +751,25 @@ sealed class GitHubConnector : IConnector
         {
             try { res.Body = J.Parse(await r.Content.ReadAsStringAsync(cts2.Token)); } catch { }
         }
+        // out of requests for this hour, or a secondary limit (403 / 429 with remaining > 0 and no retry-after: only the
+        // message tells it from a permission 403): everything waits - as long as GitHub says, else 60 s, doubling
+        bool secondary = res.Code is 403 or 429 && J.Str(res.Body?["message"]).Contains("rate limit", StringComparison.OrdinalIgnoreCase);
+        if ((res.Code is 403 or 429) && (rateLeft == 0 || r.Headers.RetryAfter != null || secondary))
+        {
+            double until;
+            if (r.Headers.RetryAfter?.Delta is TimeSpan ra) until = J.Now() + Math.Max(1, ra.TotalSeconds);
+            else if (rateLeft == 0 && !secondary) until = Math.Max(rateReset, J.Now() + 60);
+            else
+            {
+                secondaryWait = secondaryWait <= 0 ? 60 : Math.Min(secondaryWait * 2, 1800);
+                until = J.Now() + secondaryWait;
+            }
+            pausedUntil = Math.Max(pausedUntil, Math.Min(until, J.Now() + 3600));
+            res.Limited = true;
+            status = "rate limit, waiting until " + DateTimeOffset.FromUnixTimeSeconds((long)pausedUntil).ToLocalTime().ToString("HH:mm:ss");
+            Log.W("github: " + status + (secondary ? " (secondary limit)" : ""));
+        }
+        else if (res.Code is >= 200 and < 400) secondaryWait = 0;
         return res;
     }
 

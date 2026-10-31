@@ -19,6 +19,7 @@ interface INotifier
     void Progress(JsonObject task);
     void ProgressEnd(string taskId);
     void Refresh(string taskId);   // a control value changed -> re-render shown toasts
+    string SystemSetting { get; }  // Windows' switch for our notifications: "enabled", "disabled_app", ... (Notifier)
 }
 
 /// <summary>Task registry - a port of the Python Hub class; tasks are JsonObjects with the same shape.</summary>
@@ -952,13 +953,20 @@ sealed class Hub
                 return ConnectorControl(source, tid, cid, value);
             case "kill":
                 if (pid is not > 0) throw new ApiError(400, "task has no pid");
-                bool ok = KillTree(pid.Value, ct);
+                var kr = KillTree(pid.Value, ct, out var why);
+                if (kr == KillResult.Failed)
+                {
+                    // still running: the task stays as it is (an elevated process can't be stopped from here)
+                    lock (Lock) { if (tasks.TryGetValue(tid, out var kt)) { AddLog(kt, $"kill failed (pid {pid}): {why}", "error"); Bump(); } }
+                    throw new ApiError(500, $"kill failed, pid {pid} is still running: {why}"
+                        + (why.Contains("denied", StringComparison.OrdinalIgnoreCase) ? " (does it run elevated?)" : ""));
+                }
                 Finish(tid, new JsonObject
                 {
                     ["state"] = "cancelled",
-                    ["message"] = ok ? $"killed from panel (pid {pid})" : $"kill attempted, pid {pid}",
+                    ["message"] = kr == KillResult.Killed ? $"killed from panel (pid {pid})" : $"process had already ended (pid {pid})",
                 });
-                return new JsonObject { ["ok"] = ok };
+                return new JsonObject { ["ok"] = true };
             case "open":
                 try { OpenTarget(J.Str(c["target"])); }
                 catch (Exception e) { throw new ApiError(500, "open failed: " + e.Message); }
@@ -996,10 +1004,15 @@ sealed class Hub
         }
     }
 
+    public enum KillResult { Killed, Gone, Failed }
+
     /// <summary>Kills pid and its children - only if it is still the process that registered (creation time ct, when
-    /// known): a pid reused by an unrelated process after the task's own one exited is left alone.</summary>
-    public static bool KillTree(int pid, long? ct = null)
+    /// known): a pid reused by an unrelated process after the task's own one exited is left alone (Gone). Failed only
+    /// when the process is still alive afterwards (e.g. access denied: it runs elevated); a child that couldn't be
+    /// killed while the process itself is gone counts as killed.</summary>
+    public static KillResult KillTree(int pid, long? ct, out string why)
     {
+        why = "";
         try
         {
             using var p = Process.GetProcessById(pid);
@@ -1008,26 +1021,29 @@ sealed class Hub
             if (ct is long want && Math.Abs(p.StartTime.ToFileTimeUtc() - want) > 10_000_000)
             {
                 Log.W($"kill {pid}: pid now belongs to another process, not killed");
-                return false;
+                return KillResult.Gone;
             }
             p.Kill(entireProcessTree: true);
             p.WaitForExit(5000);
-            return true;
+            if (p.HasExited) return KillResult.Killed;
+            why = "the process did not exit";
         }
-        catch (ArgumentException) { return false; }
+        catch (ArgumentException) { return KillResult.Gone; }   // no such process
         catch (Exception e)
         {
+            why = (e is AggregateException ae ? ae.InnerExceptions.FirstOrDefault()?.Message ?? e.Message : e.Message).Trim();
             Log.W($"kill {pid} failed: {e.Message}; trying taskkill");
-            if (!Native.PidAlive(pid, ct)) return false;
-            try
-            {
-                var psi = new ProcessStartInfo("taskkill.exe", $"/PID {pid} /T /F") { CreateNoWindow = true, UseShellExecute = false };
-                using var tk = Process.Start(psi);
-                tk.WaitForExit(10000);
-                return tk.ExitCode == 0;
-            }
-            catch { return false; }
         }
+        if (!Native.PidAlive(pid, ct)) return KillResult.Killed;   // the process itself is gone (only some child resisted)
+        try
+        {
+            var psi = new ProcessStartInfo("taskkill.exe", $"/PID {pid} /T /F") { CreateNoWindow = true, UseShellExecute = false };
+            using var tk = Process.Start(psi);
+            tk.WaitForExit(10000);
+        }
+        catch (Exception e) { Log.W("taskkill: " + e.Message); }
+        for (int i = 0; i < 10 && Native.PidAlive(pid, ct); i++) Thread.Sleep(100);
+        return Native.PidAlive(pid, ct) ? KillResult.Failed : KillResult.Killed;
     }
 
     public static void OpenTarget(string target)

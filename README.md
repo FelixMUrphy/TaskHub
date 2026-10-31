@@ -125,6 +125,8 @@ buttons that is edited in place (no new message per update); when the task finis
 as one picture (option *Progress and charts*, `telegram_progress`). Commands: `/tasks`, `/mute`, `/unmute`. Option: send only
 when you are away from the PC (no keyboard / mouse for 5 min, `telegram_away_minutes` in `config.json`). The bot token
 is kept in the Windows Credential Manager (2.9; before: `config.json`); messages go from your PC straight to Telegram's Bot API.
+From 2.9 TaskHub keeps to Telegram's pace (about one message a second, and as long as Telegram asks after *Too many
+requests*) instead of dropping messages, and long texts are shortened so they always arrive.
 
 ### GitHub Actions
 *From version 2.9; off until you turn it on.* Settings → *Connectors* → *GitHub Actions*: list the repositories (`owner/repo`) and give access — your own
@@ -133,7 +135,9 @@ write, Contents: Read-only, Metadata: Read-only; kept in the Windows Credential 
 the Git Credential Manager already has (broad rights: all your repositories). Your workflows stay unchanged. Each run becomes a
 task with the repository, workflow, branch / tag, commit and actor; failures always notify (Windows and Telegram), successes
 if you want. TaskHub talks only to `api.github.com`; the optional log tail is fetched from GitHub's log storage through the
-one-time link GitHub gives, without the token. A notification warns a week before the token expires. Details:
+one-time link GitHub gives, without the token. A notification warns a week before the token expires. A run waiting for
+approval (e.g. from a fork) shows *Waiting for approval on GitHub* and is followed once approved; a renamed repository is
+followed and reported (*repository moved to …*); GitHub's rate limits pause polling (2.9). Details:
 [API.md → Connectors](API.md#connectors-github-actions).
 
 ## Install details
@@ -154,6 +158,9 @@ install the setup shows the installed version and folder (the version is read fr
 - Installing and uninstalling first ask a running TaskHub to quit (it saves its tasks) and end it only if it doesn't within
   a few seconds (2.9; before: ended at once, with everything it had opened).
 - Requirements: Windows 10 1809+ / 11 x64 (Microsoft Store edition: Windows 10 2004+ from 2.9), WebView2 runtime (preinstalled on current Windows).
+  From 2.9 TaskHub says so (with Microsoft's download link) when the runtime is missing, and the panel recovers by itself
+  if WebView2 crashes. If Windows has TaskHub's notifications turned off, Settings → *Notifications* shows a warning with a
+  button to the Windows setting.
 - Port 47800, `127.0.0.1` only, CSRF header + Host/Origin checks; optional bearer token (`"token"` in `config.json`).
 
 Updates: once a day the installed hub looks up the latest release on GitHub (one request to `api.github.com`, nothing is

@@ -128,7 +128,8 @@ sealed class TelegramBridge
         if (AwayOnly && IdleSeconds() < 60 * S.Int("telegram_away_minutes", 5)) return;
         var icon = level == "error" ? "❌ " : level == "warn" ? "⚠️ " : "";
         if (title != null && (title.StartsWith("❌") || title.StartsWith("⚠"))) icon = "";
-        var text = icon + "<b>" + Esc(title) + "</b>" + (string.IsNullOrEmpty(msg) ? "" : "\n" + Esc(msg));
+        // cut the raw text, then escape: cutting escaped HTML could split a tag or an entity (400, message lost)
+        var text = icon + "<b>" + Esc(J.Cut(title, 256)) + "</b>" + (string.IsNullOrEmpty(msg) ? "" : "\n" + Esc(J.Cut(msg, 3000)));
         Enqueue(Chat, text, controls ? Keyboard(tid, task) : null);
         // charts: only once, when the task has finished (not on every change)
         if (task == null || !ShowProgress || !Hub.IsFinal(J.Str(task["state"]))) return;
@@ -206,25 +207,98 @@ sealed class TelegramBridge
     void Enqueue(long chat, string text, JsonObject keyboard)
     {
         if (chat == 0) return;
-        var m = new JsonObject { ["chat_id"] = chat, ["text"] = J.Cut(text, 3900), ["parse_mode"] = "HTML", ["disable_web_page_preview"] = true };
+        // the parts were cut before escaping; still too long (4096 after entity parsing): plain text, cut
+        var m = PlainText(text).Length > 4000
+            ? new JsonObject { ["chat_id"] = chat, ["text"] = J.Cut(PlainText(text), 4000), ["disable_web_page_preview"] = true }
+            : new JsonObject { ["chat_id"] = chat, ["text"] = text, ["parse_mode"] = "HTML", ["disable_web_page_preview"] = true };
         if (keyboard != null) m["reply_markup"] = keyboard;
         outbox.TryAdd(("sendMessage", m, null));
     }
 
+    /// <summary>What Telegram shows of our HTML: tags removed, entities decoded.</summary>
+    static string PlainText(string html) => WebUtility.HtmlDecode(System.Text.RegularExpressions.Regex.Replace(html ?? "", "<[^>]*>", ""));
+
+    static bool ParseError(int code, JsonObject r) => code == 400 && J.Str(r?["description"]).Contains("parse entities", StringComparison.OrdinalIgnoreCase);
+
+    // ------------------------------------------------------------ pacing: one chat takes ~1 message / s (short bursts are
+    // fine); a 429 says how long to wait (parameters.retry_after) - nothing goes out before then, from either thread
+    readonly object paceLock = new();
+    double blockedUntil, tokens = 3, tokensAt;
+    const double Burst = 3, PerSecond = 1;
+
+    bool Blocked { get { lock (paceLock) return J.Now() < blockedUntil; } }
+
+    /// <summary>Waits for a sending slot (sending threads only).</summary>
+    void Pace()
+    {
+        while (true)
+        {
+            double wait;
+            lock (paceLock)
+            {
+                var now = J.Now();
+                if (now < blockedUntil) wait = blockedUntil - now;
+                else
+                {
+                    tokens = Math.Min(Burst, tokens + (now - tokensAt) * PerSecond);
+                    tokensAt = now;
+                    if (tokens >= 1) { tokens -= 1; return; }
+                    wait = (1 - tokens) / PerSecond;
+                }
+            }
+            Thread.Sleep(TimeSpan.FromSeconds(Math.Clamp(wait, 0.05, 60)));
+        }
+    }
+
+    /// <summary>429: wait as long as Telegram asks (at least 1 s, at most an hour).</summary>
+    void Throttled(JsonObject r)
+    {
+        var ra = Math.Clamp(J.Num(r?["parameters"]?["retry_after"]) ?? 5, 1, 3600);
+        lock (paceLock) blockedUntil = Math.Max(blockedUntil, J.Now() + ra);
+        Log.W($"telegram: too many requests, waiting {ra:0} s");
+    }
+
+    /// <summary>A paced call for messages to the chat (sends, edits, prompts).</summary>
+    (int code, JsonObject body) ChatCall(string method, JsonObject body)
+    {
+        Pace();
+        var (code, r) = Call(method, body, 20).GetAwaiter().GetResult();
+        if (code == 429) Throttled(r);
+        return (code, r);
+    }
+
     void SendWorker()
     {
-        foreach (var (method, m, png) in outbox.GetConsumingEnumerable())
+        foreach (var (method, m0, png) in outbox.GetConsumingEnumerable())
         {
-            for (int attempt = 0; attempt < 3; attempt++)
+            var m = m0;
+            int errors = 0, limited = 0;
+            while (true)
             {
                 try
                 {
-                    var (code, _) = (png != null ? CallPhoto(m, png) : Call(method, m, 20)).GetAwaiter().GetResult();
-                    if (code == 429) { Thread.Sleep(3000); continue; }
-                    if (code != 200) Log.W($"telegram {method}: HTTP {code}");
+                    Pace();
+                    var (code, r) = (png != null ? CallPhoto(m, png) : Call(method, m, 20)).GetAwaiter().GetResult();
+                    // too many requests: the same message again once Telegram allows (not dropped)
+                    if (code == 429) { Throttled(r); if (++limited < 20) continue; Log.W($"telegram {method}: still limited, dropped"); break; }
+                    if (ParseError(code, r) && m["parse_mode"] != null)
+                    {
+                        // our HTML was not accepted after all: once more as plain text rather than losing it
+                        Log.W($"telegram {method}: {J.Str(r?["description"])}; sending as plain text");
+                        m = (JsonObject)m.DeepClone();
+                        m.Remove("parse_mode");
+                        m["text"] = J.Cut(PlainText(J.Str(m["text"])), 4000);
+                        continue;
+                    }
+                    if (code != 200) Log.W($"telegram {method}: HTTP {code} {J.Str(r?["description"])}");
                     break;
                 }
-                catch (Exception e) { Log.W($"telegram {method}: " + e.Message); Thread.Sleep(2000); }
+                catch (Exception e)
+                {
+                    Log.W($"telegram {method}: " + e.Message);
+                    if (++errors >= 3) break;
+                    Thread.Sleep(2000);
+                }
             }
         }
     }
@@ -255,7 +329,12 @@ sealed class TelegramBridge
             if (p.Chat != Chat) { live.Remove(tid); continue; }
             tasks.TryGetValue(tid, out var t);
             if (t != null && Hub.IsActive(J.Str(t["state"]))) continue;
-            if (t != null && p.Msg != 0) Edit(p, ProgressText(t, now), null, now);   // final state, buttons removed
+            if (t != null && p.Msg != 0)
+            {
+                // notifications first; a 429 keeps the message for the next tick
+                if (outbox.Count > 0 || Blocked) return;
+                if (!Edit(p, ProgressText(t, now), null, now)) return;   // final state, buttons removed
+            }
             live.Remove(tid);
         }
         bool atPc = AwayOnly && IdleSeconds() < 60 * S.Int("telegram_away_minutes", 5);
@@ -266,16 +345,21 @@ sealed class TelegramBridge
             var kb = Keyboard(tid, t);
             if (live.TryGetValue(tid, out var p))
             {
-                if (p.Msg != 0 && text + J.Dump(kb) != p.Text && now - p.Last >= 5) Edit(p, text, kb, now);
+                if (p.Msg != 0 && text + J.Dump(kb) != p.Text && now - p.Last >= 5)
+                {
+                    if (outbox.Count > 0 || Blocked) return;   // edits give way to notifications waiting to go out
+                    if (!Edit(p, text, kb, now)) return;
+                }
                 continue;
             }
             if (hub.Muted || atPc || live.Count >= 5) continue;
+            if (outbox.Count > 0 || Blocked) return;
             var body = new JsonObject
             {
                 ["chat_id"] = Chat, ["text"] = text, ["parse_mode"] = "HTML", ["disable_notification"] = true,
             };
             if (kb != null) body["reply_markup"] = kb;
-            var (code, r) = Call("sendMessage", body, 20).GetAwaiter().GetResult();
+            var (code, r) = ChatCall("sendMessage", body);
             if (code == 429) return;
             if (code == 200 && J.Num(r?["result"]?["message_id"]) is double id)
                 live[tid] = new Live { Chat = Chat, Msg = (long)id, Text = text + J.Dump(kb), Last = now };
@@ -283,21 +367,24 @@ sealed class TelegramBridge
         }
     }
 
-    void Edit(Live p, string text, JsonObject kb, double now)
+    /// <summary>False on 429 (try again later).</summary>
+    bool Edit(Live p, string text, JsonObject kb, double now)
     {
         var body = new JsonObject
         {
             ["chat_id"] = p.Chat, ["message_id"] = p.Msg, ["text"] = text, ["parse_mode"] = "HTML",
         };
         if (kb != null) body["reply_markup"] = kb.DeepClone();
-        var (code, r) = Call("editMessageText", body, 20).GetAwaiter().GetResult();
+        var (code, r) = ChatCall("editMessageText", body);
         p.Last = now;
+        if (code == 429) return false;
         if (code == 200 || J.Str(r?["description"]).Contains("not modified")) p.Text = text + J.Dump(kb);
         else
         {
             ProgressError("edit", code, r);
             if (code == 400) p.Msg = 0;   // e.g. the user deleted the message: stop updating it
         }
+        return true;
     }
 
     string lastProgressError;
@@ -458,9 +545,11 @@ sealed class TelegramBridge
             case "/tasks":
             {
                 var tasks = (hub.Snapshot(activeOnly: true, brief: true)["tasks"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().ToList();
-                var lines = tasks.Select(t => "• <b>" + Esc(J.Str(t["name"])) + "</b> — " + Esc(J.Str(t["state"]))
+                const int Rows = 15;   // 15 x (100 + 120 + a few) characters stays under Telegram's 4096
+                var lines = tasks.Take(Rows).Select(t => "• <b>" + Esc(J.Cut(J.Str(t["name"]), 100)) + "</b> — " + Esc(J.Str(t["state"]))
                     + (J.Num(t["progress"]) is double p ? $" {Math.Round(p * 100)}%" : "")
-                    + (J.Str(t["status"]).Length > 0 ? "\n   " + Esc(J.Cut(J.Str(t["status"]), 120)) : ""));
+                    + (J.Str(t["status"]).Length > 0 ? "\n   " + Esc(J.Cut(J.Str(t["status"]), 120)) : "")).ToList();
+                if (tasks.Count > Rows) lines.Add($"… +{tasks.Count - Rows}");
                 Enqueue(from, tasks.Count == 0 ? Esc(L.T("tg_no_tasks")) : string.Join("\n", lines), null);
                 break;
             }
@@ -484,12 +573,12 @@ sealed class TelegramBridge
         if (J.Str(inp?["type"]) == "number" && (J.Num(inp["min"]) is double || J.Num(inp["max"]) is double))
             what += $" [{(J.Num(inp["min"]) is double mn ? J.Fmt(mn) : "")} … {(J.Num(inp["max"]) is double mx ? J.Fmt(mx) : "")}]";
         var cur = J.Str(c["last_value"]).Length > 0 ? J.Str(c["last_value"]) : J.Str(inp?["default"]);
-        var text = "✏️ " + Esc(L.T("tg_ask", what)) + (cur.Length > 0 ? "\n<code>" + Esc(J.Cut(cur, 200)) + "</code>" : "");
-        var (code, r) = Call("sendMessage", new JsonObject
+        var text = "✏️ " + Esc(L.T("tg_ask", J.Cut(what, 300))) + (cur.Length > 0 ? "\n<code>" + Esc(J.Cut(cur, 200)) + "</code>" : "");
+        var (code, r) = ChatCall("sendMessage", new JsonObject
         {
             ["chat_id"] = chat, ["text"] = text, ["parse_mode"] = "HTML",
             ["reply_markup"] = new JsonObject { ["force_reply"] = true, ["input_field_placeholder"] = J.Cut(il.Length > 0 ? il : label, 60) },
-        }, 20).GetAwaiter().GetResult();
+        });
         lock (asks)
         {
             if (code == 200 && J.Num(r?["result"]?["message_id"]) is double id)
@@ -534,8 +623,8 @@ sealed class TelegramBridge
         var c = FindControl(hub.GetTask(tid), cid);
         var q = J.Str(c["confirm"]);
         if (q.Length == 0) return false;
-        var what = J.Str(c["label"]) + (value != null ? " = " + J.Cut(J.Str(value), 200) : "");
-        Enqueue(chat, "❓ <b>" + Esc(what) + "</b>\n" + Esc(q), new JsonObject
+        var what = J.Cut(J.Str(c["label"]), 200) + (value != null ? " = " + J.Cut(J.Str(value), 200) : "");
+        Enqueue(chat, "❓ <b>" + Esc(what) + "</b>\n" + Esc(J.Cut(q, 2000)), new JsonObject
         {
             ["inline_keyboard"] = new JsonArray(new JsonArray(Button("✓ " + L.T("yes"), tid, cid, value?.DeepClone(), confirmed: true))),
         });
@@ -573,7 +662,9 @@ sealed class TelegramBridge
         return ((int)r.StatusCode, o);
     }
 
-    static string Esc(string s) => WebUtility.HtmlEncode(s ?? "");
+    /// <summary>Only what Telegram's HTML needs (&amp; &lt; &gt; &quot;): HtmlEncode would also turn every emoji / non-Latin
+    /// letter into a numeric entity, many times longer.</summary>
+    static string Esc(string s) => (s ?? "").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
 
     [StructLayout(LayoutKind.Sequential)] struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
     [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);

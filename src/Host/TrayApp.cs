@@ -62,14 +62,16 @@ sealed class TrayApp : ApplicationContext
             Panel.SettingsPage = new SettingsBridge(S, hub, Telegram, GitHub, () => Updater, Ui);
             try
             {
-                await Panel.InitAsync();
+                // no WebView2 Runtime: say so once (a click on the balloon / the next open offers the download)
+                if (!await Panel.InitAsync())
+                    tray.ShowBalloonTip(10000, "TaskHub", J.Cut(L.T("webview2_missing"), 250), ToolTipIcon.Warning);
             }
             catch (Exception e)
             {
                 Log.W("panel unavailable: " + e);
                 tray.ShowBalloonTip(8000, "TaskHub", "WebView2 panel failed: " + e.Message, ToolTipIcon.Warning);
             }
-            if (openTask != null) Panel.ShowPanel(openTask == "" ? null : openTask);
+            if (openTask != null && !Panel.RuntimeMissing) Panel.ShowPanel(openTask == "" ? null : openTask);
         });
     }
 

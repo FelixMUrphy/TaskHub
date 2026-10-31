@@ -311,6 +311,8 @@ sealed class SetupForm : Form
         {
             try { auto = Install.AutostartEnabled(S); path = Install.OnPath(Install.InstallDir); } catch { }
         }
+        // the panel needs the WebView2 Runtime (always on Windows 11, not on every Windows 10)
+        if (PanelForm.RuntimeVersion() == null) AddText(L.T("webview2_setup_note") + "\n" + PanelForm.RuntimeUrl, gap: 12, muted: true);
         tAuto = AddToggle(L.T("setup_autostart"), auto, 1, gap: 16);
         tPath = AddToggle(L.T("setup_path"), path, 1);
         AddText(L.T("integrations"), gap: 16, section: true);

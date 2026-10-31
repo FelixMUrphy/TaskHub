@@ -50,7 +50,14 @@ static class J
         return d.ToString("G", CultureInfo.InvariantCulture);
     }
 
-    public static string Cut(string s, int n) => s == null ? "" : (s.Length > n ? s.Substring(0, n) : s);
+    /// <summary>At most n UTF-16 units; never splits a surrogate pair (half an emoji is invalid text for JSON / UTF-8).</summary>
+    public static string Cut(string s, int n)
+    {
+        if (s == null) return "";
+        if (s.Length <= n) return s;
+        if (n > 0 && char.IsHighSurrogate(s[n - 1])) n--;
+        return s.Substring(0, Math.Max(0, n));
+    }
 
     /// <summary>Finite number (JSON number or numeric string), else null: NaN / Infinity would break serialization.</summary>
     public static double? Num(JsonNode n) => RawNum(n) is double d && double.IsFinite(d) ? d : null;

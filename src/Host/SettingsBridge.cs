@@ -47,6 +47,7 @@ sealed class SettingsBridge
             ["version"] = Settings.Version, ["edition"] = Install.Edition,
             ["autostart"] = Install.AutostartEnabled(S),
             ["muted"] = hub.Muted,
+            ["notifications"] = hub.Notifier?.SystemSetting,   // "disabled_*": turned off in Windows -> a warning row
             ["updates"] = up == null ? null : new JsonObject { ["auto"] = up.Auto, ["available"] = up.Available?.Version.ToString(3) },
             ["agents"] = agents,
             ["telegram"] = t == null ? null : new JsonObject
@@ -97,6 +98,7 @@ sealed class SettingsBridge
                             hub.Notify(new JsonObject { ["title"] = "TaskHub", ["message"] = L.T("test_toast") + " ✓", ["force"] = true });
                             break;
                         case "data_folder": Hub.OpenTarget(S.DataDir); break;
+                        case "notif_settings": Hub.OpenTarget("ms-settings:notifications"); break;
                         case "api_help":
                         {
                             var p = Path.Combine(S.ExeDir, "API.md");
