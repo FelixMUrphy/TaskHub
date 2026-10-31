@@ -41,6 +41,9 @@ abstract partial class MachineConnector
     /// (e.g. a network volume billed as before); null = unknown.</summary>
     protected virtual (double? PerDay, string Note) StoppedStorage(Machine m) => (null, "");
 
+    /// <summary>A hint under the stop threshold in the settings (UI language), e.g. how often the service books charges.</summary>
+    protected virtual string GuardHint => null;
+
     sealed class PendingStop
     {
         public int Seq, Ver;               // Ver: bumped by Snooze (a deadline check that raced with it doesn't stop)
@@ -195,7 +198,7 @@ abstract partial class MachineConnector
             if (send)
             {
                 var msg = burn > 0 && HoursTo(g.Stop) is double h
-                    ? L.T("g_warn", Money(a), Money(g.Warn), Money(burn), Hours(h), Money(g.Stop))
+                    ? L.T("g_warn", Money(a), Money(g.Warn), Usd.Rate(burn), Hours(h), Money(g.Stop))
                     : L.T("g_warn_flat", Money(a), Money(g.Warn));
                 if (canAct == false) msg += " " + L.T("g_readonly");
                 else if (balance.NoStop is { Length: > 0 } ns) msg += " " + ns;
@@ -293,7 +296,7 @@ abstract partial class MachineConnector
         }
         SaveGuard();
         var names = string.Join(", ", targets.Select(m => m.Name ?? m.Id));
-        var text = L.T("g_pending", Money(a), Money(g.Stop), Money(burn), J.Cut(names, 600), When(dl));
+        var text = L.T("g_pending", Money(a), Money(g.Stop), Usd.Rate(burn), J.Cut(names, 600), When(dl));
         if (capped && ZeroAt() is double z2) text += " " + L.T("g_capped", When(z2));
         ShowPending(p, g, text, register: true);
         GuardNotify(text, "warn", withButtons: true);
@@ -604,7 +607,7 @@ abstract partial class MachineConnector
         {
             if (a <= g.Stop) forecast = L.T("g_forecast_below", Money(g.Stop));
             else if (SpendRate() is double r && r > 0 && HoursTo(g.Stop) is double h)
-                forecast = L.T("g_forecast", Money(r), Money(g.Stop), When(J.Now() + h * 3600));
+                forecast = L.T("g_forecast", Usd.Rate(r), Money(g.Stop), When(J.Now() + h * 3600));
             else forecast = L.T("g_forecast_flat");
         }
         var ms = new JsonArray();
@@ -616,7 +619,7 @@ abstract partial class MachineConnector
         return new JsonObject
         {
             ["enabled"] = g.On, ["warn"] = g.Warn, ["stop"] = g.Stop, ["grace_min"] = g.GraceMin, ["snooze_min"] = g.SnoozeMin,
-            ["note"] = note, ["forecast"] = forecast, ["machines"] = ms, ["log"] = log, ["exempt"] = J.StrArray(g.Exempt.OrderBy(x => x)),
+            ["note"] = note, ["hint"] = GuardHint, ["forecast"] = forecast, ["machines"] = ms, ["log"] = log, ["exempt"] = J.StrArray(g.Exempt.OrderBy(x => x)),
             ["pending"] = p == null ? null : new JsonObject
             {
                 ["text"] = PendingShort(p), ["stop_label"] = L.T("g_stop_now"), ["stop_q"] = L.T("g_stop_now_q", PendingNames(p)), ["snooze_label"] = L.T("g_snooze", J.Fmt(Math.Round(g.SnoozeMin, 2))),
@@ -760,15 +763,15 @@ static class GuardLog
     public static string Line(JsonObject e)
     {
         var t = DateTimeOffset.FromUnixTimeMilliseconds((long)((J.Num(e["t"]) ?? 0) * 1000)).ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-        static string M(double? v) => v is double d ? "$" + d.ToString(d < 10 ? "0.00" : "0.0", CultureInfo.InvariantCulture) : "?";
+        static string M(double? v) => Usd.Money(v, "?");
         var parts = new List<string> { t, J.Str(e["name"]) };
         parts.Add(J.Str(e["result"]) == "stopped" ? L.T("m_stopped") : L.T("g_res_failed", J.Str(e["error"])));
         parts.Add(J.Str(e["trigger"]) == "stop_now" ? L.T("g_stop_now")
-            : L.T("g_why", M(J.Num(e["balance"])), M(J.Num(e["threshold"])), M(J.Num(e["burn_per_hr"]))));
+            : L.T("g_why", M(J.Num(e["balance"])), M(J.Num(e["threshold"])), Usd.Rate(J.Num(e["burn_per_hr"]), "?")));
         if (J.Num(e["spent"]) is double sp) parts.Add(L.T("m_spent") + " " + (J.Truthy(e["spent_estimated"]) ? "≈ " : "") + M(sp));
         if (J.Str(e["result"]) == "stopped")
-            parts.Add(J.Num(e["storage_per_day"]) is double pd ? L.T("g_storage", M(pd), J.Str(e["provider"]) == "vastai" ? "Vast.ai" : "Runpod")
-                : L.T("g_storage_unknown"));
+            parts.Add((J.Num(e["storage_per_day"]) is double pd ? L.T("g_storage", M(pd), J.Str(e["provider"]) == "vastai" ? "Vast.ai" : "Runpod")
+                : L.T("g_storage_unknown")) + (J.Str(e["storage_note"]) is { Length: > 0 } sn ? " " + sn : ""));
         return string.Join(" · ", parts.Where(x => x.Length > 0));
     }
 }

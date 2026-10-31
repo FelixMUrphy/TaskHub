@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
@@ -30,9 +31,14 @@ sealed class RunpodConnector : MachineConnector
 
     protected override bool BalanceSource => GraphQl;
 
+    // clientBalance moves in steps (charges booked every ~10 min, live test 2026-10-31): a threshold can be crossed late
+    protected override string GuardHint => L.T("g_hint_runpod");
+
     // Runpod's price list (https://docs.runpod.io/pods/pricing): a stopped pod's container disk is wiped and not billed;
-    // its volume disk costs $0.20 / GB / month while stopped; network volumes $0.07 / GB / month (up to 1 TB, $0.05 above),
-    // the same running or stopped. The API has no price field.
+    // its volume disk (mounts.persistent.size, GB) costs $0.20 / GB / month while stopped; network volumes $0.07 / GB / month
+    // (up to 1 TB, $0.05 above), the same running or stopped. The API has no price field. The pod carries only a network
+    // volume's id: its size comes from GET /v2/network-volumes/{id} (see VolumeSizes); a high-performance volume has no
+    // published price - like an unread size it is left out with a note.
     const double VolumeStopped = 0.20, NetVolume = 0.07, NetVolumeOver1Tb = 0.05;
 
     protected override (double? PerDay, string Note) StoppedStorage(Machine m)
@@ -46,10 +52,43 @@ sealed class RunpodConnector : MachineConnector
         var note = "";
         foreach (var nv in (mounts?["network"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
         {
-            if (J.Num(nv["size"]) is double ns && ns > 0) month += Math.Min(ns, 1000) * NetVolume + Math.Max(0, ns - 1000) * NetVolumeOver1Tb;
-            else note = L.T("g_netvol");   // its size isn't on the pod: billed as before, not counted here
+            double? size = J.Num(nv["size"]);
+            if (size == null && volumes.TryGetValue(J.Str(nv["volumeId"]), out var v) && v.Gb != null && v.Type is "" or "STANDARD") size = v.Gb;
+            if (size is double ns && ns > 0) month += Math.Min(ns, 1000) * NetVolume + Math.Max(0, ns - 1000) * NetVolumeOver1Tb;
+            else note = L.T("g_netvol");   // its size / price isn't known: billed as before, not counted here
         }
         return known ? (month / 30, note) : (null, note);
+    }
+
+    /// <summary>Network volume id -> size (GB) and type, read when needed; a failed read is tried again after 10 min, a
+    /// known size re-read hourly (volumes can be resized).</summary>
+    readonly ConcurrentDictionary<string, (double? Gb, string Type, double At)> volumes = new();
+
+    async Task VolumeSizes(List<Machine> ms, string key, CancellationToken ct)
+    {
+        var ids = ms.Where(m => m.State != "terminated")
+            .SelectMany(m => (m.Raw?["mounts"]?["network"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
+            .Where(n => J.Num(n["size"]) == null).Select(n => J.Str(n["volumeId"]))
+            .Where(id => id.Length is > 0 and <= 100).Distinct().ToList();
+        int n = 0;
+        foreach (var id in ids)
+        {
+            if (volumes.TryGetValue(id, out var v) && J.Now() - v.At < (v.Gb != null ? 3600 : Mock ? 2 : 600)) continue;
+            if (++n > 5) return;   // a few per poll
+            try
+            {
+                var r = await Call(HttpMethod.Get, "/v2/network-volumes/" + Uri.EscapeDataString(id), null, key, ct);
+                var gb = r.Code == 200 ? J.Num(r.Body?["size"]) : null;
+                volumes[id] = gb > 0 ? (gb, J.Str(r.Body?["type"]).ToUpperInvariant(), J.Now()) : (v.Gb, v.Type ?? "", J.Now());
+                if (gb == null) Log.W($"runpod: network volume size: HTTP {r.Code}");
+                if (r.Limited || r.Code == 401) return;
+            }
+            catch (Exception e) when (!ct.IsCancellationRequested)
+            {
+                volumes[id] = (v.Gb, v.Type ?? "", J.Now());
+                Log.W("runpod: network volume size: " + e.GetBaseException().Message);
+            }
+        }
     }
 
     // ------------------------------------------------------------ reads
@@ -68,7 +107,11 @@ sealed class RunpodConnector : MachineConnector
             foreach (var p in (r.Body?["pods"] as JsonArray ?? new JsonArray()).OfType<JsonObject>()) res.Add(Map(p));
             var pg = r.Body?["pagination"];
             cursor = J.Truthy(pg?["hasNextPage"]) && J.Str(pg?["nextCursor"]) is { Length: > 0 } nc ? nc : null;
-            if (cursor == null) return res;
+            if (cursor == null)
+            {
+                await VolumeSizes(res, key, ct);
+                return res;
+            }
         }
         return null;   // more than 50 pages: not complete - don't declare anything gone
     }

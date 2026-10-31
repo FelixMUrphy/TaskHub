@@ -262,7 +262,7 @@ Burn = Runpod's `currentSpendPerHr`, else the sum of the running machines' $/h (
 (balance − stop) / burn. `GET /api/connectors/<id>` → `guard: {enabled, warn, stop, grace_min, snooze_min, exempt, can_act,
 balance_source, burn_per_hr, hours_to_stop, stop_at, zero_at, unreadable, warned, stops, no_stop, retry: [machine id],
 pending: {seq, deadline, held, capped, machines, task}|null}`; the settings rows (`?view=settings`) carry `guard` with the texts in the UI language (forecast,
-pending line, machines with `exempt`, the last log lines, a note when it can only warn).
+`hint` under the stop threshold (Runpod, 2.9.1: the balance moves in steps), pending line, machines with `exempt`, the last log lines, a note when it can only warn).
 - balance ≤ warn: one warning per crossing (re-armed when the balance is back above warn + 5 %) with balance, burn, hours.
 - balance ≤ stop: a pending stop of the running, non-exempt machines, shown as the task `<prefix>--guard` (`rp--guard`,
   `va--guard`; source = the connector) with the buttons `gstop.<seq>` (Stop now, asks for confirmation first — panel,

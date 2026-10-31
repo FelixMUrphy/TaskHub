@@ -43,6 +43,9 @@ def mkpod(pid, name, status, size=20):
 
 
 pods = {"pA": mkpod("pA", "alpha", "RUNNING"), "pB": mkpod("pB", "beta", "RUNNING"), "pC": mkpod("pC", "gamma", "EXITED")}
+# alpha also uses a 50 GB network volume: the pod carries only its id, the size comes from GET /v2/network-volumes/{id}
+pods["pA"]["mounts"]["network"] = [{"volumeId": "nv1", "path": "/runpod-volume"}]
+VOLUMES = {"nv1": {"id": "nv1", "name": "data", "size": 50, "dataCenter": "EU-RO-1", "type": "STANDARD"}}
 ACTIONS = {"RUNNING": ["stop", "restart", "terminate"], "EXITED": ["start", "terminate"]}
 inst = {201: {"id": 201, "label": "render-box", "actual_status": "running", "intended_status": "running", "cur_state": "running",
               "gpu_name": "RTX 4090", "num_gpus": 1, "dph_total": 0.4, "start_date": time.time() - 600, "gpu_util": 50.0,
@@ -105,6 +108,9 @@ class Runpod(Mock):
                                         "pagination": {"hasNextPage": False}})
             if m == "GET" and p == "/v2/billing/pods":
                 return self.reply(200, {"records": [{"podId": "pA", "totalAmount": 1.5}]})
+            mm = re.match(r"^/v2/network-volumes/([^/]+)$", p)
+            if m == "GET" and mm:   # an unknown volume: a server error (the size can't be read -> note, not counted)
+                return self.reply(200, VOLUMES[mm.group(1)]) if mm.group(1) in VOLUMES else self.reply(500, {"detail": "internal"})
             mm = re.match(r"^/v2/pods/([^/]+)(/action)?$", p)
             if mm:
                 pid, act = mm.group(1), mm.group(2)
@@ -338,7 +344,9 @@ check("burn = Runpod's currentSpendPerHr; hours to stop = (50 - 10) / 1", wait(l
 v = call("GET", "/api/connectors?view=settings")[1]
 rw = next((c for c in v.get("connectors", []) if c["id"] == "runpod"), {})
 gr = rw.get("guard") or {}
-check("settings row: forecast 'reaches the stop threshold $10.0 at …'", "reaches the stop threshold $10.0 at" in (gr.get("forecast") or ""), gr)
+check("settings row: hint under the stop threshold (Runpod books the balance in steps)", "set the stop threshold with some margin"
+      in (gr.get("hint") or ""), gr)
+check("settings row: forecast 'reaches the stop threshold $10.00 at …'", "reaches the stop threshold $10.00 at" in (gr.get("forecast") or ""), gr)
 check("settings row: machines with 'never auto-stop' (beta on)", any(m["id"] == "pB" and m["exempt"] for m in gr.get("machines", []))
       and any(m["id"] == "pA" and not m["exempt"] for m in gr.get("machines", [])), gr.get("machines"))
 check("exempt machine says so on its card", wait(lambda: ((next((w for w in (task("rp-pB") or {}).get("widgets", []) if w["id"] == "info"), {})
@@ -361,8 +369,8 @@ n0 = len(sent)
 with lock:
     balance["clientBalance"] = 15.0
 w1 = wait_sent(lambda m: "below the warning threshold" in m["text"], n0)
-check("warning -> Telegram: balance, burn, hours until the stop threshold", w1 is not None and "$15.0" in w1["text"]
-      and "$1.00/h" in w1["text"] and "5 h" in w1["text"] and "$10.0" in w1["text"], w1)
+check("warning -> Telegram: balance, burn, hours until the stop threshold", w1 is not None and "$15.00" in w1["text"]
+      and "$1.00/h" in w1["text"] and "5 h" in w1["text"] and "$10.00" in w1["text"], w1)
 time.sleep(4)
 check("warning only once per crossing", n_sent(lambda m: "below the warning threshold" in m["text"], n0) == 1,
       n_sent(lambda m: "below the warning threshold" in m["text"], n0))
@@ -425,16 +433,19 @@ check("Stop now asks first (names the machine), nothing stopped yet", ans == "�
 ans = press(buttons(q or {}).get("✓ yes"), "stopnow-yes")
 check("Stop now confirmed -> 'Stopping now…'", ans and "Stopping" in ans, ans)
 done = wait_sent(lambda m: "Auto-stop — stopped: 1, failed: 0" in m["text"], n3, timeout=20)
-check("summary: alpha stopped, storage while stopped ≈ $0.13/day per the Runpod price list", done is not None and "alpha" in done["text"]
-      and "≈ $0.13/day" in done["text"] and "Runpod price list" in done["text"], done)
+check("summary: alpha stopped, storage while stopped ≈ $0.25/day (20 GB volume disk + 50 GB network volume) per the Runpod price list",
+      done is not None and "alpha" in done["text"] and "≈ $0.25/day" in done["text"] and "Runpod price list" in done["text"]
+      and "billed as before" not in done["text"], done)
+check("network volume size read by id (GET /v2/network-volumes/nv1), once", [c for c in calls if c[0] == "rp" and c[2].startswith("/v2/network-volumes/")]
+      .count(("rp", "GET", "/v2/network-volumes/nv1")) == 1, [c for c in calls if "network-volumes" in c[2]])
 check("only alpha stopped (POST action stop); beta / gamma untouched", stops("rp", a0) == ["/v2/pods/pA/action"], stops("rp", a0))
 check("alpha's task finished 'stopped'", wait(lambda: (task("rp-pA") or {}).get("state") == "done"), task("rp-pA"))
 s, r = call("GET", "/api/guard/log?provider=runpod")
 e = (r.get("entries") or [{}])[0]
 check("log: when, machine, why, spent, result, storage ≈", s == 200 and e.get("machine_id") == "pA" and e.get("name") == "alpha"
       and e.get("trigger") == "stop_now" and e.get("result") == "stopped" and e.get("threshold") == 10 and e.get("balance") == 8
-      and e.get("burn_per_hr") == 1 and e.get("spent") == 1.5 and abs((e.get("storage_per_day") or 0) - 20 * 0.2 / 30) < 1e-3
-      and e.get("storage_approx") is True and e.get("t"), r)
+      and e.get("burn_per_hr") == 1 and e.get("spent") == 1.5 and abs((e.get("storage_per_day") or 0) - (20 * 0.2 + 50 * 0.07) / 30) < 1e-3
+      and e.get("storage_note") is None and e.get("storage_approx") is True and e.get("t"), r)
 
 # ---- a Snooze while the deadline's balance read is under way wins: nothing stopped
 with lock:
@@ -465,6 +476,7 @@ check("top-up -> cancelled, alpha never stopped", wait(lambda: guard().get("pend
 with lock:
     pods["pA"]["status"] = "RUNNING"
     pods["pD"] = mkpod("pD", "delta", "RUNNING", size=0)
+    pods["pD"]["mounts"]["network"] = [{"volumeId": "nvbad", "path": "/runpod-volume"}]   # its size can't be read
     faults["stop500"].add("pD")
     balance["clientBalance"] = 50.0
 call("POST", "/api/connectors/runpod", {"guard_grace_min": 0.05})
@@ -492,7 +504,8 @@ check("alpha (confirmed stopped) is not stopped again", stops("rp", a3).count("/
 with lock:
     faults["stop500"].clear()
 ok = wait_sent(lambda m: "Auto-stop — stopped: 1, failed: 0" in m["text"] and "delta — stopped" in m["text"], n4, timeout=20)
-check("retry works once the service answers -> delta stopped, said so", ok is not None and wait(lambda: guard().get("retry") == []),
+check("retry works once the service answers -> delta stopped, said so; its unreadable network volume noted, not counted",
+      ok is not None and "≈ $0.00/day" in ok["text"] and "network volume (billed as before)" in ok["text"] and wait(lambda: guard().get("retry") == []),
       (ok, guard()))
 
 # ---- balance unreadable: warning, nothing stopped at the deadline, readable again

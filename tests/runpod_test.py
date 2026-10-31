@@ -230,7 +230,7 @@ check("key in the Credential Manager", vault.read(TARGET) == KEY_RO, TARGET)
 cfg = open(os.path.join(DATA, "config.json"), encoding="utf-8").read()
 check("key not in config.json", KEY_RO not in cfg and "rpa_" not in cfg, cfg[:300])
 check("key checked right after saving -> 'Connected, balance $50.0'", r.get("key_check") == "ok"
-      and r.get("key_check_text") == "Connected, balance $50.0", r)
+      and r.get("key_check_text") == "Connected, balance $50.00", r)
 
 # ---- pods -> tasks (both list pages), a pod already stopped is shown quietly
 t1 = when("rp-pod1", lambda x: x["state"] == "running")
@@ -274,7 +274,7 @@ b = (st or {}).get("balance") or {}
 check("balance + spend rate from GraphQL myself, runway", b.get("amount") == 50 and b.get("spend_per_hr") == 1 and b.get("runway_hours") == 50
       and b.get("raw", {}).get("spendLimit") == 80, b)
 check("not low at 50 h runway", st and st.get("low") is False, st and st.get("low"))
-check("settings summary has balance and runway", st and "$50.0" in st.get("summary", "") and "left" in st["summary"], st and st.get("summary"))
+check("settings summary has balance and runway", st and "$50.00" in st.get("summary", "") and "left" in st["summary"], st and st.get("summary"))
 with lock:
     gq = [c for c in calls if c[1] == "/graphql"]
 check("GraphQL with the Bearer header only", gq and all(c[2] == "Bearer " + KEY_RO for c in gq), gq[:1])
@@ -311,7 +311,8 @@ t1 = when("rp-pod1", lambda x: "stop" in ctl_ids(x))
 check("running pod: stop, restart, delete", ctl_ids(t1) == ["stop", "restart", "delete"], ctl_ids(t1))
 stop = next(c for c in t1["controls"] if c["id"] == "stop")
 dele = next(c for c in t1["controls"] if c["id"] == "delete")
-check("stop: confirm + in toasts / Telegram; delete: typed name, never in toasts", stop["toast"] and stop["confirm"]
+check("stop: confirm (neutral: compute, not just GPU) + in toasts / Telegram; delete: typed name, never in toasts", stop["toast"]
+      and "compute (GPU / CPU) is released" in (stop["confirm"] or "")
       and not dele["toast"] and dele["input"]["type"] == "text" and "trainer" in dele["input"]["label"], (stop, dele))
 t2 = when("rp-pod2", lambda x: "start" in ctl_ids(x))
 check("stopped pod: start, delete", ctl_ids(t2) == ["start", "delete"], ctl_ids(t2))

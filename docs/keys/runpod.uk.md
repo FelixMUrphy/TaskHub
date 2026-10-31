@@ -29,7 +29,7 @@ TaskHub один раз (а далі щодня) перевіряє, чи мож
 
 ## Де зберігається ключ
 - Лише в диспетчері облікових даних Windows (Credential Manager) — ніколи в `config.json`.
-- Надсилається лише на `api.runpod.io` (REST для подів і білінгу, GraphQL для балансу).
+- Надсилається лише на `api.runpod.io` (REST для подів, розмірів мережевих томів і білінгу, GraphQL для балансу).
 
 ## Відкликати
 - **У Runpod:** <https://console.runpod.io/user/credentials> → значок кошика біля ключа → **Revoke Key**

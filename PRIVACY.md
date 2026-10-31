@@ -31,7 +31,8 @@ it.
 - **Runpod connector** (TaskHub 2.9 and later; off by default, earlier versions don't have it). If you paste a Runpod API
   key and turn it on, TaskHub asks `api.runpod.io` with that key (in the `Authorization` header) for your pods and their
   live load, your pod billing of the last 30 days and (GraphQL, can be turned off) your balance, spend per hour, spend
-  limit and billing mode (prepaid / post-paid), and shows them as tasks; nothing about your PC or your other tasks is sent. To find out whether the key may run
+  limit and billing mode (prepaid / post-paid) and, from 2.9.1, the size of the network volumes your pods use (for the
+  storage-cost estimate after an auto-stop), and shows them as tasks; nothing about your PC or your other tasks is sent. To find out whether the key may run
   actions, TaskHub sends one harmless request a day — "stop" for a pod that does not exist. Stop, start, restart and delete
   are sent only when you press the button and confirm. The key is kept in the Windows Credential Manager of your user
   account, not in TaskHub's files. Runpod's own privacy policy applies to these requests. Turning the connector off stops

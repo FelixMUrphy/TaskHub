@@ -167,7 +167,7 @@ sealed class VastAiConnector : MachineConnector
         return d;
     }
 
-    static string Money(double v) => "$" + v.ToString(Math.Abs(v) < 10 ? "0.00" : "0.0", CultureInfo.InvariantCulture);
+    static string Money(double v) => Usd.Money(v);
 
     /// <summary>/api/v0/users/current: `balance` (docs) and `credit` (CLI) - both shown, labelled; credit counts for the
     /// runway when it is there. The answer also carries the user's API key: only the money fields are read. The guard

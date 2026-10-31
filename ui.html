@@ -897,7 +897,7 @@ const connRow=c=>{
         + (c.key_set? `<button class="btn" data-ck="cancel" data-conn="${id}">${esc(T("cancel"))}</button>` : ""));
   }
   const th=c.thresholds, gd=c.guard;
-  const numv=(k,lab,min,max,step,v)=>srow(T(lab),"",`<input class="kin num" type="number" min="${min}" max="${max}" step="${step}" data-cset="${k}" data-conn="${id}" aria-label="${esc(T(lab))}" value="${v==null?"":esc(v)}">`,"sub");
+  const numv=(k,lab,min,max,step,v,d)=>srow(T(lab),d||"",`<input class="kin num" type="number" min="${min}" max="${max}" step="${step}" data-cset="${k}" data-conn="${id}" aria-label="${esc(T(lab))}" value="${v==null?"":esc(v)}">`,"sub");
   if (th){
     h+=numv("idle_minutes","s_idle_min",1,1440,1,th.idle_minutes);
     // the balance guard on: its warning replaces the old low-balance one (the keys stay as they are)
@@ -908,7 +908,7 @@ const connRow=c=>{
   if (gd){
     h+=srow(T("s_guard"), gd.note? "⚠ "+gd.note : T("s_guard_d"), tgl("cguard",gd.enabled,` data-conn="${id}"`), "sub");
     if (gd.enabled){
-      h+=numv("guard_warn","s_guard_warn",0,1000000,1,gd.warn)+numv("guard_stop","s_guard_stop",0,1000000,1,gd.stop)
+      h+=numv("guard_warn","s_guard_warn",0,1000000,1,gd.warn)+numv("guard_stop","s_guard_stop",0,1000000,1,gd.stop,gd.hint)
         +numv("guard_grace_min","s_guard_grace",1,120,1,gd.grace_min)+numv("guard_snooze_min","s_guard_snooze",5,240,5,gd.snooze_min);
       if (gd.forecast) h+=srow(gd.forecast,"","","sub");
       if (gd.pending) h+=srow("⚠ "+gd.pending.text,"",`<button class="btn" data-gact="stop_now" data-conn="${id}" data-q="${esc(gd.pending.stop_q||"")}">${esc(gd.pending.stop_label)}</button>`

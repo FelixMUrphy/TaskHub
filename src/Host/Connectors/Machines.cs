@@ -49,6 +49,17 @@ sealed class Balance
     public static Balance Failed(int code) => new() { Error = "HTTP " + code, Code = code };
 }
 
+/// <summary>Money in texts, the same everywhere (settings, task cards, guard, log, toasts, Telegram): amounts always with
+/// two decimals ("$10.90"); hourly rates the same, except below $0.10, where a third decimal keeps them readable ("$0.062").</summary>
+static class Usd
+{
+    public static string Money(double v) => "$" + v.ToString("0.00", CultureInfo.InvariantCulture);
+    public static string Money(double? v, string none = "") => v is double d ? Money(d) : none;
+    /// <summary>An hourly rate without the "/h" (the caller's text adds it).</summary>
+    public static string Rate(double v) => "$" + v.ToString(Math.Abs(v) < 0.10 && v != 0 ? "0.000" : "0.00", CultureInfo.InvariantCulture);
+    public static string Rate(double? v, string none = "") => v is double d ? Rate(d) : none;
+}
+
 /// <summary>
 /// Base of the connectors for rented machines (Runpod, Vast.ai...): one API key (Credential Manager), one task per machine
 /// ("&lt;prefix&gt;-&lt;id&gt;", active while it runs, finished when it stops / is gone), load charts from our own polls,
@@ -631,7 +642,7 @@ abstract partial class MachineConnector : IConnector
         return a;
     }
 
-    static string Money(double? v) => v is double d ? "$" + d.ToString(d < 10 ? "0.00" : "0.0", CultureInfo.InvariantCulture) : "";
+    static string Money(double? v) => Usd.Money(v);
 
     static string Hours(double h) =>
         h >= 48 ? L.T("m_days", ((int)(h / 24)).ToString(CultureInfo.InvariantCulture))
@@ -734,7 +745,7 @@ abstract partial class MachineConnector : IConnector
         Kv("GPU", m.Gpu.Length > 0 ? (m.GpuCount > 1 ? m.GpuCount + " × " : "") + m.Gpu : "");
         Kv(L.T("m_region"), m.Region);
         Kv(L.T("m_image"), m.Image);
-        Kv(L.T("m_price"), m.Price is double p ? Money(p) + "/h" : "");
+        Kv(L.T("m_price"), m.Price is double p ? Usd.Rate(p) + "/h" : "");
         double? sp = null;
         bool est = m.SpentEstimated;
         if (spent != null && spent.TryGetValue(m.Id, out var s1)) { sp = s1; est = SpendLags; }
@@ -751,7 +762,7 @@ abstract partial class MachineConnector : IConnector
         var status = m.State switch
         {
             "starting" => L.T("m_starting") + (m.RawStatus.Length > 0 ? " (" + m.RawStatus + ")" : ""),
-            "running" => string.Join(" · ", new[] { m.Price is double p2 ? Money(p2) + "/h" : "", sp is double s3 ? (est ? "≈ " : "") + Money(s3) : "" }.Where(x => x.Length > 0)),
+            "running" => string.Join(" · ", new[] { m.Price is double p2 ? Usd.Rate(p2) + "/h" : "", sp is double s3 ? (est ? "≈ " : "") + Money(s3) : "" }.Where(x => x.Length > 0)),
             _ => m.RawStatus,
         };
         var links = new JsonArray();
