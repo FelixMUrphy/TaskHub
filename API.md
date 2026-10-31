@@ -95,6 +95,8 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/connectors/github` | `{enabled?, repos?: ["owner/repo"], interval?: 15-3600, notify_success?, logs?, auth?: "token"\|"gcm", token?, forget_token?}` | GitHub Actions connector (below) |
 | GET | `/api/connectors/runpod` | | `{enabled, key_set, status, can_act, probed_at, machines: [{id, name, state, task}], running, balance: {amount, spend_per_hr, spend_limit, runway_hours, raw, at}, low, idle_minutes, idle_util, low_runway_hours, low_balance, graphql_balance, summary}` (2.9; the key is never returned) |
 | POST | `/api/connectors/runpod` | `{enabled?, key?, forget_key?, idle_minutes?: 1-1440, idle_util?: 1-50, low_runway_hours?: 0-720, low_balance?: $\|null, list_interval?: 30-3600, detail_interval?: 15-3600, billing_interval?: 300-86400, graphql_balance?}` | Runpod connector (2.9, below) |
+| GET | `/api/connectors/vastai` | | the same as Runpod without `graphql_balance`; `balance.label` says what `amount` is ("Balance $x · Credit"), `balance.raw = {balance, credit, ...}` (2.9; the key is never returned) |
+| POST | `/api/connectors/vastai` | `{enabled?, key?, forget_key?, idle_minutes?, idle_util?, low_runway_hours?, low_balance?, list_interval?, detail_interval?, billing_interval?}` (ranges as Runpod) | Vast.ai connector (2.9, below) |
 | POST | `/api/clear` | | remove finished tasks |
 | POST | `/api/settings` | `{muted?: bool, seen?: true | [task ids], language?, theme?: "system"\|"light"\|"dark", accent?: "system"\|"taskhub", panel_transparency?: 0-100, card_transparency?: 0-100, panel_group?: "project"\|"source"\|"none", panel_pinned?: bool}` | mute toasts; panel look (also in `GET /api/tasks` → `panel`) |
 | POST | `/api/ui/open` | `{task?}` | open panel (focus a task) |
@@ -172,7 +174,7 @@ in Telegram), `hint`, `states` (when shown; default running/paused/stale), `inpu
 | `signal` | queued for the process → it receives via `GET /commands?wait=25` → replies with `ack` |
 | `shell` | hub runs `command` (list or string; placeholders `{value}` `{pid}` `{task_id}`; see *Shell values* below), the last 25 output lines and the exit code → task log; `cwd`, `timeout` (s, default 300, 1–86400) |
 | `open` | hub opens `target` (file, folder, URL) |
-| `connector` | only on tasks of a built-in connector (not accepted from API clients): the connector does it (e.g. cancel / re-run on GitHub); `panel_only` ones (delete a Runpod pod) answer 403 over HTTP - only the panel's own page can trigger them (2.9) |
+| `connector` | only on tasks of a built-in connector (not accepted from API clients): the connector does it (e.g. cancel / re-run on GitHub); `panel_only` ones (delete a Runpod pod / Vast.ai instance) answer 403 over HTTP - only the panel's own page can trigger them (2.9) |
 | `kill` | hub kills `pid` with its whole process tree (only if it is still the process the task registered, never a reused pid); task → cancelled. 2.9: refused (409) when the process's start time couldn't be read at registration; if the process is still running after the kill (e.g. it runs elevated: access denied) → 500 with the reason and the task stays as it was (before 2.9: marked cancelled anyway) |
 
 `input`: `{"type": "text"|"number"|"select"|"bool", "label", "default", "options": [...], "min", "max", "step"}`.
@@ -230,6 +232,19 @@ runway = balance / spend per hour (Runpod's, else the sum of the running pods' p
 or balance under `low_balance` → one warning per crossing + `attention` on running pods. Spent = pod billing of the last 30
 days (≈). Polling: pod list every 60 s (`list_interval`, all pages), each running pod every 30 s (`detail_interval`), billing
 and balance every 10 min (`billing_interval`); Runpod's `RateLimit` header and 429 `Retry-After` pause everything.
+
+## Connectors: Vast.ai
+*2.9.* Panel → ⚙ Settings → Connectors → Vast.ai (or `POST /api/connectors/vastai {key, enabled: true}`); the key is kept like
+Runpod's. Each instance is a task: id `va-<instance id>`, source `vastai`, project `Vast.ai`, name = its label (else
+"instance <id>"), `meta.vastai = {id, name, state, status}`. `actual_status` running → active; `intended_status` running while
+not yet running (loading, scheduling...) → active, *Starting…* (after a minute in *Scheduling*: "waiting for its GPU"); asked to
+stop / exited → `done` "stopped"; offline → `failed`; destroyed / gone from the list → `done` "terminated". Widgets as Runpod
+plus a disk series in `load` (CPU, RAM, Disk); load values Vast.ai leaves null are null points. Uptime from `uptime_mins`, else
+`start_date`. Link: the Vast.ai console. Buttons (probe: `PUT /api/v0/instances/0/ {label}` - 403 = read-only): stop / reboot
+(running), start (stopped), delete = destroy (panel only, typed name) - as Runpod. Vast.ai's `200 {"success": false, msg}`
+answers count as errors (its `msg` is shown). Spent = `/api/v0/charges` of the last 30 days (≈); balance and credit from
+`/api/v0/users/current` (credit, when present, is `amount`). Polling as Runpod (list paged 25 at a time); a 429 (Vast.ai sends
+no Retry-After) pauses everything 60 s, doubling while 429s follow each other (up to 30 min).
 
 ## Native CLI `taskhub` (no Python needed; starts the hub if it is not running, disable with `TASKHUB_NO_AUTOSTART=1`)
 `taskhub run --name "<what>" --source <agent> [--auto-progress] [--heartbeat N] -- <cmd args>` wraps any command

@@ -49,6 +49,9 @@ loopback only.
 - **Runpod** *(from 2.9)*: your GPU pods as tasks — GPU, region, image, $/h, spent, uptime, SSH and Jupyter links, load
   charts, *GPU idle* warning with a Stop button, balance and runway with a low-balance warning, stop / start / restart
   (delete only in the panel, after typing the pod's name) — see [Runpod](#runpod).
+- **Vast.ai** *(from 2.9)*: your instances as tasks — the same as Runpod (GPU, location, image, $/h, spent, uptime, SSH, load
+  charts with disk, *GPU idle*, balance / credit and runway, stop / start / reboot, delete only in the panel) — see
+  [Vast.ai](#vastai).
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
   plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
@@ -159,6 +162,20 @@ ones without a network volume. Stop, start and restart ask for a confirmation (s
 notification and Telegram); delete works only in the panel, after typing the pod's name (never through the HTTP API). TaskHub talks only to
 `api.runpod.io`: REST v2 for pods and billing, and GraphQL for the balance (`graphql_balance`, on by default; turn it off to
 skip the balance). Details: [API.md → Connectors](API.md#connectors-runpod).
+
+### Vast.ai
+*From version 2.9; off until you turn it on.* Settings → *Connectors* → *Vast.ai*: paste an API key from the Vast.ai console
+(its API keys page; a key with `instance_read`, `user_read` and `billing_read` is enough to watch, actions need
+`instance_write`). It is kept in the Windows Credential Manager, never in `config.json`; *Forget key* deletes it. Like Runpod,
+TaskHub checks once (and daily) whether the key may run actions and shows the Stop / Start / Reboot / Delete buttons only if it
+may. Each instance is a task (`va-<id>`, named by its label): active while it runs or starts, finished *stopped* when it stops
+and *terminated* when it is destroyed; GPU (type × count), location, image, price per hour, spent so far (≈, from Vast.ai's
+charges of the last 30 days), uptime, the SSH command, a link to the Vast.ai console, and GPU / VRAM and CPU / RAM / disk
+charts from TaskHub's own polls (Vast.ai often reports no load — then the charts stay empty). *GPU idle* and the low-balance
+warning work as for Runpod. Vast.ai reports a *balance* and a *credit*; TaskHub shows both and counts the credit for the
+runway — at $0 Vast.ai stops instances (stopped ones still pay for storage), and without a payment method they are scheduled
+for deletion. A start can wait in *Scheduling* when the host rented the GPU out meanwhile; TaskHub says so. TaskHub talks only
+to `console.vast.ai`. Details: [API.md → Connectors](API.md#connectors-vastai).
 
 ## Install details
 The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or any folder you choose), unpacks the

@@ -334,12 +334,14 @@ abstract class MachineConnector : IConnector
             Sample(t, c);
             Show(t, c, false);
         }
+        if (J.Now() < pausedUntil) return;   // a 429 on the last detail: billing waits too (its answer would reset the back-off)
         if (now >= nextBilling)
         {
             nextBilling = now + c.BillingEvery;
             var sp = await Spend(key, ct);
             if (sp != null) spent = sp;
-            var b = await FetchBalance(key, ct);
+            // a 429 on the charges pauses everything: the balance waits too (an answer would also reset the back-off)
+            var b = J.Now() < pausedUntil ? null : await FetchBalance(key, ct);
             if (b != null) { balance = b; balanceAt = J.Now(); }
             CheckLow(c);
             List<Track> all;
