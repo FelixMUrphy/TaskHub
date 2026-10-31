@@ -187,6 +187,13 @@ sealed class VastAiConnector : MachineConnector
         return b;
     }
 
+    /// <summary>Storage of a stopped instance keeps billing (host-specific, often more than while running): storage_cost ×
+    /// disk_space. storage_cost is $/GB/month in the CLI (the docs say "per hour" - conflict, see .ai/gotchas.md): the CLI
+    /// meaning is used, shown with "≈".</summary>
+    protected override (double? PerDay, string Note) StoppedStorage(Machine m) =>
+        Num(m.Raw?["storage_cost"]) is double sc && sc >= 0 && Num(m.Raw?["disk_space"]) is double gb && gb >= 0
+            ? (sc * gb / 30, "") : (null, "");
+
     // ------------------------------------------------------------ actions
     /// <summary>Vast answers some failures with 200 {"success": false, "msg": ...}: read as an error (403 when it is about
     /// permissions, else 400).</summary>

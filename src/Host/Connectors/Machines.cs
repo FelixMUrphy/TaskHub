@@ -48,9 +48,9 @@ sealed class Balance
 /// the panel, toasts and Telegram; delete only from the panel after typing the machine's name) offered only when a probe
 /// says the key may run them. A service adapter fills in the HTTP calls and maps its objects to <see cref="Machine"/>.
 /// Config (connectors.&lt;id&gt;): enabled, idle_minutes, idle_util, low_runway_hours, low_balance, list_interval,
-/// detail_interval, billing_interval, api (tests: a loopback mock only).
+/// detail_interval, billing_interval, api (tests: a loopback mock only); the balance guard's keys: see Guard.cs.
 /// </summary>
-abstract class MachineConnector : IConnector
+abstract partial class MachineConnector : IConnector
 {
     public abstract string Id { get; }
     public abstract string Title { get; }                 // "Runpod"
@@ -104,6 +104,7 @@ abstract class MachineConnector : IConnector
     bool? canAct;                                          // null: not probed yet / probe failed
     double probedAt, nextList, nextBilling, pausedUntil, backoff;
     string keyHash;
+    int lastCode;                                          // the status of the last answer (why a balance read failed)
     // the last verdict on the saved key: "ok" | "revoked" (the service stopped accepting it) | "network" | "unavailable"
     // (saved but not checked yet); null = no key / not checked. Never anything of the key itself.
     string keyCheck;
@@ -169,6 +170,7 @@ abstract class MachineConnector : IConnector
             else if (J.Num(b["low_balance"]) is double d && d >= 0 && d <= 1e6) c["low_balance"] = d;
             else throw new ApiError(400, "low_balance must be a number >= 0 or null");
         }
+        ConfigureGuard(b, c);
         if (b.ContainsKey("enabled")) c["enabled"] = J.Truthy(b["enabled"]);
         ExtraConfig(b, c);
         if (J.IsStr(b["key"])) SetKey(J.Str(b["key"]));   // a rejected key: nothing is changed
@@ -258,6 +260,7 @@ abstract class MachineConnector : IConnector
                 ["at"] = balanceAt,
             },
             ["low"] = low,
+            ["guard"] = GuardState(),
             ["summary"] = Summary(),
         };
         ExtraState(s);
@@ -276,6 +279,7 @@ abstract class MachineConnector : IConnector
             bl = Runway() is double h ? L.T("m_runway", Hours(h)) : "";
         }
         else if (CheckText() is { } ct) parts.Add(ct);
+        if (pending is { } pd) parts.Insert(0, "⚠ " + PendingShort(pd));
         if (canAct == false) parts.Add(L.T("m_readonly"));
         else if (canAct == true) parts.Add(L.T("m_can_act"));
         int running;
@@ -315,6 +319,7 @@ abstract class MachineConnector : IConnector
             {
                 status = "offline: " + e.GetBaseException().Message;
                 Log.W($"{Id}: " + e.GetBaseException().Message);
+                try { GuardMissFromError(e.GetBaseException().Message); } catch (Exception e2) { Log.W($"{Id}: guard: " + e2.Message); }
                 try { await Task.Delay(Mock ? 2000 : 15000, ct); } catch { return; }
             }
             try { await Task.Delay(Mock ? 300 : 1000, ct); } catch { return; }
@@ -339,6 +344,7 @@ abstract class MachineConnector : IConnector
             };
             lock (gate) machines.TryAdd(id, new Track { M = m });   // a restart of the loop keeps what it knows
         }
+        AdoptGuard();
     }
 
     async Task Tick(CancellationToken ct)
@@ -357,11 +363,17 @@ abstract class MachineConnector : IConnector
             keyHash = kh;
             await RunProbe(key, ct);
         }
+        await GuardTick(key, ct);   // a pending stop whose time has come
         if (now >= nextList)
         {
             nextList = now + c.ListEvery;
             var list = await List(key, ct);
-            if (list == null) { if (status == "ok" || status == "starting") status = "list failed"; return; }
+            if (list == null)
+            {
+                if (status == "ok" || status == "starting") status = "list failed";
+                if (now >= nextBilling && J.Now() >= pausedUntil) await Billing(key, c, ct);   // the balance may still be readable
+                return;
+            }
             status = "ok";
             if (keyCheck != "ok") SetCheck("ok");
             Reconcile(list, c);
@@ -379,19 +391,35 @@ abstract class MachineConnector : IConnector
             Show(t, c, false);
         }
         if (J.Now() < pausedUntil) return;   // a 429 on the last detail: billing waits too (its answer would reset the back-off)
-        if (now >= nextBilling)
+        if (now >= nextBilling) await Billing(key, c, ct);
+    }
+
+    /// <summary>Spent per machine and the balance (billing_interval; every minute while a guard stop is pending), the
+    /// low-balance warning and the balance guard.</summary>
+    async Task Billing(string key, Conf c, CancellationToken ct)
+    {
+        nextBilling = J.Now() + BalanceEvery(c);
+        var sp = await Spend(key, ct);
+        if (sp != null) spent = sp;
+        // a 429 on the charges pauses everything: the balance waits too (an answer would also reset the back-off)
+        Balance b = null;
+        bool tried = J.Now() >= pausedUntil;
+        string why = "";
+        if (tried)
         {
-            nextBilling = now + c.BillingEvery;
-            var sp = await Spend(key, ct);
-            if (sp != null) spent = sp;
-            // a 429 on the charges pauses everything: the balance waits too (an answer would also reset the back-off)
-            var b = J.Now() < pausedUntil ? null : await FetchBalance(key, ct);
-            if (b != null) { balance = b; balanceAt = J.Now(); }
-            CheckLow(c);
-            List<Track> all;
-            lock (gate) all = machines.Values.Where(t => t.M.State != "terminated").ToList();
-            foreach (var t in all) Show(t, c, false);
+            lastCode = 0;
+            try { b = await FetchBalance(key, ct); }
+            catch (Exception e) when (e is HttpRequestException || (e is TaskCanceledException && !ct.IsCancellationRequested))
+            { why = e.GetBaseException().Message; status = "offline: " + why; }
+            if (b == null && why.Length == 0) why = lastCode is > 0 and not 200 ? "HTTP " + lastCode : "no answer";
+            if (b == null && lastCode == 429) tried = false;   // rate limit: not an outage
         }
+        if (b != null) { balance = b; balanceAt = J.Now(); }
+        CheckLow(c);
+        if (tried) GuardOnBalance(b != null, why);
+        List<Track> all;
+        lock (gate) all = machines.Values.Where(t => t.M.State != "terminated").ToList();
+        foreach (var t in all) Show(t, c, false);
     }
 
     async Task RunProbe(string key, CancellationToken ct)
@@ -616,7 +644,8 @@ abstract class MachineConnector : IConnector
         if (balance?.Amount is not double a) return;
         var rw = Runway();
         bool now = (c.LowRunwayHours > 0 && rw is double h && h < c.LowRunwayHours) || (c.LowBalance is double lb && a < lb);
-        if (now && !low)
+        // the balance guard (opt-in) has its own warning: not two at once
+        if (now && !low && !GCfg.On)
         {
             var msg = L.T("m_low", Title, Money(a), rw is double h2 ? Hours(h2) : "—");
             if (ZeroBalanceNote.Length > 0) msg += " " + ZeroBalanceNote;
@@ -696,6 +725,7 @@ abstract class MachineConnector : IConnector
             Kv(L.T("m_uptime"), Hub.FmtDur(up));
         if (m.State == "running") Kv("SSH", m.Ssh);
         Kv(L.T("m_balance"), BalanceLine());
+        if (GCfg.Exempt.Contains(m.Id)) Kv(L.T("g_autostop"), L.T("g_exempt"));
         var status = m.State switch
         {
             "starting" => L.T("m_starting") + (m.RawStatus.Length > 0 ? " (" + m.RawStatus + ")" : ""),
@@ -724,6 +754,7 @@ abstract class MachineConnector : IConnector
     // ------------------------------------------------------------ buttons
     public JsonObject OnControl(string tid, string cid, JsonNode value, string via)
     {
+        if (tid == GuardTid) return GuardControl(cid);   // Stop now / Snooze of a pending balance-guard stop
         var task = hub.GetTask(tid);
         if (J.Str(task["source"]) != Id || task["meta"]?[Id] is not JsonObject g) throw new ApiError(404, $"not a {Title} machine");
         var id = J.Str(g["id"]);
@@ -802,6 +833,7 @@ abstract class MachineConnector : IConnector
         cts2.CancelAfter(TimeSpan.FromSeconds(30));
         using var r = await http.Send(req, cts2.Token);
         var res = new Resp { Code = (int)r.StatusCode };
+        lastCode = res.Code;
         var text = await r.Content.ReadAsStringAsync(cts2.Token);
         try { res.Body = text.Length > 0 ? J.Parse(text) : null; } catch { }
         OnHeaders(r);

@@ -624,7 +624,7 @@ sealed class Notifier : INotifier
                     }
                     catch (Exception ex)
                     {
-                        Toast("TaskHub", $"«{cid}»: {ex.Message}", "warn", tid, null);
+                        Toast("TaskHub", ex is ApiError { Stale: true } ? L.T("g_handled") : $"«{cid}»: {ex.Message}", "warn", tid, null);
                     }
                     break;
                 case "link":

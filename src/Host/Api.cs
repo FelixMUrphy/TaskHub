@@ -129,6 +129,15 @@ sealed class Api
             return V(o);
         });
         R("GET", "/api/connectors/([a-z0-9]{1,20})", (c, q, g) => V(Conn(g[0]).State()));
+        R("GET", "/api/guard/log", (c, q, g) =>
+        {
+            // what the balance guard stopped (2.9), newest first: ?provider=runpod|vastai&limit=1-200 (default 50)
+            var prov = q.TryGetValue("provider", out var pv) && pv.Length > 0 ? pv : null;
+            int lim = q.TryGetValue("limit", out var lv) && int.TryParse(lv, out var li) ? li : 50;
+            var a = new JsonArray();
+            foreach (var e in GuardLog.Read(S, prov, lim)) a.Add((JsonNode)e);
+            return V(new JsonObject { ["entries"] = a });
+        });
         R("POST", "/api/connectors/([a-z0-9]{1,20})", async (c, q, g) =>
         {
             var b = await Body(c);

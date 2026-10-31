@@ -28,6 +28,30 @@ sealed class RunpodConnector : MachineConnector
 
     protected override void ExtraState(JsonObject s) => s["graphql_balance"] = GraphQl;
 
+    protected override bool BalanceSource => GraphQl;
+
+    // Runpod's price list (https://docs.runpod.io/pods/pricing): a stopped pod's container disk is wiped and not billed;
+    // its volume disk costs $0.20 / GB / month while stopped; network volumes $0.07 / GB / month (up to 1 TB, $0.05 above),
+    // the same running or stopped. The API has no price field.
+    const double VolumeStopped = 0.20, NetVolume = 0.07, NetVolumeOver1Tb = 0.05;
+
+    protected override (double? PerDay, string Note) StoppedStorage(Machine m)
+    {
+        var mounts = m.Raw?["mounts"] as JsonObject;
+        double month = 0;
+        bool known = true;
+        if (J.Num(mounts?["persistent"]?["size"]) is double gb && gb > 0) month += gb * VolumeStopped;
+        else if (J.Num(m.Raw?["volumeInGb"]) is double gb2 && gb2 > 0) month += gb2 * VolumeStopped;
+        else if (m.Raw == null) known = false;
+        var note = "";
+        foreach (var nv in (mounts?["network"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
+        {
+            if (J.Num(nv["size"]) is double ns && ns > 0) month += Math.Min(ns, 1000) * NetVolume + Math.Max(0, ns - 1000) * NetVolumeOver1Tb;
+            else note = L.T("g_netvol");   // its size isn't on the pod: billed as before, not counted here
+        }
+        return known ? (month / 30, note) : (null, note);
+    }
+
     // ------------------------------------------------------------ reads
     protected override Task<Resp> CheckKey(string key, CancellationToken ct) => Call(HttpMethod.Get, "/v2/pods?limit=1", null, key, ct);
 

@@ -123,6 +123,8 @@ sealed class SettingsBridge
                     ["idle_minutes"] = J.C(ms["idle_minutes"]), ["low_runway_hours"] = J.C(ms["low_runway_hours"]),
                     ["low_balance"] = J.C(ms["low_balance"]),
                 },
+                // the balance guard (2.9): its values, forecast / pending line, machines with "never auto-stop", last stops
+                ["guard"] = on ? mc.GuardRow() : null,
             });
         }
         return conns;
@@ -130,7 +132,8 @@ sealed class SettingsBridge
 
     JsonArray ConnectorRows() => ConnectorRows(gh, machines);
 
-    static readonly string[] ThresholdKeys = { "idle_minutes", "low_runway_hours", "low_balance" };
+    static readonly string[] ThresholdKeys = { "idle_minutes", "low_runway_hours", "low_balance",
+        "guard", "guard_warn", "guard_stop", "guard_grace_min", "guard_snooze_min", "guard_exempt" };
 
     /// <summary>Runs a command from the page; returns the reply to post back (the new state, maybe an error / a note).</summary>
     public async Task<JsonObject> Handle(JsonObject c)
@@ -171,6 +174,10 @@ sealed class SettingsBridge
                         {
                             err = L.T("k_invalid", mc?.Title ?? "GitHub");   // nothing saved, the old key (if any) stays
                         }
+                        catch (ApiError e) when (e.Code == 400 && e.Message.StartsWith("guard_"))
+                        {
+                            err = L.T("g_bad_values", e.Message);   // nothing changed
+                        }
                         // right after saving: the verdict of the check ("Connected, balance $X" / "Connected as @login"...)
                         if (keyed && err == null)
                         {
@@ -209,6 +216,14 @@ sealed class SettingsBridge
                         case "update_check_now": if (updater() is { } u1) await u1.Check(true); break;
                         case "update_open": updater()?.OpenPage(); break;
                         case "support": Hub.OpenTarget(L.SupportUrl); break;
+                        case "guard":   // Stop now / Snooze of a pending balance-guard stop, from the settings page
+                        {
+                            var mc = machines.FirstOrDefault(x => x.Id == J.Str(c["connector"])) ?? throw new Exception("no connector");
+                            var act = J.Str(c["act"]) == "stop_now" ? "stop_now" : "snooze";
+                            var gr = await Task.Run(() => mc.GuardAct(act));
+                            info = J.Str(gr["message"]);
+                            break;
+                        }
                     }
                     break;
             }

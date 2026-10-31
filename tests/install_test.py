@@ -153,6 +153,8 @@ try:
     purge_data = tempfile.mkdtemp(prefix="taskhub-purgedata-")
     with open(os.path.join(purge_data, "config.json"), "w") as f:
         f.write("{}")
+    with open(os.path.join(purge_data, "guard_log.json"), "w") as f:   # what the balance guard stopped (2.9)
+        f.write('{"entries": []}')
     # Secrets.Target: a non-default data folder gets "@" + the first 10 hex of SHA-256(lower-case full path, 8.3 names
     # expanded like .NET's Path.GetFullPath) - test-only names
     targets = [vault.target(purge_data, "github"), vault.target(purge_data, "telegram")]
@@ -168,7 +170,7 @@ try:
         print(f"SKIP purge: GitHub and Telegram tokens deleted (Credential Manager unavailable: {no_vault})")
     else:
         check("purge: GitHub and Telegram tokens deleted", not any(vault.exists(t) for t in targets))
-    check("purge: data folder deleted", not os.path.exists(purge_data))
+    check("purge: data folder deleted (also guard_log.json)", not os.path.exists(purge_data))
     for t in targets:
         vault.delete(t)
     shutil.rmtree(purge_data, True)

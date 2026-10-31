@@ -98,6 +98,8 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/connectors/runpod` | `{enabled?, key?, forget_key?, idle_minutes?: 1-1440, idle_util?: 1-50, low_runway_hours?: 0-720, low_balance?: $\|null, list_interval?: 30-3600, detail_interval?: 15-3600, billing_interval?: 300-86400, graphql_balance?}` | Runpod connector (2.9, below) |
 | GET | `/api/connectors/vastai` | | the same as Runpod without `graphql_balance`; `balance.label` says what `amount` is ("Balance $x · Credit"), `balance.raw = {balance, credit, ...}` (2.9; the key is never returned) |
 | POST | `/api/connectors/vastai` | `{enabled?, key?, forget_key?, idle_minutes?, idle_util?, low_runway_hours?, low_balance?, list_interval?, detail_interval?, billing_interval?}` (ranges as Runpod) | Vast.ai connector (2.9, below) |
+| POST | `/api/connectors/runpod`, `/api/connectors/vastai` | `{guard?: bool, guard_warn?: $\|null, guard_stop?: $\|null, guard_grace_min?: 1-120, guard_snooze_min?: 5-240, guard_exempt?: [machine id]}` | balance guard (2.9, [below](#balance-guard)); `guard_warn` must be above `guard_stop` (>= 0), else 400 and nothing changes |
+| GET | `/api/guard/log` | `?provider=runpod\|vastai&limit=1-200` (50) | what the balance guard stopped, newest first (2.9): `{entries: [{t, provider, machine_id, name, trigger: "auto"\|"stop_now", balance, threshold, burn_per_hr, spent, spent_estimated, result: "stopped"\|"failed", error, storage_per_day, storage_note, storage_approx}]}` |
 | POST | `/api/clear` | | remove finished tasks |
 | POST | `/api/settings` | `{muted?: bool, seen?: true | [task ids], language?, theme?: "system"\|"light"\|"dark", accent?: "system"\|"taskhub", panel_transparency?: 0-100, card_transparency?: 0-100, panel_group?: "project"\|"source"\|"none", panel_pinned?: bool}` | mute toasts; panel look (also in `GET /api/tasks` → `panel`) |
 | POST | `/api/ui/open` | `{task?}` | open panel (focus a task) |
@@ -249,6 +251,27 @@ plus a disk series in `load` (CPU, RAM, Disk); load values Vast.ai leaves null a
 answers count as errors (its `msg` is shown). Spent = `/api/v0/charges` of the last 30 days (≈); balance and credit from
 `/api/v0/users/current` (credit, when present, is `amount`). Polling as Runpod (list paged 25 at a time); a 429 (Vast.ai sends
 no Retry-After) pauses everything 60 s, doubling while 429s follow each other (up to 30 min).
+
+## Balance guard
+*2.9, off by default.* Per machine connector (`connectors.runpod`, `connectors.vastai` in `config.json`): `guard` (false),
+`guard_warn` ($, default 10), `guard_stop` ($, default 2; `guard_warn` > `guard_stop` >= 0), `guard_grace_min` (10, 1-120),
+`guard_snooze_min` (15, 5-240), `guard_exempt` (machine ids that are never stopped by the guard). `low_runway_hours` /
+`low_balance` keep their meaning; while the guard is on, their warning is replaced by the guard's (the panel hides them).
+Burn = Runpod's `currentSpendPerHr`, else the sum of the running machines' $/h (Vast.ai: `dph_total`); hours to stop =
+(balance − stop) / burn. `GET /api/connectors/<id>` → `guard: {enabled, warn, stop, grace_min, snooze_min, exempt, can_act,
+balance_source, burn_per_hr, hours_to_stop, stop_at, zero_at, unreadable, warned, pending: {seq, deadline, held, capped,
+machines, task}|null}`; the settings rows (`?view=settings`) carry `guard` with the texts in the UI language (forecast,
+pending line, machines with `exempt`, the last log lines, a note when it can only warn).
+- balance ≤ warn: one warning per crossing (re-armed when the balance is back above warn + 5 %) with balance, burn, hours.
+- balance ≤ stop: a pending stop of the running, non-exempt machines, shown as the task `<prefix>--guard` (`rp--guard`,
+  `va--guard`; source = the connector) with the buttons `gstop.<seq>` (Stop now) and `gsnooze.<seq>` (Snooze), also in the
+  notification and Telegram. Deadline = now + grace, capped at the projected $0 minus 5 min; Snooze adds `guard_snooze_min`
+  (same cap; the reply says until when). A press on a button of an earlier pending stop answers "already handled". A balance
+  above stop cancels it. At the deadline the balance is read again: unreadable → nothing is stopped, `held`, retried each
+  minute; *Stop now* still acts. Stop = the connector's stop action (never delete), confirmed by polling the list; one result
+  per machine in `guard_log.json` (at most 200 entries, data folder) and in the summary (Windows + Telegram).
+- Balance unreadable (network, 5xx, 401) for 2 readings in a row while the guard is on: one warning, and "readable again".
+- Read-only key (probe 403): warnings only. While a stop is pending the balance is read every minute.
 
 ## Native CLI `taskhub` (no Python needed; starts the hub if it is not running, disable with `TASKHUB_NO_AUTOSTART=1`)
 `taskhub run --name "<what>" --source <agent> [--auto-progress] [--heartbeat N] -- <cmd args>` wraps any command

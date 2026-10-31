@@ -529,10 +529,13 @@ sealed class TelegramBridge
                         else if (!cb.Confirmed && Confirm(chat, cb.Tid, cb.Cid, cb.Value)) answer = "❓";
                         else
                         {
-                            hub.Trigger(cb.Tid, cb.Cid, new JsonObject { ["value"] = cb.Value?.DeepClone() }, "telegram");
-                            answer = "✓ " + cb.Cid + (cb.Value != null ? " = " + J.Str(cb.Value) : "");
+                            var res = hub.Trigger(cb.Tid, cb.Cid, new JsonObject { ["value"] = cb.Value?.DeepClone() }, "telegram");
+                            // a connector may answer in words (the balance guard: "Snoozed until 14:30")
+                            answer = J.Str(res?["message"]) is { Length: > 0 } said ? said
+                                : "✓ " + cb.Cid + (cb.Value != null ? " = " + J.Str(cb.Value) : "");
                         }
                     }
+                    catch (ApiError e) when (e.Stale) { answer = L.T("g_handled"); }   // a button of something already over
                     catch (Exception e) { answer = e.Message; }
                 }
             }
@@ -593,7 +596,7 @@ sealed class TelegramBridge
 
     static JsonObject FindControl(JsonObject task, string cid) =>
         (task["controls"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().FirstOrDefault(x => J.Str(x["id"]) == cid)
-        ?? throw new ApiError(404, $"control '{cid}' not found");
+        ?? throw new ApiError(404, $"control '{cid}' not found") { Stale = true };
 
     /// <summary>Text / number control pressed: ask for the value; the reply to this message goes to the task.</summary>
     void Ask(long chat, string tid, string cid)
