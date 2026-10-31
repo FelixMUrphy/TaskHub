@@ -21,6 +21,7 @@ sealed class TrayApp : ApplicationContext
     public TelegramBridge Telegram;
     public Updater Updater;
     public GitHubConnector GitHub;
+    public MachineConnector[] Machines = Array.Empty<MachineConnector>();
 
     public TrayApp(Settings s, Hub h, Api a, Notifier n, string openTask)
     {
@@ -59,7 +60,7 @@ sealed class TrayApp : ApplicationContext
         Ui(async () =>
         {
             // here, not above: GitHub / Updater are set by the caller after the constructor
-            Panel.SettingsPage = new SettingsBridge(S, hub, Telegram, GitHub, () => Updater, Ui);
+            Panel.SettingsPage = new SettingsBridge(S, hub, Telegram, GitHub, Machines, () => Updater, Ui);
             try
             {
                 // no WebView2 Runtime: say so once (a click on the balloon / the next open offers the download)

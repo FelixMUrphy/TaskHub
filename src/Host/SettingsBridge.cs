@@ -14,12 +14,13 @@ sealed class SettingsBridge
     readonly Hub hub;
     readonly TelegramBridge tg;
     readonly GitHubConnector gh;
+    readonly MachineConnector[] machines;
     readonly Func<Updater> updater;
     readonly Action<Action> ui;
 
-    public SettingsBridge(Settings s, Hub h, TelegramBridge t, GitHubConnector g, Func<Updater> u, Action<Action> uiThread)
+    public SettingsBridge(Settings s, Hub h, TelegramBridge t, GitHubConnector g, MachineConnector[] m, Func<Updater> u, Action<Action> uiThread)
     {
-        S = s; hub = h; tg = t; gh = g; updater = u; ui = uiThread;
+        S = s; hub = h; tg = t; gh = g; machines = m ?? Array.Empty<MachineConnector>(); updater = u; ui = uiThread;
     }
 
     public JsonObject State()
@@ -34,6 +35,23 @@ sealed class SettingsBridge
             });
         var t = tg?.State();
         var g = gh?.State();
+        var conns = new JsonArray();
+        if (g != null)
+            conns.Add(new JsonObject
+            {
+                ["id"] = "github", ["name"] = "GitHub Actions", ["enabled"] = J.C(g["enabled"]), ["status"] = J.C(g["status"]),
+                ["account"] = J.C(g["login"]), ["items"] = (g["repos"] as JsonArray)?.Count ?? 0,
+            });
+        // machine connectors (Runpod...): one API key pasted here (kept in the Credential Manager), on / off, a state line
+        foreach (var mc in machines)
+        {
+            var ms = mc.State();
+            conns.Add(new JsonObject
+            {
+                ["id"] = mc.Id, ["name"] = mc.Title, ["kind"] = "key", ["enabled"] = J.C(ms["enabled"]), ["key_set"] = J.C(ms["key_set"]),
+                ["status"] = J.C(ms["status"]), ["summary"] = J.C(ms["summary"]),
+            });
+        }
         var up = updater();
         // the host's own translations of what used to be the tray's items (one source of the words in 10 languages)
         var labels = new JsonObject();
@@ -56,11 +74,7 @@ sealed class SettingsBridge
                 ["warning"] = J.C(t["warning"]),
             },
             // every connector the same way: what it is, on / off, a short state line; its own window for the details
-            ["connectors"] = g == null ? new JsonArray() : new JsonArray(new JsonObject
-            {
-                ["id"] = "github", ["name"] = "GitHub Actions", ["enabled"] = J.C(g["enabled"]), ["status"] = J.C(g["status"]),
-                ["account"] = J.C(g["login"]), ["items"] = (g["repos"] as JsonArray)?.Count ?? 0,
-            }),
+            ["connectors"] = conns,
         };
     }
 
@@ -81,7 +95,18 @@ sealed class SettingsBridge
                     }
                     if (c.ContainsKey("update_check")) S.Set(("update_check", J.Truthy(c["update_check"])));
                     if (c.ContainsKey("muted")) hub.SetMuted(J.Truthy(c["muted"]));
-                    if (J.IsStr(c["agent"]))
+                    // a machine connector: on / off, the API key (checked with the service, then kept in the Credential
+                    // Manager - never config.json), forget the key
+                    if (J.IsStr(c["connector"]) && machines.FirstOrDefault(x => x.Id == J.Str(c["connector"])) is { } mc)
+                    {
+                        var b = new JsonObject();
+                        if (c.ContainsKey("enabled")) b["enabled"] = J.Truthy(c["enabled"]);
+                        if (J.IsStr(c["key"])) { b["key"] = J.Str(c["key"]); b["enabled"] = true; }
+                        if (J.Truthy(c["forget_key"])) b["forget_key"] = true;
+                        await Task.Run(() => mc.Configure(b));
+                        if (b.ContainsKey("key")) note = L.T("m_key_saved", mc.Title);
+                    }
+                    else if (J.IsStr(c["agent"]))
                     {
                         var a = J.Str(c["agent"]) == "codex" ? Integrations.Agent.Codex : Integrations.Agent.Claude;
                         var k = J.Str(c["kind"]) == "mcp" ? Integrations.Kind.Mcp : Integrations.Kind.Hooks;

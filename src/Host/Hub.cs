@@ -912,8 +912,9 @@ sealed class Hub
     }
 
     // ------------------------------------------------------------ controls & commands
-    /// <summary>A "connector" control pressed: (source, task, control, value) -> the connector that made the task.</summary>
-    public Func<string, string, string, JsonNode, JsonObject> ConnectorControl;
+    /// <summary>A "connector" control pressed: (source, task, control, value, via) -> the connector that made the task.
+    /// via: null from the panel / API, "toast" or "telegram" otherwise (some actions are offered in the panel only).</summary>
+    public Func<string, string, string, JsonNode, string, JsonObject> ConnectorControl;
 
     public JsonObject Trigger(string tid, string cid, JsonObject b, string via = null)
     {
@@ -965,7 +966,7 @@ sealed class Hub
         {
             case "connector":
                 if (ConnectorControl == null) throw new ApiError(503, "connectors not available");
-                return ConnectorControl(source, tid, cid, value);
+                return ConnectorControl(source, tid, cid, value, via);
             case "kill":
                 if (pid is not > 0) throw new ApiError(400, "task has no pid");
                 var kr = KillTree(pid.Value, ct, out var why);

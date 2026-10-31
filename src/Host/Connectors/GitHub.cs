@@ -647,7 +647,7 @@ sealed class GitHubConnector : IConnector
     }
 
     // ------------------------------------------------------------ buttons
-    public JsonObject OnControl(string tid, string cid, JsonNode value)
+    public JsonObject OnControl(string tid, string cid, JsonNode value, string via)
     {
         var t = hub.GetTask(tid);
         if (J.Str(t["source"]) != Id || t["meta"]?["github"] is not JsonObject g) throw new ApiError(404, "not a GitHub run");

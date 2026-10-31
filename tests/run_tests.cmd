@@ -11,7 +11,7 @@ set DATA=%TEMP%\taskhub-tests
 if exist "%DATA%" rmdir /s /q "%DATA%"
 rem the test hub must not show Windows notifications (the burst test would queue dozens of them)
 mkdir "%DATA%"
-> "%DATA%\config.json" echo {"toasts": false, "autostart": false, "toast_rate": 0, "toast_task_gap": 0, "telegram_api": "http://127.0.0.1:47897", "connectors": {"github": {"api": "http://127.0.0.1:47896"}}}
+> "%DATA%\config.json" echo {"toasts": false, "autostart": false, "toast_rate": 0, "toast_task_gap": 0, "telegram_api": "http://127.0.0.1:47897", "connectors": {"github": {"api": "http://127.0.0.1:47896"}, "runpod": {"api": "http://127.0.0.1:47891"}}}
 set TASKHUB_URL=http://127.0.0.1:47899
 set TASKHUB_DATA=%DATA%
 start "" /b "%EXE%" --port 47899 --data "%DATA%" --no-tray
@@ -26,6 +26,7 @@ set RC=0
 for %%D in ("%EXE%") do "%PYTHON%" mcp_test.py "%%~dpDtaskhub.exe" || set RC=1
 "%PYTHON%" telegram_test.py "%EXE%" || set RC=1
 "%PYTHON%" github_test.py || set RC=1
+"%PYTHON%" runpod_test.py || set RC=1
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='TaskHubHost.exe'\" | Where-Object { $_.CommandLine -like '*47899*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
 if %RC%==0 (echo ALL TESTS PASSED) else (echo TESTS FAILED)
 exit /b %RC%

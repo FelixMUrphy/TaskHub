@@ -237,6 +237,7 @@ static class Program
         notifier.Telegram = telegram;
         var connectors = new Connectors(S, hub);
         var github = connectors.Add(new GitHubConnector(S, hub));
+        var runpod = connectors.Add(new RunpodConnector(S, hub));
         var api = new Api(S, hub) { Telegram = telegram, Conns = connectors };
         try { api.Start().GetAwaiter().GetResult(); }
         catch (Exception e)
@@ -268,7 +269,8 @@ static class Program
         }
 
         // Store edition: updates come from the Store, so no update check / menu
-        var trayApp = new TrayApp(S, hub, api, notifier, openTask) { Updater = Install.IsPackaged ? null : updater, GitHub = github };
+        var trayApp = new TrayApp(S, hub, api, notifier, openTask) { Updater = Install.IsPackaged ? null : updater, GitHub = github,
+            Machines = new MachineConnector[] { runpod } };
         ThreadPool.RegisterWaitForSingleObject(quit, (_, _) => trayApp.QuitSoon(), null, -1, true);
         Application.Run(trayApp);
         connectors.StopAll();

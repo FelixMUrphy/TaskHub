@@ -118,12 +118,17 @@ sealed class Api
             foreach (var k in Conns?.All ?? Enumerable.Empty<IConnector>()) o[k.Id] = k.State();
             return V(o);
         });
-        R("GET", "/api/connectors/(github)", (c, q, g) => V(Conn(g[0]).State()));
-        R("POST", "/api/connectors/(github)", async (c, q, g) =>
+        R("GET", "/api/connectors/([a-z0-9]{1,20})", (c, q, g) => V(Conn(g[0]).State()));
+        R("POST", "/api/connectors/([a-z0-9]{1,20})", async (c, q, g) =>
         {
             var b = await Body(c);
-            var gh = Conn(g[0]) as GitHubConnector;
-            return await Task.Run(() => (JsonNode)gh.Configure(b));
+            var conn = Conn(g[0]);
+            return await Task.Run(() => (JsonNode)(conn switch
+            {
+                GitHubConnector gh => gh.Configure(b),
+                MachineConnector mc => mc.Configure(b),
+                _ => throw new ApiError(404, "not configurable"),
+            }));
         });
         R("POST", "/api/settings", async (c, q, g) =>
         {

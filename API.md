@@ -93,6 +93,8 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/telegram` | `{token}` (start pairing, returns the t.me `link`) · `{test: true}` · `{relink: true}` (new code for another chat, same bot) · `{away_only: bool}` · `{progress: bool}` (live progress bar + charts at the end) · `{disconnect: true}` | Telegram setup |
 | GET | `/api/connectors`, `/api/connectors/github` | | connector state: `{enabled, repos, interval, notify_success, logs, auth, token_set, login, token_expires, status, repo_status, rate_remaining, active_runs}` (the token itself is never returned) |
 | POST | `/api/connectors/github` | `{enabled?, repos?: ["owner/repo"], interval?: 15-3600, notify_success?, logs?, auth?: "token"\|"gcm", token?, forget_token?}` | GitHub Actions connector (below) |
+| GET | `/api/connectors/runpod` | | `{enabled, key_set, status, can_act, probed_at, machines: [{id, name, state, task}], running, balance: {amount, spend_per_hr, spend_limit, runway_hours, raw, at}, low, idle_minutes, idle_util, low_runway_hours, low_balance, graphql_balance, summary}` (2.9; the key is never returned) |
+| POST | `/api/connectors/runpod` | `{enabled?, key?, forget_key?, idle_minutes?: 1-1440, idle_util?: 1-50, low_runway_hours?: 0-720, low_balance?: $\|null, list_interval?: 30-3600, detail_interval?: 15-3600, billing_interval?: 300-86400, graphql_balance?}` | Runpod connector (2.9, below) |
 | POST | `/api/clear` | | remove finished tasks |
 | POST | `/api/settings` | `{muted?: bool, seen?: true | [task ids], language?, theme?: "system"\|"light"\|"dark", accent?: "system"\|"taskhub", panel_transparency?: 0-100, card_transparency?: 0-100, panel_group?: "project"\|"source"\|"none", panel_pinned?: bool}` | mute toasts; panel look (also in `GET /api/tasks` → `panel`) |
 | POST | `/api/ui/open` | `{task?}` | open panel (focus a task) |
@@ -209,6 +211,25 @@ kept in the Windows Credential Manager - or `auth: "gcm"`, the Git Credential Ma
 Requests go only to api.github.com (with the token) and, for logs, to GitHub's log storage through the one-time link GitHub gives
 (without the token). Polling uses ETags (unchanged = free): every `interval` s (default 60) when idle, every 10 s while a run is
 going, slower near the rate limit. A notification warns 7 days before the token expires.
+
+## Connectors: Runpod
+*2.9.* Panel → ⚙ Settings → Connectors → Runpod (or `POST /api/connectors/runpod {key, enabled: true}`). The key is checked with
+Runpod, then kept in the Windows Credential Manager (never `config.json`, never returned). Each pod is a task: id `rp-<pod id>`,
+source `runpod`, project `Runpod`, `meta.runpod = {id, name, state, status}`. RUNNING / PROVISIONING / STARTING → active
+(status *Starting…* until it runs); EXITED → `done` "stopped"; ERROR → `failed`; deleted / gone from the list → `done`
+"terminated"; started again → the same task is active again. Widgets: `info` (kv: GPU, region, image, price, spent, uptime,
+SSH, balance), `gpu` (chart: GPU = highest util of its GPUs, VRAM) and `load` (chart: CPU, RAM), 240 points, from TaskHub's own
+polls (Runpod keeps no history). Links: `https://<pod>-<port>.proxy.runpod.net` for each `<port>/http`.
+Buttons (only when the key may run actions - probed with `POST /v2/pods/pod_taskhub_probe/action` when the key changes and
+daily: 403 = read-only): stop / restart (running; also in toasts and Telegram), start (stopped), delete (panel only, value =
+the pod's exact name; refused from toasts / Telegram) - each with a confirmation. Errors: 409 *not possible in the current
+state*, *no free GPU* for a start whose host is full, 403 *the key may not do this*.
+GPU idle: every GPU under `idle_util` % (5) for `idle_minutes` (30) → `attention` + a warning (Windows + Telegram, with Stop),
+once per idle period. Balance: GraphQL `myself {clientBalance currentSpendPerHr spendLimit}` (`graphql_balance`, default on);
+runway = balance / spend per hour (Runpod's, else the sum of the running pods' prices); runway under `low_runway_hours` (12)
+or balance under `low_balance` → one warning per crossing + `attention` on running pods. Spent = pod billing of the last 30
+days (≈). Polling: pod list every 60 s (`list_interval`, all pages), each running pod every 30 s (`detail_interval`), billing
+and balance every 10 min (`billing_interval`); Runpod's `RateLimit` header and 429 `Retry-After` pause everything.
 
 ## Native CLI `taskhub` (no Python needed; starts the hub if it is not running, disable with `TASKHUB_NO_AUTOSTART=1`)
 `taskhub run --name "<what>" --source <agent> [--auto-progress] [--heartbeat N] -- <cmd args>` wraps any command

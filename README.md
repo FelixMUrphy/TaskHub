@@ -46,6 +46,9 @@ loopback only.
 - **GitHub Actions** *(from 2.9)*: the workflow runs of your repositories as tasks — progress by jobs / steps, ETA from earlier runs,
   the failed step and the end of its log, cancel / re-run buttons, artifact and release links — see
   [GitHub Actions](#github-actions).
+- **Runpod** *(from 2.9)*: your GPU pods as tasks — GPU, region, image, $/h, spent, uptime, SSH and Jupyter links, load
+  charts, *GPU idle* warning with a Stop button, balance and runway with a low-balance warning, stop / start / restart
+  (delete only in the panel, after typing the pod's name) — see [Runpod](#runpod).
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
   plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
@@ -140,6 +143,22 @@ one-time link GitHub gives, without the token. A notification warns a week befor
 approval (e.g. from a fork) shows *Waiting for approval on GitHub* and is followed once approved; a renamed repository is
 followed and reported (*repository moved to …*); GitHub's rate limits pause polling (2.9). Details:
 [API.md → Connectors](API.md#connectors-github-actions).
+
+### Runpod
+*From version 2.9; off until you turn it on.* Settings → *Connectors* → *Runpod*: paste an API key from the
+Runpod console (*Settings → API Keys*; kept in the Windows Credential Manager, never in
+`config.json`; *Forget key* deletes it). A read-only key is enough to watch: TaskHub checks once (and daily) whether the key
+may run actions and shows the Stop / Start / Restart / Delete buttons only if it may. Each pod is a task (`rp-<pod id>`):
+active while it runs or starts, finished *stopped* when it stops and *terminated* when it is deleted; GPU (type × count),
+region, image, price per hour, spent so far (≈, from Runpod's billing), uptime, the SSH command and https links to its HTTP
+ports (Jupyter on 8888) through Runpod's proxy, and GPU / VRAM and CPU / RAM charts from TaskHub's own polls (every 30 s).
+When every GPU of a pod stays under 5 % for 30 minutes (`idle_minutes`, `idle_util`) TaskHub warns *GPU idle* — on Windows and
+in Telegram, with a Stop button. Balance and runway (balance ÷ current spend per hour) are shown in Settings and on the pods;
+below 12 hours (`low_runway_hours`, or under `low_balance` $) TaskHub warns once — at $0 Runpod stops pods and terminates the
+ones without a network volume. Stop, start and restart ask for a confirmation (stop and restart also work from the
+notification and Telegram); delete works only in the panel, after typing the pod's name. TaskHub talks only to
+`api.runpod.io`: REST v2 for pods and billing, and GraphQL for the balance (`graphql_balance`, on by default; turn it off to
+skip the balance). Details: [API.md → Connectors](API.md#connectors-runpod).
 
 ## Install details
 The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or any folder you choose), unpacks the

@@ -17,8 +17,9 @@ interface IConnector
     string Id { get; }                       // "github": config key, task source, credential name
     void Start();                            // (re)reads its settings; also called after they change
     void Stop();
-    /// <summary>A "connector" control pressed on one of its tasks (panel, toast, Telegram, API). Runs off the UI thread.</summary>
-    JsonObject OnControl(string tid, string cid, JsonNode value);
+    /// <summary>A "connector" control pressed on one of its tasks (panel, toast, Telegram, API). Runs off the UI thread.
+    /// via: null from the panel / HTTP API, "toast" or "telegram".</summary>
+    JsonObject OnControl(string tid, string cid, JsonNode value, string via);
     JsonObject State();                      // for the settings window / GET /api/connectors
 }
 
@@ -40,8 +41,8 @@ sealed class Connectors
     public void StartAll() { foreach (var c in all.Values) try { c.Start(); } catch (Exception e) { Log.W($"connector {c.Id}: " + e.Message); } }
     public void StopAll() { foreach (var c in all.Values) try { c.Stop(); } catch { } }
 
-    JsonObject Route(string source, string tid, string cid, JsonNode value) =>
-        Get(source) is { } c ? c.OnControl(tid, cid, value) : throw new ApiError(404, $"no connector '{source}'");
+    JsonObject Route(string source, string tid, string cid, JsonNode value, string via) =>
+        Get(source) is { } c ? c.OnControl(tid, cid, value, via) : throw new ApiError(404, $"no connector '{source}'");
 
     // ------------------------------------------------------------ settings: connectors.<id> in config.json
     public static JsonObject Config(Settings s, string id) =>
@@ -59,8 +60,8 @@ sealed class Connectors
 /// A hub with its own data folder (tests, demos) gets its own names, so it never sees or changes the real ones.</summary>
 static class Secrets
 {
-    /// <summary>Every name TaskHub saves a secret under (GitHub connector, Telegram bot): deleted by uninstall --purge.</summary>
-    public static readonly string[] Names = { "github", "telegram" };
+    /// <summary>Every name TaskHub saves a secret under (connectors, Telegram bot): deleted by uninstall --purge.</summary>
+    public static readonly string[] Names = { "github", "telegram", "runpod" };
 
     const int ErrorNotFound = 1168;
 
