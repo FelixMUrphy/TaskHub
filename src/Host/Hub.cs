@@ -7,6 +7,10 @@ namespace TaskHub;
 sealed class ApiError : Exception
 {
     public int Code;
+    /// <summary>A button that is no longer there / no longer applies (Telegram and toasts answer "already handled").</summary>
+    public bool Stale { get; init; }
+    /// <summary>The text for the settings page (UI language) when it differs from the API's English message.</summary>
+    public string Ui { get; init; }
     public ApiError(int code, string msg) : base(msg) { Code = code; }
 }
 
@@ -931,13 +935,13 @@ sealed class Hub
         {
             var t = Get(tid);
             c = (t["controls"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().FirstOrDefault(x => J.Str(x["id"]) == cid);
-            if (c == null) throw new ApiError(404, $"control '{cid}' not found");
+            if (c == null) throw new ApiError(404, $"control '{cid}' not found") { Stale = true };
             if (J.Str(c["kind"]) == "kill" && J.Num(t["pid"]) is double kp && kp > 0 && In(tid).Ct == null)
                 throw new ApiError(409, "kill refused: the process's creation time wasn't known at registration, so the pid can't be told from a reused one");
             if (J.Truthy(c["panel_only"]) && via != "panel")
                 throw new ApiError(403, $"control '{cid}' works only in the TaskHub panel, not through the HTTP API, toasts or Telegram");
             var states = (c["states"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x)).ToList();
-            if (!states.Contains(St(t))) throw new ApiError(409, $"control '{cid}' not available in state '{St(t)}'");
+            if (!states.Contains(St(t))) throw new ApiError(409, $"control '{cid}' not available in state '{St(t)}'") { Stale = true };
             value = CheckValue(c["input"] as JsonObject, value);
             var label = J.Str(c["label"]) + (value != null ? " = " + J.Dump(value) : "") + (via != null ? $" ({via})" : "");
             if (value != null)

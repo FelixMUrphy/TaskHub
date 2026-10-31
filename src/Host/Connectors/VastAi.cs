@@ -170,14 +170,17 @@ sealed class VastAiConnector : MachineConnector
     static string Money(double v) => "$" + v.ToString(Math.Abs(v) < 10 ? "0.00" : "0.0", CultureInfo.InvariantCulture);
 
     /// <summary>/api/v0/users/current: `balance` (docs) and `credit` (CLI) - both shown, labelled; credit counts for the
-    /// runway when it is there. The answer also carries the user's API key: only the money fields are read.</summary>
+    /// runway when it is there. The answer also carries the user's API key: only the money fields are read. The guard
+    /// stops only on `credit` (prepaid money left) on an account without a card charged automatically (has_billing): else
+    /// it only warns (see .ai/gotchas.md).</summary>
     protected override async Task<Balance> FetchBalance(string key, CancellationToken ct)
     {
         var r = await Call(HttpMethod.Get, "/api/v0/users/current", null, key, ct);
-        if (r.Code != 200 || r.Body is not JsonObject u) { if (r.Code != 429) Log.W($"vastai: balance HTTP {r.Code}"); return null; }
+        if (r.Code != 200 || r.Body is not JsonObject u) { if (r.Code != 429) Log.W($"vastai: balance HTTP {r.Code}"); return Balance.Failed(r.Code); }
         double? bal = Num(u["balance"]), credit = Num(u["credit"]);
-        if (bal == null && credit == null) return null;
+        if (bal == null && credit == null) return new Balance { Error = "no balance in the answer", Code = 200 };
         var b = new Balance { Amount = credit ?? bal };
+        b.NoStop = credit == null ? L.T("g_nostop_vast_credit") : J.Truthy(u["has_billing"]) ? L.T("g_nostop_vast_card") : null;
         foreach (var k in new[] { "balance", "credit", "can_pay", "has_billing" })
             if (u.ContainsKey(k) && u[k] is null or JsonValue) b.Raw[k] = J.C(u[k]);
         // what Amount is: "Credit" (with the balance beside it when Vast gives both)
@@ -186,6 +189,13 @@ sealed class VastAiConnector : MachineConnector
             : "";
         return b;
     }
+
+    /// <summary>Storage of a stopped instance keeps billing (host-specific, often more than while running): storage_cost ×
+    /// disk_space. storage_cost is $/GB/month in the CLI (the docs say "per hour" - conflict, see .ai/gotchas.md): the CLI
+    /// meaning is used, shown with "≈".</summary>
+    protected override (double? PerDay, string Note) StoppedStorage(Machine m) =>
+        Num(m.Raw?["storage_cost"]) is double sc && sc >= 0 && Num(m.Raw?["disk_space"]) is double gb && gb >= 0
+            ? (sc * gb / 30, "") : (null, "");
 
     // ------------------------------------------------------------ actions
     /// <summary>Vast answers some failures with 200 {"success": false, "msg": ...}: read as an error (403 when it is about

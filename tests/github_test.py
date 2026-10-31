@@ -284,7 +284,8 @@ check("second attempt succeeded -> done", t is not None, task("gh-101"))
 # ---- a new run, cancelled from TaskHub
 with lock:
     r102 = mkrun(102, "queued", title="Add feature")
-t = wait(lambda: task("gh-102"))
+# the task can appear a poll before its status line is filled in: wait for both
+t = wait(lambda: (lambda x: x if x and x.get("status") else None)(task("gh-102")))
 check("new queued run -> task", t is not None and t["state"] == "running" and t.get("status") == "Queued", t and t.get("status"))
 s, r = call("POST", "/api/tasks/gh-102/controls/cancel", {})
 check("cancel -> GitHub called", s == 200 and any(c[0] == "POST" and c[1].endswith("/runs/102/cancel") for c in calls), (s, r))

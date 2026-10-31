@@ -52,6 +52,9 @@ loopback only.
 - **Vast.ai** *(from 2.9)*: your instances as tasks — the same as Runpod (GPU, location, image, $/h, spent, uptime, SSH, load
   charts with disk, *GPU idle*, balance / credit and runway, stop / start / reboot, delete only in the panel) — see
   [Vast.ai](#vastai).
+- **Balance guard** *(from 2.9, off until you turn it on)*: for Runpod and Vast.ai — a warning at your own balance threshold
+  (balance, $/h, time left), and at the stop threshold the running machines are **stopped** (never deleted) after a
+  notification with *Stop now* / *Snooze* (Windows and Telegram) — see [Balance guard](#balance-guard).
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
   plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
@@ -179,6 +182,34 @@ runway — at $0 Vast.ai stops instances (stopped ones still pay for storage), a
 for deletion. A start can wait in *Scheduling* when the host rented the GPU out meanwhile; TaskHub says so. TaskHub talks only
 to `console.vast.ai`. Details: [API.md → Connectors](API.md#connectors-vastai).
 *How to get a key:* [docs/keys/vastai.md](docs/keys/vastai.md) (step by step, minimum permissions, revoking; [українською](docs/keys/vastai.uk.md)).
+
+### Balance guard
+*From version 2.9; off until you turn it on.* Settings → *Connectors* → *Runpod* / *Vast.ai* → *Auto-stop at low balance*.
+Each provider has its own two thresholds in $: **warn** (default $10) and **stop** (default $2; warn must be above stop).
+- At the warning threshold TaskHub warns once (Windows notification, and Telegram if it is connected): the balance, the
+  current spend per hour and how long until the stop threshold. It warns again only after the balance has gone back up.
+- At the stop threshold TaskHub announces a stop of the running machines with *Stop now* and *Snooze N min* buttons (in
+  the notification, in Telegram and on the *balance guard* card in the panel). Without an answer the machines are stopped
+  when the time to answer runs out (default 10 min; never later than the moment the balance would reach $0 at the current
+  spend — a snooze is capped the same way and says until when). A top-up above the stop threshold cancels it.
+- **Stop only — TaskHub never deletes, terminates or destroys a machine.** Machines marked *Never auto-stop* in the same
+  settings are left alone. Each stop is confirmed (Runpod: *EXITED*, Vast.ai: no longer running); a machine that could not
+  be stopped is reported as failed, never as stopped.
+- If the balance can't be read (no network, the service is down, the key was revoked) TaskHub warns once and, at the
+  deadline, stops **nothing** ("auto-stop held, check manually") until it can read the balance again. A read-only key can
+  only warn — the settings say so. So does an account the provider doesn't stop at $0 (Runpod post-paid; Vast.ai with a
+  card on file charged automatically): the guard only warns there.
+- *Stop now* asks for confirmation first. A machine that failed to stop is tried again at the next balance reading. A
+  pending stop survives a TaskHub restart. The old *low balance* warning keeps working with the guard on (no double
+  warning at the guard's threshold).
+- After a stop TaskHub says what was stopped and what its storage costs while stopped — **≈, per the provider's price
+  list**: Runpod — the container disk is wiped and not billed, the volume disk costs $0.20 / GB / month while stopped, a
+  network volume $0.07 / GB / month as before ([Runpod pricing](https://docs.runpod.io/pods/pricing),
+  [storage types](https://docs.runpod.io/pods/storage/types)); Vast.ai — the instance's storage price × its disk size
+  (host-specific; [Vast.ai pricing](https://docs.vast.ai/guides/instances/pricing)). The settings show the forecast ("at the
+  current spend the balance reaches the stop threshold at …") and the last stops; every stop (when, which machine, why,
+  spent so far, result, storage ≈) is kept in `guard_log.json` in the data folder (`GET /api/guard/log`).
+Details: [API.md → Balance guard](API.md#balance-guard).
 
 ## Install details
 The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or any folder you choose), unpacks the
