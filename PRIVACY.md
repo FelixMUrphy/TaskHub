@@ -28,6 +28,10 @@ it.
   link GitHub returns, without the token. The token is kept in the Windows Credential Manager of your user account, not in
   TaskHub's files (or, if you choose so, TaskHub uses the token the Git Credential Manager already keeps). GitHub's own
   privacy policy applies to these requests. Turning the connector off stops them (the token stays saved); *Remove* deletes the token.
+  From 2.9.4, two more switches (off by default) also ask `api.github.com`, with the same token, for the pull requests
+  waiting for your review and the open Dependabot pull requests of the listed repositories; their titles, numbers,
+  repository and author names are shown as tasks (and in notifications, including Telegram when that is on). Nothing is
+  written to GitHub.
 - **Runpod connector** (TaskHub 2.9 and later; off by default, earlier versions don't have it). If you paste a Runpod API
   key and turn it on, TaskHub asks `api.runpod.io` with that key (in the `Authorization` header) for your pods and their
   live load, your pod billing of the last 30 days and (GraphQL, can be turned off) your balance, spend per hour, spend

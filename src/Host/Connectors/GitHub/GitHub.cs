@@ -14,10 +14,11 @@ namespace TaskHub;
 /// Talks only to api.github.com with the token; the job logs (optional, "logs") come from GitHub's log storage
 /// (*.actions.githubusercontent.com / *.blob.core.windows.net) through a one-time link, without the token.
 /// Polling: ETag / 304 (free), ~interval s when idle, ~10 s while a run is active, slower close to the rate limit.
-/// Config (connectors.github): enabled, repos [owner/repo], interval, notify_success, logs, auth (token | gcm), api (tests).
+/// Config (connectors.github): enabled, repos [owner/repo], interval, notify_success, logs, auth (token | gcm), api (tests),
+/// pr_reviews / pr_dependabot (pull requests, read-only: PullRequests.cs).
 /// The token lives in the Windows Credential Manager (Secrets "github"); auth "gcm" borrows the Git Credential Manager's.
 /// </summary>
-sealed class GitHubConnector : ISettingsConnector
+sealed partial class GitHubConnector : ISettingsConnector
 {
     public string Id => "github";
     const int ExpectedTtl = 3600, WarnDays = 7;
@@ -65,7 +66,8 @@ sealed class GitHubConnector : ISettingsConnector
     }
 
     // ------------------------------------------------------------ settings
-    sealed record Conf(bool Enabled, List<string> Repos, int Interval, bool NotifySuccess, bool Logs, string Auth, int ActiveEvery);
+    sealed record Conf(bool Enabled, List<string> Repos, int Interval, bool NotifySuccess, bool Logs, string Auth, int ActiveEvery,
+        bool PrReviews, bool PrDependabot);
 
     // seconds; a local mock API (tests) may go faster
     int MinInterval => ApiUri.IsLoopback ? 2 : 15;
@@ -80,7 +82,8 @@ sealed class GitHubConnector : ISettingsConnector
             var auth = J.Str(c["auth"], "token");
             return new Conf(J.Truthy(c["enabled"]), rs, Math.Clamp((int)(J.Num(c["interval"]) ?? 60), MinInterval, 3600),
                 J.Truthy(c["notify_success"]), J.Truthy(c["logs"]), auth is "gcm" ? "gcm" : "token",
-                Math.Clamp((int)(J.Num(c["active_interval"]) ?? 10), Math.Min(MinInterval, 10), 60));
+                Math.Clamp((int)(J.Num(c["active_interval"]) ?? 10), Math.Min(MinInterval, 10), 60),
+                J.Truthy(c["pr_reviews"]), J.Truthy(c["pr_dependabot"]));
         }
     }
 
@@ -125,7 +128,7 @@ sealed class GitHubConnector : ISettingsConnector
             if (a is not ("token" or "gcm")) throw new ApiError(400, "auth must be token or gcm");
             c["auth"] = a;
         }
-        foreach (var k in new[] { "enabled", "notify_success", "logs" })
+        foreach (var k in new[] { "enabled", "notify_success", "logs", "pr_reviews", "pr_dependabot" })
             if (b.ContainsKey(k)) c[k] = J.Truthy(b[k]);
         if (J.IsStr(b["token"])) SetToken(J.Str(b["token"]));   // a rejected token: nothing is changed
         Connectors.SetConfig(S, Id, c);
@@ -184,6 +187,7 @@ sealed class GitHubConnector : ISettingsConnector
         {
             ["enabled"] = c.Enabled, ["repos"] = J.StrArray(c.Repos), ["interval"] = c.Interval,
             ["notify_success"] = c.NotifySuccess, ["logs"] = c.Logs, ["auth"] = c.Auth,
+            ["pr_reviews"] = c.PrReviews, ["pr_dependabot"] = c.PrDependabot, ["prs"] = PrCount(),
             ["token_set"] = TokenSet(),
             ["status"] = status, ["login"] = login,
             ["token_check"] = c.Auth == "token" ? tokenCheck : null, ["token_check_text"] = c.Auth == "token" ? CheckText() : null,
@@ -240,8 +244,10 @@ sealed class GitHubConnector : ISettingsConnector
     {
         Stop();
         var c = Cfg;
-        lock (gate) { repos.Clear(); known.Clear(); active.Clear(); pausedUntil = 0; secondaryWait = 0; }
-        if (!c.Enabled) { status = "off"; return; }
+        lock (gate) { repos.Clear(); known.Clear(); active.Clear(); pausedUntil = 0; secondaryWait = 0; prs.Clear(); prNext = prPausedUntil = 0; prAdopted = false; }
+        // the Dependabot lists (with their ETags) are kept over a settings change: a review request turned off that is also
+        // an open Dependabot PR stays, as that
+        if (!c.Enabled) { status = "off"; lock (gate) pullLists.Clear(); EndAllPrs(); return; }
         cts = new CancellationTokenSource();
         var ct = cts.Token;
         status = "starting";
@@ -320,6 +326,7 @@ sealed class GitHubConnector : ISettingsConnector
             rs.NextPoll = now + (busy ? c.ActiveEvery : c.Interval) * (slow ? 4 : 1);
             await PollRepo(repo, rs, token, c, ct);
         }
+        await PollPrs(token, c, ct);
         List<Run> due;
         lock (gate) due = active.Values.Where(r => now >= r.NextPoll).ToList();
         foreach (var run in due)
@@ -797,8 +804,12 @@ sealed class GitHubConnector : ISettingsConnector
         using var r = await http.Send(req, cts2.Token);
         var res = new Resp { Code = (int)r.StatusCode, ETag = r.Headers.ETag?.ToString(), Location = r.Headers.Location };
         if (res.Location != null && !res.Location.IsAbsoluteUri) res.Location = new Uri(req.RequestUri, res.Location);
-        if (r.Headers.TryGetValues("x-ratelimit-remaining", out var rl) && int.TryParse(rl.First(), out var left)) rateLeft = left;
-        if (r.Headers.TryGetValues("x-ratelimit-reset", out var rr) && double.TryParse(rr.First(), CultureInfo.InvariantCulture, out var reset)) rateReset = reset;
+        // the search API has its own bucket (30 a minute): it pauses only the pull request searches
+        bool search = r.Headers.TryGetValues("x-ratelimit-resource", out var rsrc) ? rsrc.First() == "search" : path.StartsWith("/search/") || path.Contains("/search/");
+        int searchLeft = -1;
+        double searchReset = 0;
+        if (r.Headers.TryGetValues("x-ratelimit-remaining", out var rl) && int.TryParse(rl.First(), out var left)) { if (search) searchLeft = left; else rateLeft = left; }
+        if (r.Headers.TryGetValues("x-ratelimit-reset", out var rr) && double.TryParse(rr.First(), CultureInfo.InvariantCulture, out var reset)) { if (search) searchReset = reset; else rateReset = reset; }
         if (r.Headers.TryGetValues("Link", out var lk))
         {
             var mn = Regex.Match(string.Join(",", lk), @"<([^>]+)>\s*;\s*rel=""next""");
@@ -822,7 +833,15 @@ sealed class GitHubConnector : ISettingsConnector
         // out of requests for this hour, or a secondary limit (403 / 429 with remaining > 0 and no retry-after: only the
         // message tells it from a permission 403): everything waits - as long as GitHub says, else 60 s, doubling
         bool secondary = res.Code is 403 or 429 && J.Str(res.Body?["message"]).Contains("rate limit", StringComparison.OrdinalIgnoreCase);
-        if ((res.Code is 403 or 429) && (rateLeft == 0 || r.Headers.RetryAfter != null || secondary))
+        if (search && (res.Code is 403 or 429) && (searchLeft == 0 || r.Headers.RetryAfter != null || secondary))
+        {
+            double until = r.Headers.RetryAfter?.Delta is TimeSpan sra ? J.Now() + Math.Max(1, sra.TotalSeconds)
+                : searchLeft == 0 && searchReset > 0 ? Math.Max(searchReset, J.Now() + 10) : J.Now() + 120;
+            prPausedUntil = Math.Min(until, J.Now() + 3600);
+            res.Limited = true;
+            Log.W("github: search rate limit, pull requests wait until " + DateTimeOffset.FromUnixTimeSeconds((long)prPausedUntil).ToLocalTime().ToString("HH:mm:ss"));
+        }
+        else if ((res.Code is 403 or 429) && (rateLeft == 0 || r.Headers.RetryAfter != null || secondary))
         {
             double until;
             if (r.Headers.RetryAfter?.Delta is TimeSpan ra) until = J.Now() + Math.Max(1, ra.TotalSeconds);
