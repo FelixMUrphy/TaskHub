@@ -153,7 +153,7 @@ From 2.9 TaskHub keeps to Telegram's pace (about one message a second, and as lo
 requests*) instead of dropping messages, and long texts are shortened so they always arrive.
 
 ### GitHub Actions
-*From version 2.9; off until you turn it on.* Settings → *Connectors* → *GitHub Actions*: list the repositories (`owner/repo`) and give access — your own
+*From version 2.9; off until you turn it on.* Settings → *Connectors* → *GitHub Actions* (everything on the settings page from 2.9.6): list the repositories (`owner/repo`) and give access — your own
 [fine-grained token](https://github.com/settings/personal-access-tokens/new) limited to those repositories (Actions: Read and
 write, Contents: Read-only, Metadata: Read-only; kept in the Windows Credential Manager, never in `config.json`), or the token
 the Git Credential Manager already has (broad rights: all your repositories). Your workflows stay unchanged. Each run becomes a

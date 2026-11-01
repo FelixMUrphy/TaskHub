@@ -368,11 +368,25 @@ def row():
     return json.dumps(v, ensure_ascii=False), next((c for c in v.get("connectors", []) if c["id"] == "github"), None)
 
 
+saved_before_bad = call("GET", "/api/connectors/github")[1]["repos"]
 txt, rw = row()
 check("settings rows never contain the token", rw is not None and TOKEN not in txt and "github_pat_" not in txt, txt[:300])
 check("settings row: on, token saved and working, 'Connected as @tester · N repositories'", rw and rw["enabled"] and rw["key_set"]
       and rw["key_check"] == "ok" and rw["summary"].startswith("Connected as @tester") and " repositor" in rw["summary"]
-      and rw["help_url"].endswith("/docs/keys/github.md") and rw.get("setup") == "github", rw)
+      and rw["help_url"].endswith("/docs/keys/github.md") and "setup" not in rw, rw)
+# 2.9.6: everything of the old GitHub window is on the settings page - access choice, the repository list with each one's
+# state, the interval, the switches (notify on success, logs, the two PR switches with their heading)
+sw = {x["key"]: x for x in (rw or {}).get("switches", [])}
+check("settings row: access choice, repository list, interval field, switches", rw and rw["choice"]["key"] == "auth"
+      and [o["v"] for o in rw["choice"]["options"]] == ["token", "gcm"] and rw["choice"]["value"] == "token"
+      and rw["list"]["key"] == "repos" and [x["v"] for x in rw["list"]["items"]] == call("GET", "/api/connectors/github")[1]["repos"]
+      and rw["list"]["add"] and rw["list"]["remove"] and rw["list"]["dup"] and [f["key"] for f in rw["fields"]] == ["interval"] and rw["fields"][0]["text"]
+      and set(sw) == {"notify_success", "logs", "pr_reviews", "pr_dependabot"} and sw["pr_reviews"].get("head"), rw)
+# a bad repository / interval from the page: refused with a message in the UI language (the API keeps its English one)
+st, r = call("POST", "/api/connectors/github", {"repos": ["not a repo"]})
+check("bad repository refused, nothing changed", st == 400 and "owner/repo" in json.dumps(r)
+      and call("GET", "/api/connectors/github")[1]["repos"] == saved_before_bad, (st, r))
+
 saved = call("GET", "/api/connectors/github")[1]["repos"]
 PL = {
     "en": {1: "1 repository", 2: "2 repositories", 5: "5 repositories"},

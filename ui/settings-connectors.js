@@ -8,6 +8,10 @@ const connRow=c=>{
   const id=esc(c.id);
   let h=srow(c.name, !c.enabled? T("s_off") : c.summary || T("s_on"), tgl("conn",c.enabled,` data-conn="${id}"`));
   if (!c.enabled) return h;
+  // a choice of the connector (GitHub: own token / Git Credential Manager), before the key it decides about
+  if (c.choice){ const ch=c.choice;
+    h+=srow(ch.label, ch.note||"", `<select data-csel="${esc(ch.key)}" data-conn="${id}" aria-label="${esc(ch.label)}">`
+      + (ch.options||[]).map(o=>`<option value="${esc(o.v)}"${o.v===ch.value?" selected":""}>${esc(o.t)}</option>`).join("")+`</select>`,"sub stack"); }
   if (c.uses_key){
     const help=(!c.key_set || c.key_check==="revoked") && c.help_url
       ? `<div class="sd"><a class="klink" tabindex="0" role="link" data-open="${esc(c.help_url)}">${esc(T("s_key_help"))}</a></div>` : "";
@@ -21,10 +25,27 @@ const connRow=c=>{
         + `<button class="btn" data-ck="save" data-conn="${id}">${esc(T("s_key_save"))}</button>`
         + (c.key_set? `<button class="btn" data-ck="cancel" data-conn="${id}">${esc(T("cancel"))}</button>` : ""));
   }
+  // a list the connector keeps (GitHub: repositories): each item with its state and Remove; a field + Add at the end.
+  // The whole list goes to the host on every change; it checks it (a bad name -> a message, nothing changed)
+  if (c.list){ const ls=c.list;
+    h+=`<div class="srow sub"><div class="sl"><div>${esc(ls.label)}</div>${(ls.items||[]).length?"":`<div class="sd">${esc(ls.empty||"")}</div>`}</div></div>`;
+    for (const it of ls.items||[])
+      h+=`<div class="srow sub li"><div class="sl"><div class="lv">${esc(it.v)}</div>${it.note?`<div class="sd">${esc(it.note)}</div>`:""}</div>`
+        +`<button class="ib" data-lrm="${esc(it.v)}" data-lkey="${esc(ls.key)}" data-conn="${id}" title="${esc(ls.remove)}" aria-label="${esc(ls.remove+" "+it.v)}"><i>&#xE711;</i></button></div>`;
+    h+=`<div class="srow sub li"><input class="kin wide" type="text" autocomplete="off" spellcheck="false" data-ladd="${esc(ls.key)}" data-conn="${id}" placeholder="${esc(ls.placeholder||"")}" aria-label="${esc(ls.label)}">`
+      +`<button class="btn" data-lplus="${esc(ls.key)}" data-conn="${id}">${esc(ls.add)}</button></div>`;
+  }
   const gd=c.guard;
-  const numv=(k,lab,min,max,step,v,d,emptyOk)=>srow(T(lab),d||"",`<input class="kin num" type="number" min="${min}" max="${max}" step="${step}" data-cset="${k}" data-conn="${id}"${emptyOk?' data-empty="1"':""} aria-label="${esc(T(lab))}" value="${v==null?"":esc(v)}">`,"sub");
-  // the connector's own number fields, as its row describes them (label = a key of the panel's translations)
-  for (const f of c.fields||[]) h+=numv(f.key,f.label,f.min,f.max,f.step,f.value,"",f.empty_ok);
+  const numv=(k,lab,min,max,step,v,d,emptyOk)=>{ const tl=lab&&lab.t!=null? lab.t : T(lab);
+    return srow(tl,d||"",`<input class="kin num" type="number" min="${min}" max="${max}" step="${step}" data-cset="${k}" data-conn="${id}"${emptyOk?' data-empty="1"':""} aria-label="${esc(tl)}" value="${v==null?"":esc(v)}">`,"sub"); };
+  // the connector's own number fields, as its row describes them (label = a key of the panel's translations, or the text itself)
+  for (const f of c.fields||[]) h+=numv(f.key,f.text!=null?{t:f.text}:f.label,f.min,f.max,f.step,f.value,"",f.empty_ok);
+  // on / off options of the connector (texts from the host); "head" starts a group with a heading and a hint
+  for (const s of c.switches||[]){
+    if (s.head) h+=`<div class="srow sub"><div class="sl"><div class="gh">${esc(s.head)}</div>${s.hint?`<div class="sd">${esc(s.hint)}</div>`:""}</div></div>`;
+    h+=srow(s.text,"",tgl("cbool",s.value,` data-conn="${id}" data-cbool="${esc(s.key)}"`),"sub");
+  }
+  if ((c.notes||[]).length) h+=`<div class="srow sub"><div class="sl">${c.notes.map(n=>`<div class="sd">${esc(n)}</div>`).join("")}</div></div>`;
   // balance guard (2.9): warn / stop thresholds, time to answer, snooze; forecast; a pending stop with Stop now / Snooze;
   // "never auto-stop" per machine; the last stops. Texts in the UI language come from the host.
   if (gd){
@@ -43,4 +64,32 @@ const connRow=c=>{
   if (c.setup) h+=srow(T("s_gh_opts"),"",sbtn(c.setup,T("s_setup")),"sub");
   return h;
 };
+// the list of a connector: Add (button / Enter) and Remove send the whole new list
+// a list change waiting for the host's answer: a second change before it builds on it (not on the older SET)
+let LPEND=null, lpendTimer=0;
+function connList(id, key, add, remove){
+  const c=SET && (SET.connectors||[]).find(x=>x.id===id), cur=((c && c.list && c.list.items)||[]).map(x=>x.v);
+  const base=LPEND && LPEND.id===id && LPEND.key===key ? LPEND.list : cur;
+  const i=[...$("#sethost").querySelectorAll("input[data-ladd]")].find(e=>e.dataset.conn===id && e.dataset.ladd===key);
+  let next, v="";
+  if (remove!=null){ next=base.filter(x=>x!==remove); if (i) i.focus(); }   // the clicked row goes: the focus to the Add field
+  else {
+    v=i? i.value.trim() : "";
+    if (!v){ if (i) i.focus(); return; }
+    if (base.some(x=>x.toLowerCase()===v.toLowerCase())){ if (c && c.list && c.list.dup) snack(c.list.dup); i.select(); return; }
+    next=[...base, v];   // the text stays until the host takes it (a refused name can be corrected, not retyped)
+  }
+  LPEND={id,key,list:next,add:v}; clearTimeout(lpendTimer); lpendTimer=setTimeout(()=>{ LPEND=null; },5000);
+  host({settings:"set",connector:id,[key]:next});
+}
+// the host's answer to a list change: refused -> the pending change goes (the text stays); taken -> the added text goes
+function listReply(d){
+  if (!LPEND) return;
+  const p=LPEND, c=(d.settings_state && d.settings_state.connectors||[]).find(x=>x.id===p.id);
+  const now=((c && c.list && c.list.items)||[]).map(x=>x.v);
+  if (d.error){ LPEND=null; return; }
+  if (now.length!==p.list.length || now.some((x,k)=>x!==p.list[k])) return;   // an older state: still waiting
+  LPEND=null;
+  if (p.add){ const i=[...$("#sethost").querySelectorAll("input[data-ladd]")].find(e=>e.dataset.conn===p.id && e.dataset.ladd===p.key); if (i && i.value.trim()===p.add) i.value=""; }
+}
 const keyInput=id=>[...$("#sethost").querySelectorAll("input[data-ckey]")].find(e=>e.dataset.ckey===id);

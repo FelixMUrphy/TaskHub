@@ -219,6 +219,13 @@ body.setmode #set{display:flex}
 #set input[type=range]{flex:1;min-width:0;accent-color:var(--acc)}
 #set .rv{font-variant-numeric:tabular-nums;color:var(--mut);font-size:12px;min-width:34px;text-align:right}
 #set .rg.off{opacity:.45}
+#set .li{min-height:36px;padding-top:4px;padding-bottom:4px}
+#set .li .lv{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;font-weight:400;overflow-wrap:anywhere}
+#set .srow.stack{flex-wrap:wrap;row-gap:6px}
+#set .srow.stack select{max-width:none;flex:1 1 calc(100% - 14px);margin-left:14px}
+#set .srow.li>.kin.wide{margin-left:14px}
+#set .kin.wide{flex:1;width:auto}
+#set .gh{font-weight:600}
 #set .tgb{justify-content:flex-end;flex-wrap:wrap;gap:6px;min-height:0}
 #set .tgqr{align-items:flex-start}
 #set .qr{flex:none;width:132px;height:132px;border-radius:6px;background:#fff;image-rendering:pixelated}

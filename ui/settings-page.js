@@ -27,11 +27,11 @@ function renderSet(){
   // keep the focus on the same control across a re-render (the state comes back every few seconds)
   const f=document.activeElement, fk=f && box.contains(f) ? ckey(f) : null;
   // a key being pasted, a number being typed
-  const IN="input[data-ckey],input[data-cset],input[data-tgtok]";
-  const typed={}; for (const e of box.querySelectorAll(IN)) if (e.dataset.ckey||e.dataset.tgtok!=null? e.value : e===f) typed[ckey(e)]=e.value;
+  const IN="input[data-ckey],input[data-cset],input[data-tgtok],input[data-ladd]";
+  const typed={}; for (const e of box.querySelectorAll(IN)) if (e.dataset.ckey||e.dataset.tgtok!=null||e.dataset.ladd!=null? e.value : e===f) typed[ckey(e)]=e.value;
   box.innerHTML=h; box.__h=h;
   for (const e of box.querySelectorAll(IN)) if (ckey(e) in typed) e.value=typed[ckey(e)];
-  if (fk) for (const e of box.querySelectorAll("button,input")) if (ckey(e)===fk){ e.focus({preventScroll:true}); break; }
+  if (fk) for (const e of box.querySelectorAll("button,input,select")) if (ckey(e)===fk){ e.focus({preventScroll:true}); break; }
 }
 // "Settings" next to the transparency hint: Windows Settings, the page that turned the blur off
 { const l=$("#transphl"), go=()=>{ if (l.dataset.do) host({settings:"do",what:l.dataset.do}); };
@@ -44,6 +44,8 @@ $("#sethost").addEventListener("click",e=>{
   if (t.dataset.do==="tg_disconnect"){ ask(t.dataset.q).then(ok=>{ if (ok) host({settings:"do",what:"tg_disconnect"}); }); return; }
   if (t.dataset.do){ if (t.dataset.do==="update_check_now") snack(T("s_upd_checking")); host({settings:"do",what:t.dataset.do}); return; }
   if (t.dataset.ck){ connKey(t.dataset.conn, t.dataset.ck); return; }
+  if (t.dataset.lrm!=null){ connList(t.dataset.conn, t.dataset.lkey, false, t.dataset.lrm); return; }
+  if (t.dataset.lplus){ connList(t.dataset.conn, t.dataset.lplus, true); return; }
   if (t.dataset.gact){
     const go=()=>host({settings:"do",what:"guard",connector:t.dataset.conn,act:t.dataset.gact});
     if (t.dataset.q) ask(t.dataset.q).then(ok=>{ if (ok) go(); }); else go();   // Stop now asks first
@@ -55,6 +57,7 @@ $("#sethost").addEventListener("click",e=>{
   if (k==="muted" && !NATIVE){ api("POST","/api/settings",{muted:on}).catch(er=>snack(er.message)).finally(()=>setTimeout(renderSet,300)); return; }
   if (k==="agent") host({settings:"set",agent:t.dataset.agent,kind:t.dataset.kind,on});
   else if (k==="cguard") host({settings:"set",connector:t.dataset.conn,guard:on});
+  else if (k==="cbool") host({settings:"set",connector:t.dataset.conn,[t.dataset.cbool]:on});
   else if (k==="gex"){
     // "never auto-stop" for one machine: the whole list goes to the host
     const c=SET && (SET.connectors||[]).find(x=>x.id===t.dataset.conn), ex=new Set((c && c.guard && c.guard.exempt)||[]);
@@ -83,10 +86,13 @@ function connKey(id, what){
 $("#sethost").addEventListener("keydown",e=>{
   const a=e.target.closest && e.target.closest("a[data-open]"); if (a && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); host({open:a.dataset.open}); return; }
   if (e.key==="Enter" && e.target.dataset && e.target.dataset.tgtok!=null){ e.preventDefault(); tgPair(); return; }
+  if (e.key==="Enter" && e.target.dataset && e.target.dataset.ladd){ e.preventDefault(); connList(e.target.dataset.conn, e.target.dataset.ladd, true); return; }
   const i=e.target.closest && e.target.closest("input[data-ckey]"); if (i && e.key==="Enter"){ e.preventDefault(); connKey(i.dataset.ckey,"save"); } });
 // a number field of a connector (idle GPU minutes, runway hours, low balance $...): sent when changed; empty = off where the
 // field allows it (data-empty), else the old value is put back
 $("#sethost").addEventListener("change",e=>{
+  const sl=e.target.closest && e.target.closest("select[data-csel]");
+  if (sl){ $("#sethost").__h=null; host({settings:"set",connector:sl.dataset.conn,[sl.dataset.csel]:sl.value}); return; }   // a refused change: the redraw puts the old value back
   const i=e.target.closest && e.target.closest("input[data-cset]"); if (!i) return;
   const k=i.dataset.cset, v=i.value.trim();
   if (v==="" && !i.dataset.empty){ reSet(); return; }
@@ -94,6 +100,7 @@ $("#sethost").addEventListener("change",e=>{
 });
 function settingsReply(d){
   if (d.error || d.note || d.info){ CHECKING.clear(); clearTimeout(checkTimer); clearTimeout(TGBUSY); TGBUSY=0; }   // the answer to a key just saved
+  listReply(d);
   SET=d.settings_state; renderSet();
   if (d.error || d.note) ask(d.error || d.note, true);
   else if (d.info) snack(d.info);
