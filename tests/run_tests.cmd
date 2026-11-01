@@ -23,6 +23,7 @@ set RC=0
 "%PYTHON%" parallel_test.py 8 || set RC=1
 "%PYTHON%" integration_test.py "%EXE%" || set RC=1
 "%PYTHON%" install_test.py "%EXE%" || set RC=1
+"%PYTHON%" package_test.py "%EXE%" || set RC=1
 for %%D in ("%EXE%") do "%PYTHON%" mcp_test.py "%%~dpDtaskhub.exe" || set RC=1
 for %%D in ("%EXE%") do "%PYTHON%" blender_test.py "%%~dpDtaskhub.exe" || set RC=1
 "%PYTHON%" telegram_test.py "%EXE%" || set RC=1

@@ -9,7 +9,9 @@ namespace TaskHub;
 /// </summary>
 sealed class Updater
 {
-    const string LatestApi = "https://api.github.com/repos/FelixMUrphy/TaskHub/releases/latest";
+    const string LatestApiDefault = "https://api.github.com/repos/FelixMUrphy/TaskHub/releases/latest";
+    // tests: config.json "update_api" may point at a local mock (loopback only); anything else is GitHub
+    string LatestApi => Uri.TryCreate(J.Str(S.Get("update_api")), UriKind.Absolute, out var u) && u.IsLoopback ? u.ToString() : LatestApiDefault;
     static readonly TimeSpan Every = TimeSpan.FromHours(24);
 
     readonly Settings S;
@@ -53,10 +55,15 @@ sealed class Updater
         catch (Exception e) { Log.W("update loop: " + e.Message); }
     }
 
-    /// <summary>Checks GitHub. manual: also report "up to date" / errors. Returns the newer release or null.</summary>
+    /// <summary>The answer of the last manual check in words ("TaskHub 2.9.3 is the latest version." / available / failed).</summary>
+    public string ManualText { get; private set; }
+
+    /// <summary>Checks GitHub. manual: waits for a check already running, and says the result (<see cref="ManualText"/>,
+    /// shown on the settings page; a newer version also gets its notification). Returns the newer release or null.</summary>
     public async Task<Release> Check(bool manual)
     {
-        if (!await busy.WaitAsync(0)) return Available;
+        if (manual) await busy.WaitAsync();
+        else if (!await busy.WaitAsync(0)) return Available;
         try
         {
             var r = await Fetch();
@@ -64,9 +71,10 @@ sealed class Updater
             if (r == null || r.Version <= Version.Parse(Settings.Version))
             {
                 Available = null;
-                if (manual) Say(L.T("update_latest", Settings.Version));
+                if (manual) ManualText = L.T("update_latest", Settings.Version);
                 return null;
             }
+            if (manual) ManualText = L.T("update_title", r.Version);
             Available = r;
             // automatic checks announce each version once; a manual check always answers
             if (manual || (J.Str(S.Get("update_notified")) != r.Tag && !hub.Muted))
@@ -79,7 +87,7 @@ sealed class Updater
         catch (Exception e)
         {
             Log.W("update check failed: " + e.Message);
-            if (manual) Say(L.T("update_failed", e.GetBaseException().Message));
+            if (manual) ManualText = L.T("update_failed", e.GetBaseException().Message);
             return null;
         }
         finally { busy.Release(); }
@@ -101,5 +109,4 @@ sealed class Updater
 
     public void OpenPage() => Hub.OpenTarget(Available?.Url ?? L.RepoUrl + "/releases/latest");
 
-    void Say(string msg) => hub.Notify(new JsonObject { ["title"] = "TaskHub", ["message"] = msg, ["force"] = true, ["click"] = "dismiss" });
 }

@@ -34,10 +34,13 @@ function renderSet(){
   for (const e of box.querySelectorAll("input[data-ckey],input[data-cset]")) if (ckey(e) in typed) e.value=typed[ckey(e)];
   if (fk) for (const e of box.querySelectorAll("button,input")) if (ckey(e)===fk){ e.focus({preventScroll:true}); break; }
 }
+// "Settings" next to the transparency hint: Windows Settings, the page that turned the blur off
+{ const l=$("#transphl"), go=()=>{ if (l.dataset.do) host({settings:"do",what:l.dataset.do}); };
+  l.onclick=e=>{ e.preventDefault(); go(); }; l.onkeydown=e=>{ if (e.key==="Enter"||e.key===" "){ e.preventDefault(); go(); } }; }
 $("#sethost").addEventListener("click",e=>{
   const a=e.target.closest("a[data-open]"); if (a){ e.preventDefault(); host({open:a.dataset.open}); return; }   // the default browser
   const t=e.target.closest("button"); if (!t || t.disabled) return;
-  if (t.dataset.do){ host({settings:"do",what:t.dataset.do}); return; }
+  if (t.dataset.do){ if (t.dataset.do==="update_check_now") snack(T("s_upd_checking")); host({settings:"do",what:t.dataset.do}); return; }
   if (t.dataset.ck){ connKey(t.dataset.conn, t.dataset.ck); return; }
   if (t.dataset.gact){
     const go=()=>host({settings:"do",what:"guard",connector:t.dataset.conn,act:t.dataset.gact});

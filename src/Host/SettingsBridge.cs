@@ -136,6 +136,8 @@ sealed class SettingsBridge
                             break;
                         case "data_folder": Hub.OpenTarget(S.DataDir); break;
                         case "notif_settings": Hub.OpenTarget("ms-settings:notifications"); break;
+                        case "colors_settings": Hub.OpenTarget("ms-settings:colors"); break;
+                        case "energy_settings": Hub.OpenTarget("ms-settings:batterysaver"); break;
                         case "api_help":
                         {
                             var p = Path.Combine(S.ExeDir, "API.md");
@@ -143,7 +145,9 @@ sealed class SettingsBridge
                             Hub.OpenTarget(p);
                             break;
                         }
-                        case "update_check_now": if (updater() is { } u1) await u1.Check(true); break;
+                        case "update_check_now":   // the answer is shown on the page (a notification may be turned off)
+                            if (updater() is { } u1) { await u1.Check(true); info = u1.ManualText; }
+                            break;
                         case "update_open": updater()?.OpenPage(); break;
                         case "support": Hub.OpenTarget(L.SupportUrl); break;
                         case "guard":   // Stop now / Snooze of a pending balance-guard stop, from the settings page
