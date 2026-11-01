@@ -263,7 +263,7 @@ install the setup shows the installed version and folder (the version is read fr
 - Port 47800, `127.0.0.1` only, CSRF header + Host/Origin checks; optional bearer token (`"token"` in `config.json`).
 
 Updates: once a day the installed hub looks up the latest release on GitHub (one request to `api.github.com`, nothing is
-downloaded or installed) and shows a notification when a newer version is out; Settings → *System* has *Check now* and the
+downloaded or installed; *from 2.9.5* also when the settings page opens and the last check is older than 15 minutes) and shows a notification when a newer version is out; Settings → *System* has *Check now* and the
 *Check daily* switch (`"update_check": false` in `config.json`). Run the new setup.exe to update.
 
 Toast timing: `toast_seconds` / `toast_seconds_interactive` (4 s / 8 s) in `config.json`; afterwards notifications stay

@@ -36,6 +36,7 @@ sealed class SettingsBridge
         var t = tg?.State();
         var rows = ConnectorRows(conns);
         var up = updater();
+        up?.RecheckIfStale();   // open page: a remembered "Update to X" may be days old (the hub runs on while the panel is hidden)
         // the host's own translations of what used to be the tray's items (one source of the words in 10 languages)
         var labels = new JsonObject();
         foreach (var k in new[] { "mute", "test_toast", "connectors", "integrations", "menu_hooks", "menu_mcp", "autostart",
