@@ -155,28 +155,3 @@ jobs:
           else
             gh release create "$TAG" dist/* --title "TaskHub ${TAG#v}" --notes-file notes.md --generate-notes --verify-tag
           fi
-
-  # winget: a PR with the new version to microsoft/winget-pkgs (Komac via winget-releaser) after each release.
-  # Off until the repository secret WINGET_TOKEN exists (classic PAT, scope public_repo, of the account that owns a fork
-  # of microsoft/winget-pkgs). Only updates an existing package: the first version (packaging/winget/) goes in by hand.
-  winget:
-    needs: release
-    if: github.ref_type == 'tag'
-    runs-on: windows-latest
-    steps:
-      - name: Token present?
-        id: has
-        shell: pwsh
-        env:
-          T: ${{ secrets.WINGET_TOKEN }}
-        run: |
-          if ($env:T) { "on=1" >> $env:GITHUB_OUTPUT } else { Write-Output "::notice::WINGET_TOKEN not set: winget update skipped" }
-
-      - uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54   # v2
-        if: steps.has.outputs.on == '1'
-        with:
-          identifier: FelixMUrphy.TaskHub
-          installers-regex: 'setup\.exe$'
-          release-tag: ${{ github.ref_name }}
-          release-notes-url: https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md
-          token: ${{ secrets.WINGET_TOKEN }}
