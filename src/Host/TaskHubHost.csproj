@@ -26,7 +26,10 @@
     <PackageReference Include="QRCoder" Version="1.6.0" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="..\..\ui.html" LogicalName="ui.html" />
+    <!-- the panel page: ui/index.html + its parts, put together by UiPage -->
+    <EmbeddedResource Include="..\..\ui\*" LogicalName="ui/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\i18n\*.json" LogicalName="i18n/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Connectors\**\*.i18n.json" LogicalName="i18n/%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\..\API.md" LogicalName="API.md" />
     <EmbeddedResource Include="..\..\clients\python\taskhub_client.py" LogicalName="taskhub_client.py" />
     <EmbeddedResource Include="$(CliExe)" LogicalName="taskhub.exe" Condition="Exists('$(CliExe)')" />

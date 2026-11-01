@@ -27,6 +27,7 @@ interface IConnector
 sealed class Connectors
 {
     readonly Dictionary<string, IConnector> all = new();
+    readonly List<IConnector> order = new();   // as added: the order of the settings page
     readonly Settings S;
 
     public Connectors(Settings s, Hub hub)
@@ -35,11 +36,11 @@ sealed class Connectors
         hub.ConnectorControl = Route;
     }
 
-    public T Add<T>(T c) where T : IConnector { all[c.Id] = c; return c; }
+    public T Add<T>(T c) where T : IConnector { all.Add(c.Id, c); order.Add(c); return c; }
     public IConnector Get(string id) => all.TryGetValue(id, out var c) ? c : null;
-    public IEnumerable<IConnector> All => all.Values;
-    public void StartAll() { foreach (var c in all.Values) try { c.Start(); } catch (Exception e) { Log.W($"connector {c.Id}: " + e.Message); } }
-    public void StopAll() { foreach (var c in all.Values) try { c.Stop(); } catch { } }
+    public IEnumerable<IConnector> All => order;
+    public void StartAll() { foreach (var c in order) try { c.Start(); } catch (Exception e) { Log.W($"connector {c.Id}: " + e.Message); } }
+    public void StopAll() { foreach (var c in order) try { c.Stop(); } catch { } }
 
     JsonObject Route(string source, string tid, string cid, JsonNode value, string via) =>
         Get(source) is { } c ? c.OnControl(tid, cid, value, via) : throw new ApiError(404, $"no connector '{source}'");

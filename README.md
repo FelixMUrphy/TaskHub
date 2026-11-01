@@ -250,7 +250,8 @@ every `toast_task_gap` seconds (2); the rest fold into the latest one ("+N more 
 ## Build from source
 `build.cmd` (needs the .NET 8 SDK) → `dist\TaskHub-<version>-setup.exe` (single self-contained file; the CLI is built
 first and embedded) and `app\` for development. Sources: `src\Host` (Kestrel HTTP API, WinForms tray, WebView2 panel,
-WinRT toasts), `src\Cli`, `ui.html`, `clients\python`.
+WinRT toasts; connectors in `src\Host\Connectors\<Name>\`, see its README), `src\Cli`, `ui\` (the panel page: `index.html`
++ CSS / JS parts the hub puts together), `i18n\` (translations, 10 languages), `clients\python`.
 
 Microsoft Store edition: after `build.cmd`, `packaging\build-msix.ps1` → `dist\TaskHub-<version>.msix` (unsigned; the
 Store signs it; `-Name` / `-Publisher` / `-PublisherDisplay` from Partner Center). Same code: in the package TaskHub
