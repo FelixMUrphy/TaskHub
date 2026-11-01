@@ -18,9 +18,13 @@ Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/
 
 **Rules for every client (scripts, Claude, ChatGPT/Codex, PowerShell, curl):**
 - Write requests (`POST`/`DELETE`) MUST send header `X-TaskHub: 1` (CSRF guard). Browser requests from other origins are rejected.
-- If `config.json` has `"token"`, send `Authorization: Bearer <token>` (env `TASKHUB_TOKEN` for the Python client; the
-  `taskhub` CLI and MCP server also read it from the hub's `config.json`). The token keeps out browsers and other users'
+- <a id="token"></a>If `config.json` has `"token"`, send `Authorization: Bearer <token>` on every request except
+  `GET /api/health` (without it: 401). `config.json` is `%APPDATA%\TaskHub\config.json` (Store edition:
+  `%LOCALAPPDATA%\Packages\<package family>\LocalCache\Roaming\TaskHub\config.json`). Env `TASKHUB_TOKEN` for the Python
+  client; the `taskhub` CLI and MCP server also read it from the hub's `config.json`. The token keeps out browsers and other users'
   sessions; processes of your own account can read `config.json` (and the panel page) anyway.
+- Features marked with a version (2.9, 2.9.2, …) exist from that TaskHub version on; check `version` from `GET /api/health`
+  before relying on one.
 - Be fail-soft: if the hub is not reachable (`GET /api/health` fails), keep working without it.
 - Throttle updates to ≤ 2–4 per second. Chart points are appended per update, so batch them (see `chart`).
 - Always `finish` the task (done/failed/cancelled). If you pass `pid`, the hub marks the task `lost` when the process dies without finishing.
@@ -76,17 +80,17 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 |---|---|---|---|
 | GET | `/api/health` | | `{ok, app:"TaskHub", version, edition: "exe"\|"store", active, notifications, toast_queue}` — `notifications` (2.9): Windows' switch for TaskHub's notifications, `enabled` \| `disabled_app` \| `disabled_user` \| `disabled_policy` \| `disabled_manifest` \| `unknown` (when disabled, toasts vanish silently; failure notifications fall back to a tray balloon); `toast_queue` (2.9): notifications waiting for the rate limit (`toast_rate` per minute, one per task every `toast_task_gap` s; bursts fold into the latest) |
 | GET | `/api/help` | | this document |
-| GET | `/api/tasks` | `?since=V&wait=25` long-poll, `?active=1`, `?brief=1` | all tasks + `version` |
+| GET | `/api/tasks` | `?since=V&wait=25` ([long-poll](#long-poll)), `?active=1`, `?brief=1` | all tasks + `version` |
 | POST | `/api/tasks` | Registration (below) | create / re-register → `{id}` |
 | GET | `/api/tasks/{id}` | | full task |
 | POST | `/api/tasks/{id}/update` | Update (below) | progress, status, widgets… |
 | POST | `/api/tasks/{id}/log` | `{msg: str or [str], level?, toast?}` | append log |
 | POST | `/api/tasks/{id}/heartbeat` | | liveness only |
-| POST | `/api/tasks/{id}/finish` | `{state: done/failed/cancelled, message?, result?, widgets?}` | finish + toast |
-| GET | `/api/tasks/{id}/commands` | `?wait=25` (long-poll, max 60) | pending signals for the process |
-| POST | `/api/tasks/{id}/commands/{cmd}/ack` | `{ok: bool, message}` | reply, shown in panel log |
+| POST | `/api/tasks/{id}/finish` | `{state: done/failed/cancelled, message?, result?, widgets?}` | finish + toast; a repeated finish overwrites state and message (and `result` if sent), with no second toast |
+| GET | `/api/tasks/{id}/commands` | `?wait=25` ([long-poll](#long-poll), max 60) | `{commands: [...], state}`: the queued signals for the process. Reading takes them off the queue (status `delivered`): each command is returned once, also if you never ack it |
+| POST | `/api/tasks/{id}/commands/{cmd}/ack` | `{ok: bool, message}`; `{cmd}` = the command's `id` | the process's reply, shown in the panel log (it does not remove or re-queue anything) |
 | POST | `/api/tasks/{id}/controls/{cid}` | `{value?}` | trigger a control (same as panel button) |
-| DELETE | `/api/tasks/{id}` | `?force=1` for active | remove |
+| DELETE | `/api/tasks/{id}` | `?force=1` for active | remove (an active task without `force` → 409) |
 | POST | `/api/notify` | `{title, message, level: info/warn/error, task?}` | one-off toast |
 | POST | `/api/hooks/claude`, `/api/hooks/codex` | agent hook input (as sent) | `Stop` / `Notification` / `PermissionRequest` → toast; always `{}` (below) |
 | GET | `/api/telegram` | | Telegram bridge state `{configured, linked, bot, status, away_only, progress, link, storage, warning}` — `storage` (2.9): where the bot token is kept, `vault` (Windows Credential Manager) \| `config` (`config.json`, only when the Credential Manager is unavailable) \| null; `warning`: text for Settings, or null |
@@ -101,8 +105,29 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/connectors/runpod`, `/api/connectors/vastai` | `{guard?: bool, guard_warn?: $\|null, guard_stop?: $\|null, guard_grace_min?: 1-120, guard_snooze_min?: 5-240, guard_exempt?: [machine id], idle_stop_minutes?: 0\|5-1440}` | balance guard (2.9, [below](#balance-guard)); `guard_warn` must be above `guard_stop` (>= 0), else 400 and nothing changes; `idle_stop_minutes` (2.9.3): auto-stop on GPU idle, 0 = off |
 | GET | `/api/guard/log` | `?provider=runpod\|vastai&limit=1-200` (50) | what the balance guard stopped, newest first (2.9): `{entries: [{t, provider, machine_id, name, trigger: "auto"\|"stop_now"\|"idle", balance, threshold, idle_minutes, burn_per_hr, spent, spent_estimated, result: "stopped"\|"failed", error, storage_per_day, storage_note, storage_approx}]}` |
 | POST | `/api/clear` | | remove finished tasks |
-| POST | `/api/settings` | `{muted?: bool, seen?: true | [task ids], language?, theme?: "system"\|"light"\|"dark", accent?: "system"\|"taskhub", panel_transparency?: 0-100, card_transparency?: 0-100, panel_group?: "project"\|"source"\|"none", panel_pinned?: bool, panel_push_windows?: bool}` | mute toasts; panel look (also in `GET /api/tasks` → `panel`) |
+| POST | `/api/settings` | `{muted?: bool, seen?: true \| [task ids], language?, theme?: "system"\|"light"\|"dark", accent?: "system"\|"taskhub", panel_transparency?: 0-100, card_transparency?: 0-100, panel_group?: "project"\|"source"\|"none", panel_pinned?: bool, panel_push_windows?: bool}` | mute toasts; panel look (also in `GET /api/tasks` → `panel`) |
 | POST | `/api/ui/open` | `{task?}` | open panel (focus a task) |
+
+### Long-poll
+- `GET /api/tasks?since=V&wait=S`: `V` is the `version` from your previous reply. The hub answers as soon as its version is
+  above `V`, or after `S` seconds (at most 55) with the same full reply. Without `since` (or `since=0`) `wait` is ignored and
+  the reply comes at once.
+- `GET /api/tasks/{id}/commands?wait=S`: answers as soon as a command is queued, or after `S` seconds (at most 60) with
+  `commands: []`.
+
+## Errors
+Every error is JSON `{"error": "<text>"}` with one of these statuses:
+
+| Status | When |
+|---|---|
+| 400 | the body is not a JSON object, or a field value is invalid |
+| 401 | a token is set and the request has none or a wrong one ([token](#token)) |
+| 403 | a write request without `X-TaskHub: 1`, a foreign `Host` / `Origin`, a control that works only in the panel |
+| 404 | unknown task, control or route |
+| 409 | the task's state doesn't allow it: deleting an active task without `force`, a control not available in this state, a refused kill |
+| 413 | the body is larger than 2 MB |
+| 503 | a feature that is not available right now (the Telegram bridge, a connector) |
+| 500 | anything else (also a kill that didn't stop the process) |
 
 ## Registration `POST /api/tasks`
 ```jsonc
@@ -123,13 +148,14 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
   "cwd": "E:/proj", "links": [{"label": "results", "url": "file:///E:/proj/out"}], "meta": {},
   "controls": [],                         // see Controls
   "widgets":  [],                         // see Widgets
-  "progress_toast": false                 // C# hub: one live Windows notification with a progress bar, updated in place
+  "progress_toast": false                 // one live Windows notification with a progress bar, updated in place
 }
 ```
 
 ## Update `POST /api/tasks/{id}/update` (all fields optional)
-`progress` 0..1 · `percent` 0..100 · `current` (+`total`) · `status` · `stage` · `log` (str or [str]) + `level` (info/warn/error) ·
-`toast`: true or string → Windows notification now · `metrics`: `{k: v}` (null deletes; key-value list) ·
+`progress` 0..1 · `percent` 0..100 · `current` (+`total`) - when several are sent they apply in the order `current`/`total` →
+`percent` → `progress`, so the last one wins · `status` · `stage` · `log` (str or [str]) + `level` (info/warn/error) ·
+`toast`: true or string → Windows notification now · `metrics`: an object `{k: v}` (a null value deletes the key; the panel shows it as a key-value list) ·
 `widgets`: `{widget_id: value}` · `state`: running/paused · `project` · `attention` (string; `""` clears, also cleared on finish) · `add_widgets` / `remove_widgets` · `add_controls` / `remove_controls` / `controls` (replace) · `links` · `meta` · `expected_duration`.
 `links` (register and update): a list of URLs or `{"label", "url"}`. 2.9: only `http`, `https`, `mailto` and `file` URLs or an absolute
 path (`E:/proj/out`, `\\server\share\x`) - anything else is rejected with 400. The panel opens web links in the browser and shows
@@ -170,7 +196,7 @@ Thresholds: `warn`, `crit` (value ≥ → amber/red; `invert: true` → value �
 Declared by the task, rendered as buttons. Fields: `id`, `label`, `kind`, `style` (default/primary/danger),
 `confirm` (question asked before the control runs - a dialog in the panel, a Yes / No notification for toast buttons, a Yes button
 in Telegram), `hint`, `states` (when shown; default running/paused/stale), `input` (value prompt),
-`toast: true` (C# hub: also show this control as a button in the task's Windows notifications; `input` becomes a text/combo box there).
+`toast: true` (also show this control as a button in the task's Windows notifications; `input` becomes a text/combo box there).
 
 | kind | on click |
 |---|---|

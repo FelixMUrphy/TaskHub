@@ -10,6 +10,8 @@ from here), followed by the list of commits.
   screen, and puts them back on unpin.
 - Fixed: after adding a repository on the GitHub settings page as a link (`https://github.com/owner/repo`), the text
   stayed in the field although the repository was added.
+- API.md: an Errors section (error body and status codes), long-poll limits, how commands are delivered (once, on
+  read) and acked, which progress field wins, the token rule (every request except `/api/health`) and where `config.json` is.
 
 ## 2.9.6 — 2026-11-01
 
