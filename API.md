@@ -282,8 +282,11 @@ pending: {seq, deadline, held, capped, machines, task}|null}`; the settings rows
 - Read-only key (probe 403): warnings only. While a stop is pending the balance is read every minute.
 
 ## Native CLI `taskhub` (no Python needed; starts the hub if it is not running, disable with `TASKHUB_NO_AUTOSTART=1`)
-`taskhub run --name "<what>" --source <agent> [--auto-progress] [--heartbeat N] -- <cmd args>` wraps any command
-(echo + log + progress; the command may print `::progress 5/20`, `::percent 40`, `::status s`, `::stage s`, `::warn s`,
+`taskhub run --name "<what>" --source <agent> [--auto-progress] [--heartbeat N] [--preset blender|none] -- <cmd args>`
+wraps any command (echo + log + progress; presets (2.9.2) read a known tool's output - `blender`: frame / samples status,
+overall progress when the frame range is known, widgets `blender_spf` (chart, s per frame) and `blender_saved`; Blender's
+`Error:` lines fail the task and `run` exits with 1 although Blender exits with 0; chosen by the command's file name
+unless `--progress-regex` / `--status-regex` / `--auto-progress` is given; the command may print `::progress 5/20`, `::percent 40`, `::status s`, `::stage s`, `::warn s`,
 `::error s`, `::toast s`, `::metric k=v`, `::widget id=value` lines). Also `notify`, `list`, `show`, `register`, `update`,
 `log`, `finish`, `control`, `commands`, `ack`, `wait ID` (blocks until finished), `panel`, `delete`,
 `mcp` ([MCP server](#mcp-server)), `hook claude|codex` (agent hooks). `taskhub --help`.

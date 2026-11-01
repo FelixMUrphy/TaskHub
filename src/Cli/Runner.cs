@@ -38,6 +38,7 @@ static class Runner
         string hb = Program.TakeOpt(a, "--heartbeat");
         string ms = Program.TakeOpt(a, "--milestones");
         string enc = Program.TakeOpt(a, "--encoding") ?? "utf8";
+        string presetName = Program.TakeOpt(a, "--preset");
         bool auto = Program.TakeFlag(a, "--auto-progress");
         bool quiet = Program.TakeFlag(a, "--quiet");
         bool ptoast = Program.TakeFlag(a, "--progress-toast");
@@ -45,6 +46,10 @@ static class Runner
         int dd = a.IndexOf("--");
         var cmd = dd >= 0 ? a.Skip(dd + 1).ToList() : a.ToList();
         if (cmd.Count == 0) { Console.Error.WriteLine("taskhub run: no command given (use: run --name X -- cmd args)"); return 2; }
+        // a known tool's own output (Blender...): by --preset, or by its file name unless the caller parses it already
+        IOutputPreset preset;
+        try { preset = presetName != null || (progRx == null && statRx == null && !auto) ? Presets.For(presetName, cmd) : null; }
+        catch (ArgumentException e) { Console.Error.WriteLine("taskhub run: " + e.Message); return 2; }
 
         Encoding encoding = enc.ToLowerInvariant() switch
         {
@@ -105,7 +110,8 @@ static class Runner
                 ["description"] = desc ?? Cut(cmdline, 300), ["pid"] = p.Id, ["cwd"] = psi.WorkingDirectory,
                 ["heartbeat_timeout"] = hb != null ? double.Parse(hb, CultureInfo.InvariantCulture) : 0,
                 ["controls"] = controls,
-                ["widgets"] = new JsonArray { (JsonNode)new JsonObject { ["id"] = "last", ["type"] = "text", ["label"] = "Last line", ["mono"] = true, ["span"] = 2 } },
+                ["widgets"] = new JsonArray(new[] { (JsonNode)new JsonObject { ["id"] = "last", ["type"] = "text", ["label"] = "Last line", ["mono"] = true, ["span"] = 2 } }
+                    .Concat(preset?.Widgets ?? Enumerable.Empty<JsonObject>()).ToArray()),
                 ["progress_toast"] = ptoast,
             };
             if (ms != null)
@@ -144,10 +150,15 @@ static class Runner
             lock (pending.L)
             {
                 // without a hub nobody sends the pending lines: keep only the last one (fail-soft, no growing buffer)
-                if (!useHub) { if (!line.StartsWith("::")) lastLine = line; return; }
+                if (!useHub)
+                {
+                    if (!line.StartsWith("::")) { lastLine = line; preset?.Line(line, pending.Fields, pending.Widgets); }   // for the verdict
+                    return;
+                }
                 if (line.StartsWith("::") && Directive(line, pending)) { TrimLog(pending); return; }
                 lastLine = line;
-                pending.Log.Add(JsonValue.Create(Cut(line, 2000)));
+                var entry = preset?.Line(Cut(line, 2000), pending.Fields, pending.Widgets);
+                pending.Log.Add(entry ?? JsonValue.Create(Cut(line, 2000)));
                 TrimLog(pending);
                 pending.Widgets["last"] = Cut(line, 300);
                 if (prog != null)
@@ -200,16 +211,19 @@ static class Runner
         t1.Join(3000); t2.Join(3000);
         int rc = p.ExitCode;
         stop.Cancel();
+        (string State, string Message)? verdict;
+        lock (pending.L) verdict = preset?.Verdict(rc);
         if (useHub)
         {
             sender?.Join(2000);
             Flush(c, tid, pending);
-            var state = rc == 0 ? "done" : (userCancelled ? "cancelled" : "failed");
-            var msg = $"exit code {rc}" + (lastLine.Length > 0 ? " · " + Cut(lastLine, 200) : "");
+            var state = verdict?.State ?? (rc == 0 ? "done" : (userCancelled ? "cancelled" : "failed"));
+            var msg = verdict?.Message ?? $"exit code {rc}" + (lastLine.Length > 0 ? " · " + Cut(lastLine, 200) : "");
             try { c.Call("POST", $"/api/tasks/{tid}/finish", new JsonObject { ["state"] = state, ["message"] = msg }); }
             catch (Exception e) { Console.Error.WriteLine("taskhub: finish failed: " + e.Message); }
         }
-        return rc;
+        // a tool that failed but exited with 0 (Blender after a render error): scripts see the failure too
+        return rc == 0 && verdict?.State == "failed" ? 1 : rc;
     }
 
     static Encoding CodePage(int cp)

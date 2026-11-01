@@ -80,7 +80,13 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
 ```powershell
 taskhub notify "Render" "finished in 42 min"
 taskhub run --name "Build" -- cmake --build build -j 16     # wraps any command, parses % from its output
+taskhub run --name "Shot 12" -- blender -b shot12.blend -s 1 -e 240 -a   # 2.9.2: frame, samples, overall %, s/frame
 ```
+
+*From version 2.9.2:* `taskhub run` knows Blender's background-render output by itself (no add-on in Blender): the frame
+and its samples, overall progress when the frame range is known (`-s`/`-e` or `-f`), a seconds-per-frame chart and the
+last saved file. Blender exits with 0 even when a render fails, so its `Error:` lines mark the task failed (and
+`taskhub run` exits with 1). `--preset none` turns this off.
 
 ```python
 from taskhub_client import Task, W, C          # stdlib only; installed next to taskhub.exe
