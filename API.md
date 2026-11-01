@@ -102,7 +102,7 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/connectors/runpod` | `{enabled?, key?, forget_key?, idle_minutes?: 1-1440, idle_util?: 1-50, low_runway_hours?: 0-720, low_balance?: $\|null, list_interval?: 30-3600, detail_interval?: 15-3600, billing_interval?: 300-86400, graphql_balance?}` | Runpod connector (2.9, below) |
 | GET | `/api/connectors/vastai` | | the same as Runpod without `graphql_balance`; `balance.label` says what `amount` is ("Balance $x · Credit"), `balance.raw = {balance, credit, ...}` (2.9; the key is never returned) |
 | POST | `/api/connectors/vastai` | `{enabled?, key?, forget_key?, idle_minutes?, idle_util?, low_runway_hours?, low_balance?, list_interval?, detail_interval?, billing_interval?}` (ranges as Runpod) | Vast.ai connector (2.9, below) |
-| POST | `/api/connectors/runpod`, `/api/connectors/vastai` | `{guard?: bool, guard_warn?: $\|null, guard_stop?: $\|null, guard_grace_min?: 1-120, guard_snooze_min?: 5-240, guard_exempt?: [machine id], idle_stop_minutes?: 0\|5-1440}` | balance guard (2.9, [below](#balance-guard)); `guard_warn` must be above `guard_stop` (>= 0), else 400 and nothing changes; `idle_stop_minutes` (2.9.3): auto-stop on GPU idle, 0 = off |
+| POST | `/api/connectors/runpod`, `/api/connectors/vastai` | `{guard?: bool, guard_warn?: $\|null, guard_stop?: $\|null, guard_grace_min?: 1-120, guard_snooze_min?: 5-240, guard_exempt?: [machine id], idle_stop_minutes?: 0\|5-1440}` | balance guard (2.9, [below](#balance-guard)); `guard_warn` must be above `guard_stop` (>= 0), else 400 and nothing changes; a threshold you don't send is compared as saved. These fields can go in one request with the connector's own: any invalid value → 400 and nothing is saved; `idle_stop_minutes` (2.9.3): auto-stop on GPU idle, 0 = off |
 | GET | `/api/guard/log` | `?provider=runpod\|vastai&limit=1-200` (50) | what the balance guard stopped, newest first (2.9): `{entries: [{t, provider, machine_id, name, trigger: "auto"\|"stop_now"\|"idle", balance, threshold, idle_minutes, burn_per_hr, spent, spent_estimated, result: "stopped"\|"failed", error, storage_per_day, storage_note, storage_approx}]}` |
 | POST | `/api/clear` | | remove finished tasks |
 | POST | `/api/settings` | `{muted?: bool, seen?: true \| [task ids], language?, theme?: "system"\|"light"\|"dark", accent?: "system"\|"taskhub", panel_transparency?: 0-100, card_transparency?: 0-100, panel_group?: "project"\|"source"\|"none", panel_pinned?: bool, panel_push_windows?: bool}` | mute toasts; panel look (also in `GET /api/tasks` → `panel`) |
@@ -151,6 +151,10 @@ Every error is JSON `{"error": "<text>"}` with one of these statuses:
   "progress_toast": false                 // one live Windows notification with a progress bar, updated in place
 }
 ```
+**Registering an `id` that exists** replaces the task: it is `running` again, and `name`, `total`, `controls`, `widgets` and the
+rest come from the new request only (what you leave out is gone; progress and `status` start empty). Kept: `log`, `metrics`,
+`created`, the command history and the points of a `chart` declared again with the same `series`. `started` is kept while the old
+task is active and starts anew when it had finished. Signals the process hasn't read yet are dropped.
 
 ## Update `POST /api/tasks/{id}/update` (all fields optional)
 `progress` 0..1 · `percent` 0..100 · `current` (+`total`) - when several are sent they apply in the order `current`/`total` →
@@ -174,7 +178,7 @@ Thresholds: `warn`, `crit` (value ≥ → amber/red; `invert: true` → value �
 | type | extra fields | value |
 |---|---|---|
 | `text` | `mono` | string |
-| `progress` | `total` | fraction 0..1 (or 0..100), or count if `total`; also `{value, total, label}` |
+| `progress` | `total` | without `total`: up to 1 is a fraction (1 = 100 %), above 1 is a percentage; with `total`: a count; also `{value, total, label}` |
 | `gauge` | `min`, `max`, `warn`, `crit`, `invert` | number (half-circle) |
 | `stat` | `warn`, `crit`, `invert` | number; shows ▲▼ delta vs previous |
 | `led` | `text` | `"ok"`/`"warn"`/`"error"`/`"busy"`/`"off"`, bool, or `{state, text}` |
@@ -193,7 +197,7 @@ Thresholds: `warn`, `crit` (value ≥ → amber/red; `invert: true` → value �
 ```
 
 ## Controls
-Declared by the task, rendered as buttons. Fields: `id`, `label`, `kind`, `style` (default/primary/danger),
+Declared by the task, rendered as buttons. Fields: `id` (required, `[A-Za-z0-9_.:-]`, up to 48 characters, else 400), `label`, `kind` (default `signal`), `style` (default/primary/danger),
 `confirm` (question asked before the control runs - a dialog in the panel, a Yes / No notification for toast buttons, a Yes button
 in Telegram), `hint`, `states` (when shown; default running/paused/stale), `input` (value prompt),
 `toast: true` (also show this control as a button in the task's Windows notifications; `input` becomes a text/combo box there).
@@ -226,7 +230,7 @@ Command delivered to the process: `{"id": "a1b2c3", "control": "lr", "value": 0.
 Python client built-ins: `stop` → `t.stop_requested`; `pause`/`resume` (`pausable=True`) → `t.paused`, `t.wait_if_paused()`.
 
 ## States
-`running` · `paused` · `stale` (no update for `heartbeat_timeout`) · `done` · `failed` · `cancelled` · `lost` (pid died without finish).
+`running` · `paused` · `stale` (no `update`, `log` or `heartbeat` for `heartbeat_timeout`; any of them brings the task back to `running`) · `done` · `failed` · `cancelled` · `lost` (pid died without finish).
 Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in update/log, `/api/notify`. Global mute in tray or panel.
 
 ## Connectors: GitHub Actions

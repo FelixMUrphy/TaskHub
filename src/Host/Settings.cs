@@ -36,7 +36,7 @@ static class Log
 sealed class Settings
 {
     public const string AppId = "TaskHub";
-    public const string Version = "2.9.6";
+    public const string Version = "2.9.7";
     public const int DefaultPort = 47800;
 
     public int Port = DefaultPort;

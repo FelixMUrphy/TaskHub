@@ -3,7 +3,7 @@
 What changed in each release of TaskHub. The release page on GitHub shows the section of its version (CI takes it
 from here), followed by the list of commits.
 
-## Unreleased
+## 2.9.7 — 2026-11-02
 
 - The pinned panel keeps its edge of the screen: maximized windows make room for it and get the space back when you
   unpin or hide it. A new switch on the settings page (off by default) also moves or narrows the other windows on that
@@ -11,7 +11,9 @@ from here), followed by the list of commits.
 - Fixed: after adding a repository on the GitHub settings page as a link (`https://github.com/owner/repo`), the text
   stayed in the field although the repository was added.
 - API.md: an Errors section (error body and status codes), long-poll limits, how commands are delivered (once, on
-  read) and acked, which progress field wins, the token rule (every request except `/api/health`) and where `config.json` is.
+  read) and acked, which progress field wins, the token rule (every request except `/api/health`) and where `config.json` is; what
+  registering an existing `id` keeps, what counts against `stale`, the default control `kind`, connector and guard
+  fields in one request.
 
 ## 2.9.6 — 2026-11-01
 
