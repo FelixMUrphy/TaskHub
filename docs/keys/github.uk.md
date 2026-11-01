@@ -24,6 +24,10 @@
 | (a) Лише спостерігати | **Actions:** Read-only · **Contents:** Read-only · **Metadata:** Read-only |
 | (b) Cancel / Re-run | **Actions:** Read and write · **Contents:** Read-only · **Metadata:** Read-only |
 
+Pull requests (необов'язково, з 2.9.4, лише читання): для PR від Dependabot додайте ще **Pull requests: Read-only** (GitHub
+дає список відкритих PR лише з цим дозволом); пошук запитів на рев'ю дозволів не потребує. Fine-grained токен бачить
+запити на рев'ю лише в наданих йому репозиторіях і публічних.
+
 Краще цей токен, ніж інший варіант у TaskHub (токен, який уже має Git Credential Manager), — той має доступ до
 всіх ваших репозиторіїв.
 

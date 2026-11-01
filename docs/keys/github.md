@@ -5,6 +5,7 @@
 ## What TaskHub uses it for
 - **Watch:** workflow runs of the repositories you list — progress, the failed step, the result.
 - **Actions** (only with write access): Cancel and Re-run a run.
+- **Pull requests** (optional, from 2.9.4, read-only): the ones waiting for your review and open Dependabot pull requests.
 - TaskHub never changes your workflows, code or repository settings.
 
 ## Create a fine-grained token
@@ -23,6 +24,10 @@ If the owner is an organization that requires approval, the token stays pending 
 |---|---|
 | (a) Watch only | **Actions:** Read-only · **Contents:** Read-only · **Metadata:** Read-only |
 | (b) Cancel / Re-run | **Actions:** Read and write · **Contents:** Read-only · **Metadata:** Read-only |
+
+Pull requests (optional): Dependabot pull requests need **Pull requests: Read-only** as well (GitHub lists the open PR
+list only under that permission); the review-request search needs no permission. A fine-grained token sees review
+requests only in the repositories it was given and in public ones.
 
 Prefer this token over TaskHub's other option (the token the Git Credential Manager already has), which has
 access to all your repositories.
@@ -46,5 +51,7 @@ access to all your repositories.
 ## Official docs
 - Creating a fine-grained token:
   <https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token>
+- Searching pull requests (`review-requested:`):
+  <https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests>
 - Permissions per endpoint:
   <https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens>

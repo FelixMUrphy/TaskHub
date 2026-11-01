@@ -91,9 +91,9 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/hooks/claude`, `/api/hooks/codex` | agent hook input (as sent) | `Stop` / `Notification` / `PermissionRequest` → toast; always `{}` (below) |
 | GET | `/api/telegram` | | Telegram bridge state `{configured, linked, bot, status, away_only, progress, link, storage, warning}` — `storage` (2.9): where the bot token is kept, `vault` (Windows Credential Manager) \| `config` (`config.json`, only when the Credential Manager is unavailable) \| null; `warning`: text for Settings, or null |
 | POST | `/api/telegram` | `{token}` (start pairing, returns the t.me `link`) · `{test: true}` · `{relink: true}` (new code for another chat, same bot) · `{away_only: bool}` · `{progress: bool}` (live progress bar + charts at the end) · `{disconnect: true}` | Telegram setup |
-| GET | `/api/connectors`, `/api/connectors/github` | | connector state: `{enabled, repos, interval, notify_success, logs, auth, token_set, token_check, token_check_text, login, token_expires, status, repo_status, rate_remaining, active_runs}` (the token itself is never returned) |
+| GET | `/api/connectors`, `/api/connectors/github` | | connector state: `{enabled, repos, interval, notify_success, logs, auth, token_set, token_check, token_check_text, login, token_expires, status, repo_status, rate_remaining, active_runs, pr_reviews, pr_dependabot, prs}` (the token itself is never returned) |
 | GET | `/api/connectors?view=settings` | | the rows of the settings page's Connectors section (2.9): `{connectors: [{id, name, kind, enabled, uses_key, key_set, key_check, summary, help_url, thresholds?, fields?, guard?, setup?}], lang}` - `key_check` = the last verdict on the saved key (`ok` / `revoked` / `network` / `unavailable` / null), `summary` = the state line in the UI language ("Connected, balance $X", "Connected as @login · 3 repositories"...), `help_url` = the "how to get a key" page (`docs/keys/<id>.md`, or `<id>.<lang>.md` when that language exists); `fields` (2.9.2) = the connector's number inputs as the page draws them: `[{key, label, min, max, step, value, empty_ok?}]` (`label` = a key of the panel's translations; `thresholds` stays as before); never a key |
-| POST | `/api/connectors/github` | `{enabled?, repos?: ["owner/repo"], interval?: 15-3600, notify_success?, logs?, auth?: "token"\|"gcm", token?, forget_token?}` | GitHub Actions connector (below) |
+| POST | `/api/connectors/github` | `{enabled?, repos?: ["owner/repo"], interval?: 15-3600, notify_success?, logs?, auth?: "token"\|"gcm", token?, forget_token?, pr_reviews?, pr_dependabot?}` | GitHub Actions connector (below) |
 | GET | `/api/connectors/runpod` | | `{enabled, key_set, key_check, key_check_text, status, can_act, probed_at, machines: [{id, name, state, task}], running, balance: {amount, spend_per_hr, spend_limit, runway_hours, raw, at}, low, idle_minutes, idle_util, low_runway_hours, low_balance, graphql_balance, summary}` (2.9; the key is never returned) |
 | POST | `/api/connectors/runpod` | `{enabled?, key?, forget_key?, idle_minutes?: 1-1440, idle_util?: 1-50, low_runway_hours?: 0-720, low_balance?: $\|null, list_interval?: 30-3600, detail_interval?: 15-3600, billing_interval?: 300-86400, graphql_balance?}` | Runpod connector (2.9, below) |
 | GET | `/api/connectors/vastai` | | the same as Runpod without `graphql_balance`; `balance.label` says what `amount` is ("Balance $x · Credit"), `balance.raw = {balance, credit, ...}` (2.9; the key is never returned) |
@@ -216,6 +216,19 @@ kept in the Windows Credential Manager - or `auth: "gcm"`, the Git Credential Ma
 Requests go only to api.github.com (with the token) and, for logs, to GitHub's log storage through the one-time link GitHub gives
 (without the token). Polling uses ETags (unchanged = free): every `interval` s (default 60) when idle, every 10 s while a run is
 going, slower near the rate limit. A notification warns 7 days before the token expires.
+
+Pull requests, read-only (2.9.4; `pr_reviews`, `pr_dependabot`, both off by default): PRs waiting for your review (search
+`is:pr is:open archived:false review-requested:<login>`, team requests included, at most once a minute - the search API's own
+limit of 30 / min; a search rate limit pauses only these searches) and open Dependabot PRs (`dependabot[bot]`) in the
+listed repositories (`GET /repos/{repo}/pulls?state=open`, ETag, every 5 min). Each is a task `ghpr-<12 hex>` (hash of
+`owner/repo#n`), source `github`, name `Review · title` / `Dependabot · title`, description `owner/repo #n · @author`,
+`attention` for a review request, link + Open button only, `meta.github_pr {kind, repo, number, title}`. A new one logs and
+notifies; when it leaves the list the task ends `done` (no notification) with `Merged` / `Closed without merging` /
+`No longer waiting for your review` / `No longer open` (read from `GET /repos/{repo}/pulls/{n}`). Turning a switch or the
+connector off ends its tasks. Nothing is ever written to GitHub. Permissions: the search needs none (a fine-grained
+token sees review requests only in its own repositories and public ones); the PR list needs Pull requests: Read-only (no access: the task ends `No access to the repository's pull requests`,
+`pr_status {repo: text}` says so); a repository taken off the list ends its tasks (`The repository is no longer watched`).
+More than 100 open PRs / review requests are paged; a list too long to read ends nothing. State also has `pr_status`.
 
 ## Connectors: Runpod
 *2.9.* Panel → ⚙ Settings → Connectors → Runpod (or `POST /api/connectors/runpod {key, enabled: true}`). The key is checked with

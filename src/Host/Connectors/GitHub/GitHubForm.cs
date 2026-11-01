@@ -8,7 +8,7 @@ sealed class GitHubForm : Form
     const string NewTokenUrl = "https://github.com/settings/personal-access-tokens/new";
     static GitHubForm open;
     readonly GitHubConnector gh;
-    readonly CheckBox enabled, notifySuccess, logs;
+    readonly CheckBox enabled, notifySuccess, logs, prReviews, prDependabot;
     readonly RadioButton authToken, authGcm;
     readonly TextBox token, repos;
     readonly NumericUpDown interval;
@@ -85,6 +85,12 @@ sealed class GitHubForm : Form
         root.Controls.Add(notifySuccess);
         logs = new CheckBox { Text = L.T("gh_logs"), AutoSize = true, MaximumSize = new Size(W, 0), Checked = J.Truthy(s["logs"]), Margin = new Padding(0, 6, 0, 0) };
         root.Controls.Add(logs);
+        root.Controls.Add(new Label { Text = L.T("pr_section"), AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 12, 0, 2) });
+        prReviews = new CheckBox { Text = L.T("pr_reviews"), AutoSize = true, MaximumSize = new Size(W, 0), Checked = J.Truthy(s["pr_reviews"]) };
+        root.Controls.Add(prReviews);
+        prDependabot = new CheckBox { Text = L.T("pr_dependabot"), AutoSize = true, MaximumSize = new Size(W, 0), Checked = J.Truthy(s["pr_dependabot"]), Margin = new Padding(0, 4, 0, 0) };
+        root.Controls.Add(prDependabot);
+        root.Controls.Add(new Label { Text = L.T("pr_hint"), AutoSize = true, MaximumSize = new Size(W, 0), ForeColor = SystemColors.GrayText, Margin = new Padding(0, 2, 0, 0) });
 
         state = new Label { AutoSize = true, MaximumSize = new Size(W, 0), Margin = new Padding(0, 12, 0, 0) };
         root.Controls.Add(state);
@@ -100,6 +106,7 @@ sealed class GitHubForm : Form
                 ["enabled"] = enabled.Checked, ["auth"] = authGcm.Checked ? "gcm" : "token",
                 ["repos"] = repos.Text, ["interval"] = (int)interval.Value,
                 ["notify_success"] = notifySuccess.Checked, ["logs"] = logs.Checked,
+                ["pr_reviews"] = prReviews.Checked, ["pr_dependabot"] = prDependabot.Checked,
             };
             if (token.Text.Trim().Length > 0) b["token"] = token.Text.Trim();
             if (await Apply(b)) token.Clear();
@@ -157,6 +164,8 @@ sealed class GitHubForm : Form
             lines.Add(st == "ok" ? L.N("gh_watching", n) + (login.Length > 0 ? "  @" + login : "") : st);
             foreach (var (repo, rs) in s["repo_status"] as JsonObject ?? new JsonObject())
                 if (J.Str(rs) is { Length: > 0 } v && v != "ok") lines.Add("• " + repo + ": " + v);
+            foreach (var (repo, ps) in s["pr_status"] as JsonObject ?? new JsonObject())
+                if (J.Str(ps) is { Length: > 0 } v) lines.Add("• " + repo + ": " + v);
             if (J.Num(s["rate_remaining"]) is double rl && rl < 1000) lines.Add("API: " + J.Fmt(rl) + " requests left this hour");
         }
         state.Text = string.Join("\n", lines);
