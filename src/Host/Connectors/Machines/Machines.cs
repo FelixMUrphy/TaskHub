@@ -113,6 +113,7 @@ abstract partial class MachineConnector : ISettingsConnector
         public Machine M; public string LastSig; public double NextDetail;
         public double? IdleSince; public bool IdleWarned;
         public bool IdleStopAsked;   // an idle stop was started in this idle period (IdleStop.cs)
+        public double? IdleSeenAt;   // the last load sample, when it was idle (null: busy or unknown load)
     }
     readonly Dictionary<string, Track> machines = new();   // machine id -> what we know / show
     readonly HashSet<string> quiet = new();                // stopped machines first seen as stopped (no toast)
@@ -561,7 +562,7 @@ abstract partial class MachineConnector : ISettingsConnector
                     m.Uptime ??= t.M.Uptime;
                 }
                 t.M = m;
-                if (m.State != "running") { t.IdleSince = null; t.IdleWarned = false; t.IdleStopAsked = false; }
+                if (m.State != "running") { t.IdleSince = null; t.IdleWarned = false; t.IdleStopAsked = false; t.IdleSeenAt = null; }
                 if (prev != m.State) t.NextDetail = 0;
             }
             Transition(t, prev, c);
@@ -762,18 +763,19 @@ abstract partial class MachineConnector : ISettingsConnector
         };
         Try(() => hub.Update(tid, new JsonObject { ["widgets"] = w }, trusted: true));
         // idle: every GPU under the threshold for idle_minutes -> once per idle period
-        if (m.GpuUtil.Count == 0 || m.GpuUtil.Any(x => x == null)) return;
+        if (m.GpuUtil.Count == 0 || m.GpuUtil.Any(x => x == null)) { t.IdleSeenAt = null; return; }   // unknown: never stopped on it
         var now = J.Now();
         bool idle = m.GpuUtil.All(x => x.Value < c.IdleUtil);
         if (!idle)
         {
             bool was = t.IdleWarned;
-            t.IdleSince = null; t.IdleWarned = false;
+            t.IdleSince = null; t.IdleWarned = false; t.IdleSeenAt = null;
             if (was) t.LastSig = null;   // attention goes
             IdleStopSample(t, c, false, now);
             return;
         }
         t.IdleSince ??= now;
+        t.IdleSeenAt = now;
         IdleStopSample(t, c, true, now);
         if (!t.IdleWarned && now - t.IdleSince >= c.IdleMinutes * 60)
         {

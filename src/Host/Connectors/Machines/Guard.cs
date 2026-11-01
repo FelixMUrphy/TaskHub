@@ -364,6 +364,9 @@ abstract partial class MachineConnector
             p = pending;
             if (p == null || (which != null && !which(p))) return;
             pending = null;
+            if (p.Idle)   // offered again in the same idle period when it comes back on (off -> on, key, top-up after a balance stop)
+                foreach (var id in p.Ids)
+                    if (machines.TryGetValue(id, out var t)) t.IdleStopAsked = false;
         }
         var why = reason(p);
         SaveGuard();

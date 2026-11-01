@@ -86,8 +86,9 @@ taskhub run --name "Shot 12" -- blender -b shot12.blend -s 1 -e 240 -a   # 2.9.2
 *From version 2.9.2:* `taskhub run` knows Blender's background-render output by itself (no add-on in Blender): the frame
 and its samples, overall progress when the frame range is known (`-s`/`-e` or `-f`), a seconds-per-frame chart and the
 last saved file, render memory. Blender exits with 0 even when a render fails, so its `Error:` lines mark the task failed
-(and `taskhub run` exits with 1). *Stop after this frame* (panel / notification) ends Blender right after the next saved
-frame; after such a stop or a crash the task says where to resume and `taskhub run` prints the same command with `-s`
+(and `taskhub run` exits with 1; not the memory-leak note Blender prints at exit). Video output (FFmpeg) and stereo views
+saved as separate files count by frame (2.9.3). *Stop after this frame* (panel / notification) ends Blender once the
+frame is saved and the next one begins; after such a stop or a crash the task says where to resume and `taskhub run` prints the same command with `-s`
 set to the next frame. `--preset none` turns this off.
 
 ```python
@@ -215,7 +216,8 @@ Each provider has its own two thresholds in $: **warn** (default $10) and **stop
 - *From version 2.9.3:* **auto-stop on GPU idle** — *Stop when the GPU is idle for, min* (0 = off, the default) in the
   same settings, also with the balance guard off. A running machine whose GPUs all stay idle that long gets the same
   announcement with *Stop now* / *Snooze*; the GPU busy again cancels it, and at the deadline it is stopped only if it is
-  still idle. *Never auto-stop* machines are left alone; a balance stop takes its place when both come at once.
+  still idle (a recent reading, idle for at least the current setting; unknown load: not stopped). *Never auto-stop*
+  machines are left alone; a balance stop takes its place when both come at once.
 - After a stop TaskHub says what was stopped and what its storage costs while stopped — **≈, per the provider's price
   list**: Runpod — the container disk is wiped and not billed, the volume disk costs $0.20 / GB / month while stopped, a
   network volume $0.07 / GB / month as before (its size read from Runpod from 2.9.1; [Runpod pricing](https://docs.runpod.io/pods/pricing),
