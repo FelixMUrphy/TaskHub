@@ -350,7 +350,9 @@ trusted once in Codex (`/hooks`). Do **not** replace an existing `notify = [...]
 `taskhub mcp [--source NAME]` is a stdio [MCP](https://modelcontextprotocol.io) server for AI agents with the tools
 `notify`, `task_start`, `task_update`, `task_finish`, `task_commands` (button presses / input values, acknowledged on read),
 `task_wait` (from 2.9.2: blocks up to 50 s until a task finishes - instead of polling with sleep; call again while it runs)
-and `task_list`. It starts the hub on the first tool call. Enable it in the setup dialog / Settings → *AI agents* (before 2.9: tray → *AI agents*), or by hand:
+and `task_list`. It starts the hub on the first tool call. From 2.9.6 calls run side by side (a waiting `task_wait` does
+not hold other requests), `notifications/cancelled` stops a call (no answer for it), and the server ends when stdin
+closes or the program that started it exits. Enable it in the setup dialog / Settings → *AI agents* (before 2.9: tray → *AI agents*), or by hand:
 - Claude Code (user scope, `~/.claude.json`): `"mcpServers": {"taskhub": {"type": "stdio", "command": "<install dir>\\taskhub.exe", "args": ["mcp", "--source", "claude"]}}`
   (or `claude mcp add --scope user taskhub -- "<install dir>\taskhub.exe" mcp --source claude`)
 - Codex (`~/.codex/config.toml`; TaskHub's setup writes the same and keeps the rest of the file):

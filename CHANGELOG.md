@@ -7,6 +7,9 @@ from here), followed by the list of commits.
 
 - GitHub Actions is set up right on the settings page (*Connectors* → *GitHub Actions*): access, repositories with their
   state, interval, notifications and pull requests, instead of a separate window.
+- `taskhub mcp`: a waiting `task_wait` no longer holds the agent's other TaskHub calls (they waited up to 50 s); a call the
+  agent cancels stops; the server ends together with the program that started it, so no orphaned `taskhub mcp`
+  processes are left behind.
 - Fixed: the spend guard (Runpod / Vast.ai) could hold its automatic stop for up to 10 minutes (or a day) when the key
   was saved while a check of its rights was still running; the check now runs again after the save.
 

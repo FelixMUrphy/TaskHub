@@ -110,9 +110,85 @@ check("unknown tool -> JSON-RPC error", "error" in r, r)
 r = rpc("bogus/method")
 check("unknown method -> -32601", r.get("error", {}).get("code") == -32601, r)
 
+# ---- calls side by side: a task_wait must not hold other requests; a cancelled call gets no answer, the server goes on
+def send(msg):
+    p.stdin.write((json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8"))
+    p.stdin.flush()
+
+
+def read_line(timeout):
+    box = []
+    th = threading.Thread(target=lambda: box.append(p.stdout.readline()), daemon=True)
+    th.start()
+    th.join(timeout)
+    return json.loads(box[0].decode("utf-8")) if box and box[0] else None
+
+
+txt, err, _ = tool("task_start", name="mcp parallel")
+tid3 = txt
+send({"jsonrpc": "2.0", "id": 9001, "method": "tools/call", "params": {"name": "task_wait", "arguments": {"id": tid3, "wait_seconds": 20}}})
+t0 = time.time()
+send({"jsonrpc": "2.0", "id": 9002, "method": "ping"})
+first = read_line(10)
+check("ping answered while a task_wait waits", first is not None and first.get("id") == 9002 and time.time() - t0 < 3,
+      (first, time.time() - t0))
+send({"jsonrpc": "2.0", "id": 9003, "method": "tools/call", "params": {"name": "task_list", "arguments": {}}})
+nxt = read_line(10)
+check("a tool call answered while a task_wait waits", nxt is not None and nxt.get("id") == 9003 and time.time() - t0 < 5,
+      (nxt, time.time() - t0))
+send({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 9001, "reason": "test"}})
+time.sleep(1)
+send({"jsonrpc": "2.0", "id": 9004, "method": "ping"})
+nxt = read_line(10)
+check("cancelled task_wait: no answer for it, the next request is answered", nxt is not None and nxt.get("id") == 9004, nxt)
+nxt = read_line(2)
+check("…and nothing comes later for the cancelled call", nxt is None, nxt)
+# finished over HTTP: a reader thread from the last check may still wait on stdout
+op.open(urllib.request.Request(f"{url}/api/tasks/{tid3}/finish", json.dumps({"state": "done"}).encode(), method="POST",
+                               headers={"Content-Type": "application/json", "X-TaskHub": "1"}), timeout=5).read()
+
 p.stdin.close()
 p.wait(timeout=10)
 check("exits on stdin close", p.returncode == 0, p.returncode)
 check("nothing on stderr", not p.stderr.read(), "")
+
+# ---- the parent ends while the stdin pipe stays open (another process holds it): the server ends too
+import ctypes
+r_fd, w_fd = os.pipe()
+parent = subprocess.Popen([sys.executable, "-c", "import subprocess, sys, time; c = subprocess.Popen([sys.argv[1], 'mcp', '--source', 'mcptest'], "
+                           "stdin=sys.stdin, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); print(c.pid, flush=True); time.sleep(120)", cli],
+                          stdin=r_fd, stdout=subprocess.PIPE)
+os.close(r_fd)
+cpid = int(parent.stdout.readline())
+k32 = ctypes.windll.kernel32
+h = k32.OpenProcess(0x00100000 | 0x1000, False, cpid)   # SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+time.sleep(11)   # a parent that ends in the first 10 s counts as a launcher (kept running); this one is the client
+alive_before = k32.WaitForSingleObject(h, 0) == 0x102   # WAIT_TIMEOUT: still running
+parent.kill()
+parent.wait()
+ended = k32.WaitForSingleObject(h, 10000) == 0
+if not ended:
+    subprocess.run(["taskkill", "/F", "/PID", str(cpid)], capture_output=True)
+k32.CloseHandle(h)
+os.close(w_fd)
+check("exits when its parent ends, though stdin stays open", h and alive_before and ended, (cpid, alive_before, ended))
+
+# ---- a launcher that starts the server and leaves at once is not the client: the server keeps running until stdin ends
+r_fd, w_fd = os.pipe()
+launcher = subprocess.Popen([sys.executable, "-c", "import subprocess, sys; c = subprocess.Popen([sys.argv[1], 'mcp', '--source', 'mcptest'], "
+                             "stdin=sys.stdin, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); print(c.pid, flush=True)", cli],
+                            stdin=r_fd, stdout=subprocess.PIPE)
+os.close(r_fd)
+cpid = int(launcher.stdout.readline())
+h = k32.OpenProcess(0x00100000 | 0x1000, False, cpid)
+launcher.wait()
+time.sleep(3)
+kept = k32.WaitForSingleObject(h, 0) == 0x102
+os.close(w_fd)   # stdin EOF
+gone = k32.WaitForSingleObject(h, 10000) == 0
+if not gone:
+    subprocess.run(["taskkill", "/F", "/PID", str(cpid)], capture_output=True)
+k32.CloseHandle(h)
+check("a launcher that leaves at once doesn't end it; stdin EOF does", h and kept and gone, (cpid, kept, gone))
 print(f"{fails} failure(s)")
 sys.exit(1 if fails else 0)
