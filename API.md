@@ -5,7 +5,7 @@ Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/
 
 ## AI agents: read this first
 - **Claude Code, Codex and other MCP clients: use the TaskHub MCP tools** (`task_start`, `task_update`, `task_finish`,
-  `task_commands`, `task_list`, `notify`). They need no HTTP, no headers and pass any language correctly.
+  `task_commands`, `task_wait`, `task_list`, `notify`). They need no HTTP, no headers and pass any language correctly.
 - **You are Claude Code or Codex but don't see these tools?** Don't fall back to `curl` / HTTP. Tell the user, in one short
   message: *"Enable TaskHub tools (MCP): tray icon → AI agents → <Claude Code / Codex> — TaskHub tools (MCP), then start a new chat / session -
   MCP tools only appear in sessions started after that."* (Not installed yet: the setup dialog has the same option.)
@@ -323,7 +323,8 @@ trusted once in Codex (`/hooks`). Do **not** replace an existing `notify = [...]
 
 ## MCP server
 `taskhub mcp [--source NAME]` is a stdio [MCP](https://modelcontextprotocol.io) server for AI agents with the tools
-`notify`, `task_start`, `task_update`, `task_finish`, `task_commands` (button presses / input values, acknowledged on read)
+`notify`, `task_start`, `task_update`, `task_finish`, `task_commands` (button presses / input values, acknowledged on read),
+`task_wait` (from 2.9.2: blocks up to 50 s until a task finishes - instead of polling with sleep; call again while it runs)
 and `task_list`. It starts the hub on the first tool call. Enable it in the setup dialog / Settings → *AI agents* (before 2.9: tray → *AI agents*), or by hand:
 - Claude Code (user scope, `~/.claude.json`): `"mcpServers": {"taskhub": {"type": "stdio", "command": "<install dir>\\taskhub.exe", "args": ["mcp", "--source", "claude"]}}`
   (or `claude mcp add --scope user taskhub -- "<install dir>\taskhub.exe" mcp --source claude`)

@@ -45,7 +45,7 @@ check("initialize", res.get("serverInfo", {}).get("name") == "taskhub" and "tool
 rpc("notifications/initialized", notify=True)
 r = rpc("tools/list")
 names = [t["name"] for t in r.get("result", {}).get("tools", [])]
-check("tools/list", set(names) == {"notify", "task_start", "task_update", "task_finish", "task_commands", "task_list"}, names)
+check("tools/list", set(names) == {"notify", "task_start", "task_update", "task_finish", "task_commands", "task_wait", "task_list"}, names)
 check("tool schemas", all(t["inputSchema"]["type"] == "object" for t in r["result"]["tools"]), r)
 
 txt, err, _ = tool("notify", title="MCP test", message="привіт")
@@ -77,7 +77,30 @@ check("defaults: no start / milestone notifications", full["notify"]["start"] is
 tid2, err, raw = tool("task_start", name="with notifications", notify_start=True, notify_milestones=[50])
 full2 = json.loads(op.open(f"{url}/api/tasks/{tid2}", timeout=5).read())
 check("notify_start / notify_milestones passed through", full2["notify"]["start"] is True and full2["notify"]["milestones"] == [50], full2["notify"])
-tool("task_finish", id=tid2)
+# task_wait: still running after wait_seconds -> finished false; a finish from another client ends the wait
+import threading, time
+t0 = time.time()
+txt, err, _ = tool("task_wait", id=tid2, wait_seconds=1)
+w = json.loads(txt) if txt.startswith("{") else {}
+check("task_wait: running task -> finished false after ~wait_seconds", not err and w.get("finished") is False
+      and w.get("state") == "running" and 0.8 < time.time() - t0 < 8, (txt, time.time() - t0))
+
+
+def finish_later():
+    time.sleep(1.5)
+    req = urllib.request.Request(f"{url}/api/tasks/{tid2}/finish", json.dumps({"state": "failed", "message": "зламалось"}).encode(),
+                                 method="POST", headers={"Content-Type": "application/json", "X-TaskHub": "1"})
+    op.open(req, timeout=5).read()
+
+
+threading.Thread(target=finish_later, daemon=True).start()
+t0 = time.time()
+txt, err, _ = tool("task_wait", id=tid2, wait_seconds=20)
+w = json.loads(txt) if txt.startswith("{") else {}
+check("task_wait returns when the task finishes, with state and message", not err and w.get("finished") is True
+      and w.get("state") == "failed" and w.get("message") == "зламалось" and time.time() - t0 < 10, (txt, time.time() - t0))
+txt, err, _ = tool("task_wait", id="nope-404", wait_seconds=1)
+check("task_wait: unknown task -> isError", err, txt)
 txt, err, _ = tool("task_finish", id=tid, state="done", message="готово")
 check("task_finish", txt == "finished" and not err, txt)
 txt, err, _ = tool("task_update", id="nope-404")

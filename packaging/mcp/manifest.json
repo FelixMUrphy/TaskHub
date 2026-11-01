@@ -1,0 +1,31 @@
+{
+  "manifest_version": "0.3",
+  "name": "taskhub",
+  "display_name": "TaskHub",
+  "version": "0.0.0",
+  "description": "Report long-running jobs and agent tasks to the TaskHub Windows tray app: progress, notifications, buttons.",
+  "long_description": "Tools for AI agents to show their long-running jobs (builds, tests, training, renders, scripts) in the TaskHub tray panel on Windows: start / update / finish a task, wait for it, read the user's button presses, show a notification. Needs the TaskHub app (https://github.com/FelixMUrphy/TaskHub) installed; the tools start it if it is not running and otherwise answer with an error text.",
+  "author": { "name": "FelixMUrphy", "url": "https://github.com/FelixMUrphy" },
+  "repository": { "type": "git", "url": "https://github.com/FelixMUrphy/TaskHub" },
+  "homepage": "https://github.com/FelixMUrphy/TaskHub",
+  "documentation": "https://github.com/FelixMUrphy/TaskHub/blob/main/API.md#mcp-server",
+  "support": "https://github.com/FelixMUrphy/TaskHub/issues",
+  "license": "PolyForm-Shield-1.0.0",
+  "icon": "icon.png",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/taskhub.exe",
+    "mcp_config": { "command": "${__dirname}/server/taskhub.exe", "args": ["mcp", "--source", "agent"], "env": {} }
+  },
+  "tools": [
+    { "name": "notify", "description": "Show a one-off Windows notification to the user" },
+    { "name": "task_start", "description": "Register a long-running job in the TaskHub panel" },
+    { "name": "task_update", "description": "Report progress / status of a task" },
+    { "name": "task_finish", "description": "Mark a task done, failed or cancelled (the user is notified)" },
+    { "name": "task_commands", "description": "Read the user's button presses / input values for a task" },
+    { "name": "task_wait", "description": "Wait until a task finishes instead of polling" },
+    { "name": "task_list", "description": "List tasks in TaskHub" }
+  ],
+  "keywords": ["tasks", "progress", "notifications", "windows", "tray"],
+  "compatibility": { "platforms": ["win32"] }
+}

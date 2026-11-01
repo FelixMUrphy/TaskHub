@@ -3,6 +3,13 @@
 What changed in each release of TaskHub. The release page on GitHub shows the section of its version (CI takes it
 from here), followed by the list of commits.
 
+## Unreleased
+
+- MCP: new tool `task_wait` — blocks up to 50 s until a task finishes, so an agent waits for a job instead of polling
+  with sleep.
+- The MCP server is also published as an MCP bundle (`taskhub-mcp-win-x64.mcpb`, a release asset) and listed in the
+  MCP Registry as `io.github.FelixMUrphy/taskhub`; it needs the TaskHub app installed.
+
 ## 2.9.1 — 2026-10-31
 
 - Amounts of money are shown with two decimals everywhere ($0.34/h, ≈ $1.12).

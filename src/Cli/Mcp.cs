@@ -6,7 +6,7 @@ namespace TaskHubCli;
 
 /// <summary>
 /// `taskhub mcp [--source NAME]` - a stdio MCP server (JSON-RPC 2.0, one message per line) that gives AI agents
-/// (Claude Code, Codex, ...) TaskHub tools: notify, task_start / task_update / task_finish, task_commands, task_list.
+/// (Claude Code, Codex, ...) TaskHub tools: notify, task_start / task_update / task_finish, task_commands, task_wait, task_list.
 /// It is a thin adapter over the local HTTP API; the hub is started on the first tool call if it is not running.
 /// stdout carries protocol messages only.
 /// </summary>
@@ -21,6 +21,7 @@ static class Mcp
         "(the user gets a notification on finish/failure automatically). Use notify for a one-off message the user should see. " +
         "Do NOT add start or intermediate notifications (notify_start, notify_milestones) unless the user asks for them. " +
         "Add controls (buttons/inputs) only when the user may want to steer the job; read their clicks with task_commands. " +
+        "To wait for a task to end (e.g. a command started with `taskhub run`), call task_wait instead of polling with sleep. " +
         "If TaskHub is unavailable, continue the user's work without it.";
 
     static readonly JsonSerializerOptions Compact = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
@@ -127,6 +128,11 @@ static class Mcp
             "Optionally wait up to wait_seconds for the next one.",
             Obj(("id", Str("Task id")), ("wait_seconds", Num("0..50, default 0"))),
             "id"),
+        Tool("task_wait", "Wait for a task to finish",
+            "Block until a task finishes (done / failed / cancelled / lost) or wait_seconds pass, instead of polling with sleep. " +
+            "Returns its state and final message; if it is still running, call again.",
+            Obj(("id", Str("Task id (from task_start, task_list or `taskhub run`)")), ("wait_seconds", Num("1..50, default 50"))),
+            "id"),
         Tool("task_list", "List tasks",
             "List tasks in TaskHub (active ones by default).",
             Obj(("all", Obj(("type", "boolean"), ("description", "Include finished tasks"))))),
@@ -195,6 +201,32 @@ static class Mcp
                         try { c.Call("POST", $"/api/tasks/{tid}/commands/{Program.S(cmd["id"])}/ack", new JsonObject { ["ok"] = true, ["message"] = "received" }); } catch { }
                     }
                     return Text(outp.Count == 0 ? "no pending commands" : outp.ToJsonString(Compact));
+                }
+                case "task_wait":
+                {
+                    var tid = Id();
+                    var secs = a["wait_seconds"] == null ? 50 : Math.Clamp(Program.Num(a["wait_seconds"]), 1, 50);
+                    var deadline = DateTime.UtcNow.AddSeconds(secs);
+                    long ver = 0;
+                    while (true)
+                    {
+                        var left = Math.Clamp((deadline - DateTime.UtcNow).TotalSeconds, 0, 25);
+                        var snap = c.Call("GET", $"/api/tasks?brief=1&since={ver}&wait={left.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}",
+                            null, left + 15) as JsonObject;
+                        ver = (long)Program.Num(snap?["version"]);
+                        var t = (snap?["tasks"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().FirstOrDefault(x => Program.S(x["id"]) == tid);
+                        if (t == null) return Text($"TaskHub: task {tid} not found", true);
+                        var st = Program.S(t["state"]);
+                        bool fin = st is "done" or "failed" or "cancelled" or "lost";
+                        if (fin || DateTime.UtcNow >= deadline)
+                            return Text(new JsonObject
+                            {
+                                ["id"] = tid, ["state"] = st, ["finished"] = fin,
+                                // the brief list has no final message: read it from the full task
+                                ["message"] = fin ? (c.Call("GET", $"/api/tasks/{tid}") as JsonObject)?["message"]?.DeepClone() : null,
+                                ["status"] = t["status"]?.DeepClone(), ["progress"] = t["progress"]?.DeepClone(),
+                            }.ToJsonString(Compact));
+                    }
                 }
                 case "task_list":
                 {

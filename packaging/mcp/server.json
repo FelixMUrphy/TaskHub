@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.FelixMUrphy/taskhub",
+  "title": "TaskHub",
+  "description": "Report agent jobs to the TaskHub Windows tray app: progress, notifications, buttons (app required).",
+  "repository": { "url": "https://github.com/FelixMUrphy/TaskHub", "source": "github" },
+  "version": "0.0.0",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/FelixMUrphy/TaskHub/releases/download/v0.0.0/taskhub-mcp-win-x64.mcpb",
+      "version": "0.0.0",
+      "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "transport": { "type": "stdio" }
+    }
+  ]
+}

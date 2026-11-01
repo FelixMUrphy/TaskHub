@@ -80,6 +80,12 @@ jobs:
           STORE_DISPLAY_NAME: ${{ vars.STORE_DISPLAY_NAME || 'TaskHub — Task Monitor' }}
         run: ./packaging/build-msix.ps1 -Name $env:STORE_NAME -Publisher $env:STORE_PUBLISHER -PublisherDisplay $env:STORE_PUBLISHER_DISPLAY -DisplayName $env:STORE_DISPLAY_NAME
 
+      # the MCP server as an MCP bundle (every build: the manifest stays valid); on a tag it goes into the release and
+      # dist/mcp-server.json (its URL + SHA-256) to the MCP Registry job
+      - name: MCP bundle
+        shell: pwsh
+        run: ./packaging/build-mcpb.ps1 -Version ${{ steps.ver.outputs.version }} -Repo ${{ github.repository }}
+
       - name: Checksum
         if: github.ref_type == 'tag'
         shell: pwsh
@@ -88,7 +94,7 @@ jobs:
           $h = (Get-FileHash "dist/$f" -Algorithm SHA256).Hash.ToLower()
           "$h  $f" | Out-File -Encoding ascii -NoNewline "dist/$f.sha256"
 
-      # the release gets only the setup exe; the unsigned .msix is for the Store upload (users can't install it)
+      # the release gets the setup exe (+ SHA-256) and the MCP bundle; the unsigned .msix is for the Store upload (users can't install it)
       - uses: actions/upload-artifact@v7
         if: github.ref_type == 'tag'
         with:
@@ -96,6 +102,14 @@ jobs:
           path: |
             dist/*.exe
             dist/*.sha256
+            dist/*.mcpb
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v7
+        if: github.ref_type == 'tag'
+        with:
+          name: mcp-server
+          path: dist/mcp-server.json
           retention-days: 7
 
       - uses: actions/upload-artifact@v7
@@ -155,3 +169,40 @@ jobs:
           else
             gh release create "$TAG" dist/* --title "TaskHub ${TAG#v}" --notes-file notes.md --generate-notes --verify-tag
           fi
+
+  # MCP Registry (registry.modelcontextprotocol.io): publishes io.github.FelixMUrphy/taskhub with the release's MCP bundle.
+  # GitHub OIDC login (no secret); versions are immutable there, so a re-run skips a version that is already listed.
+  mcp-registry:
+    needs: release
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.7
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: mcp-server
+          path: mcp
+
+      - name: Already published?
+        id: has
+        run: |
+          v=$(jq -r .version mcp/mcp-server.json)
+          name=$(jq -r .name mcp/mcp-server.json | sed 's|/|%2F|')
+          code=$(curl -s -o versions.json -w '%{http_code}' "https://registry.modelcontextprotocol.io/v0.1/servers/$name/versions")
+          if [ "$code" = 200 ] && jq -e --arg v "$v" '.servers[] | select(.server.version == $v)' versions.json >/dev/null; then
+            echo "::notice::$v is already in the MCP Registry: skipped"; echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish
+        if: steps.has.outputs.skip != '1'
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/$MCP_PUBLISHER_VERSION/mcp-publisher_linux_amd64.tar.gz"
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+          ./mcp-publisher validate mcp/mcp-server.json
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish mcp/mcp-server.json
