@@ -10,16 +10,16 @@ with live charts, gauges and **its own buttons** (pause, change a parameter, sav
 loopback only.
 
 <p align="center">
-  <img src="docs/panel-dark.png" width="420" alt="TaskHub panel (dark)">
-  <img src="docs/panel-light.png" width="420" alt="TaskHub panel (light)">
+  <img src="docs/demo.gif" width="960" alt="TaskHub demo: a render reports progress and a chart to the panel, asks a question in a notification and in Telegram, and continues after the answer is tapped on the phone">
 </p>
+<p align="center"><sub>Demo data, recorded by <a href="tools/demo/record.py">a script</a> — a render reports progress and a chart,
+asks "upload to the NAS?" in a notification and in Telegram, and goes on when the answer is tapped on the phone.</sub></p>
 
 [**⬇ Download the latest setup.exe**](https://github.com/FelixMUrphy/TaskHub/releases/latest) ·
-[API reference](API.md) · [Privacy](PRIVACY.md) · [❤ Sponsor](https://github.com/sponsors/FelixMUrphy)
+[What's new](CHANGELOG.md) · [API reference](API.md) · [Privacy](PRIVACY.md) · [❤ Sponsor](https://github.com/sponsors/FelixMUrphy)
 
 > **AI agent reading this?** Claude Code / Codex: use the TaskHub **MCP tools** (`task_start`, `notify`, …). If you don't
-> see them, don't use `curl` - ask the user to enable *TaskHub tools (MCP)* (panel → ⚙ *Settings* → *AI agents*; before 2.9: tray → *AI agents*) and to start a new
-> session. Details: [API.md → AI agents](API.md#ai-agents-read-this-first).
+> see them, don't use `curl` - ask the user to enable *TaskHub tools (MCP)* (panel → ⚙ *Settings* → *AI agents*) and to start a new session. Details: [API.md → AI agents](API.md#ai-agents-read-this-first).
 
 ## Why
 - You start a 6-hour job and want to know when it finishes, fails or hangs — without watching a console.
@@ -28,6 +28,8 @@ loopback only.
 - Several things run in parallel and you want one glance at all of them.
 
 ## Features
+<img src="docs/panel.png" width="300" align="right" alt="TaskHub panel with a render (progress, seconds-per-frame chart, VRAM gauge) and a training run (loss chart)">
+
 - **Tray icon** with a progress ring and the number of active tasks; colour shows running / stalled / failed / done.
 - **Panel** (click the tray icon): every task with progress, ETA, status, log and widgets — line/area/bar charts, gauges,
   stats with deltas, LEDs, key-value lists, tables, text.
@@ -58,7 +60,7 @@ loopback only.
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
   plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
-- **Update check**: a notification when a new version is released (once a day; switch and *Check now* in Settings → *System*, before 2.9 in the tray menu).
+- **Update check**: a notification when a new version is released (once a day; switch and *Check now* in Settings → *System*).
 - **Panel like the Windows notification center**: docked to the right edge of the screen at full height, slides in
   and out (instant if Windows animations are off), width by dragging its left edge, a pin to keep it open; blurred
   see-through background and cards (*Panel transparency*; *Card transparency* from 2.9 — in ⚙), light / dark theme and accent colour follow Windows
@@ -104,12 +106,12 @@ agents (ChatGPT, scripts, any tool with a shell) — add one line to `AGENTS.md`
 > `taskhub run --name ... -- <cmd>`).
 
 ### Claude Code and Codex: one click
-The setup dialog (and later Settings → *AI agents*; before 2.9 the tray menu) has two independent options per agent:
+The setup dialog (and later Settings → *AI agents*) has two independent options per agent:
 
 | Option | What you get | Where TaskHub writes |
 |---|---|---|
 | **Notifications (hooks)** | a toast when the agent finishes a response or needs your permission | Claude Code: `~/.claude/settings.json` · Codex: `~/.codex/hooks.json` |
-| **TaskHub tools (MCP)** | the agent gets tools `notify`, `task_start/update/finish`, `task_commands`, `task_list` and shows its long jobs in the panel by itself | Claude Code: `~/.claude.json` · Codex: `~/.codex/config.toml` |
+| **TaskHub tools (MCP)** | the agent gets tools `notify`, `task_start/update/finish`, `task_commands`, `task_wait` (from 2.9.2), `task_list` and shows its long jobs in the panel by itself | Claude Code: `~/.claude.json` · Codex: `~/.codex/config.toml` |
 
 TaskHub adds — and on uninstall removes (Store edition: see below) — only its own entries and keeps everything else (backup of the original:
 `*.taskhub.bak`). What to do in the agent afterwards:
@@ -123,7 +125,7 @@ Scripted: `TaskHubHost.exe --integrations claude=on codex=on claude-mcp=on codex
 [API.md → Claude Code hooks](API.md#claude-code-hooks), [Codex hooks](API.md#codex-hooks), [MCP server](API.md#mcp-server).
 
 ### Telegram
-Settings → *Notifications* → *Telegram* (before 2.9: tray menu → *Telegram…*): create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
+Settings → *Notifications* → *Telegram*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
 *Connect*, scan the QR code with your phone (or open the link on this PC) and press *Start* (in a private chat with the bot:
 groups can't be linked, since every member could press the tasks' buttons). To link another account
 later (e.g. the one on your phone), leave the token field empty and press *Connect* again. From then on every notification TaskHub shows also arrives in
@@ -226,7 +228,7 @@ install the setup shows the installed version and folder (the version is read fr
 - Uninstall: *Apps & features* → TaskHub, or `TaskHubHost.exe --uninstall [--quiet] [--purge]`
   (`--purge` also deletes the data in `%APPDATA%\TaskHub` and, from 2.9, the GitHub / Telegram tokens TaskHub saved in the
   Windows Credential Manager; a plain uninstall keeps them for a reinstall). Also removes TaskHub's entries from the Claude Code / Codex settings.
-- Autostart restores itself if its entry is removed or changed, unless you turn it off in Settings → *System* (before 2.9: the tray menu).
+- Autostart restores itself if its entry is removed or changed, unless you turn it off in Settings → *System*.
   From 2.9 turning it off in Task Manager / Settings → *Apps* → *Startup* is respected too (TaskHub's switch then shows it off);
   before 2.9 it was turned back on.
 - Installing and uninstalling first ask a running TaskHub to quit (it saves its tasks) and end it only if it doesn't within
@@ -239,7 +241,7 @@ install the setup shows the installed version and folder (the version is read fr
 
 Updates: once a day the installed hub looks up the latest release on GitHub (one request to `api.github.com`, nothing is
 downloaded or installed) and shows a notification when a newer version is out; Settings → *System* has *Check now* and the
-*Check daily* switch (before 2.9: tray → *Updates*) (`"update_check": false` in `config.json`). Run the new setup.exe to update.
+*Check daily* switch (`"update_check": false` in `config.json`). Run the new setup.exe to update.
 
 Toast timing: `toast_seconds` / `toast_seconds_interactive` (4 s / 8 s) in `config.json`; afterwards notifications stay
 in the notification center. Bursts (2.9): at most `toast_rate` notifications a minute (10; 0 = no limit) and one per task
@@ -263,12 +265,15 @@ it removes TaskHub's entries from the agents' settings (the copy stays; the setu
 
 Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no tray, no notifications) and runs
 `api_test.py` (API contract, agent hooks, CLI), `validation_test.py` (input validation: non-finite numbers, widget attributes, control values, shell controls), `parallel_test.py` (8 concurrent workers + notification burst),
-`integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder), `mcp_test.py` (`taskhub mcp`) and
-`telegram_test.py` (Telegram bridge against a mock Bot API).
+`integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder), `install_test.py` (setup /
+uninstall in a temporary folder), `mcp_test.py` (`taskhub mcp`), `telegram_test.py` (Telegram bridge against a mock Bot API),
+`github_test.py`, `runpod_test.py`, `vastai_test.py` and `guard_test.py` (connectors and the balance guard against mock APIs).
 Every push runs the build and these tests on GitHub Actions (`.github/workflows/ci.yml`, Windows runner); pushing a tag
 `v<version>` (matching `Settings.Version`, `build.cmd` and both `.csproj`) also publishes the release with the setup exe
 and its SHA-256.
-`tests\demo_long.py` is an interactive ~20 min demo against the main hub.
+`tests\demo_long.py` is an interactive ~20 min demo against the main hub. `tools\demo\record.py` records the demo at
+the top of this page (MP4, GIF and 1920×1080 stills for the Store) on an isolated hub with fake data and a mock Telegram
+bot: `python tools\demo\record.py` after `build.cmd` (needs Microsoft Edge and ffmpeg).
 The setup and uninstall windows can be checked without changing anything: `set TASKHUB_SETUP_DRYRUN=1`, then run the
 setup exe (or `--uninstall`) - every step is only shown.
 

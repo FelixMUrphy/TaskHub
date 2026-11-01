@@ -1,0 +1,158 @@
+<!doctype html>
+<!-- Demo scene for tools/demo/record.py: a Windows-like desktop with a terminal, the real TaskHub panel (the demo hub's
+     /ui in an iframe), a notification and a phone chat with the TaskHub bot. record.py fills the terminal, the
+     notification and the chat through window.scene (the texts come from what the hub really sent to the mock Bot API). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TaskHub demo scene</title>
+<style>
+  :root {
+    --desk-a: #0f1b2d; --desk-b: #1d2f4a; --card: #202020; --card2: #2b2b2b; --line: #3a3a3a;
+    --text: #f3f3f3; --muted: #a8a8a8; --accent: #4cc2ff; --ok: #6ccb5f; --warn: #fce100; --err: #ff99a4;
+    --mono: "Cascadia Mono", "Consolas", monospace; --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: var(--desk-a); font-family: var(--ui); color: var(--text); }
+  .desk { position: absolute; inset: 0 0 48px 0;
+    background: radial-gradient(1200px 700px at 30% 30%, #27456e 0%, transparent 70%), linear-gradient(135deg, var(--desk-a), var(--desk-b)); }
+  .taskbar { position: absolute; left: 0; right: 0; bottom: 0; height: 48px; background: #1c1c1c; border-top: 1px solid #2c2c2c;
+    display: flex; align-items: center; justify-content: flex-end; padding: 0 16px; gap: 18px; font-size: 12px; }
+  .taskbar .clock { text-align: right; line-height: 16px; }
+  .tray-ring { width: 18px; height: 18px; border-radius: 50%; border: 3px solid #3a3a3a; border-top-color: var(--accent); }
+
+  /* terminal */
+  .term { position: absolute; left: 36px; top: 36px; width: 900px; height: 960px; background: #0c0c0c; border: 1px solid #333;
+    border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,.5); overflow: hidden; }
+  .term .bar { height: 36px; background: #1f1f1f; display: flex; align-items: center; padding: 0 14px; font-size: 12px; color: var(--muted); gap: 8px; }
+  .term .tab { background: #0c0c0c; color: var(--text); padding: 7px 14px; border-radius: 6px 6px 0 0; margin-top: 6px; }
+  .term pre { margin: 0; padding: 16px 18px; font: 14px/1.55 var(--mono); color: #cccccc; white-space: pre-wrap; }
+  .term .p { color: #6a9fb5; } .term .c { color: #e5c07b; } .term .g { color: var(--ok); } .term .r { color: var(--err); } .term .d { color: #7f7f7f; }
+
+  /* panel (the real ui.html of the demo hub) */
+  .panel { position: absolute; right: 0; top: 0; height: calc(100% - 48px); width: 470px; border: 0; border-left: 1px solid #333;
+    background: #202020; box-shadow: -10px 0 40px rgba(0,0,0,.45); }
+
+  /* phone with the bot chat */
+  .phone { position: absolute; left: 990px; top: 70px; width: 400px; height: 820px; border-radius: 46px; background: #0b0b0b;
+    border: 10px solid #1a1a1a; box-shadow: 0 30px 80px rgba(0,0,0,.6), inset 0 0 0 2px #333; overflow: hidden;
+    transition: opacity .4s, transform .4s; }
+  .phone.hidden { opacity: 0; transform: translateY(30px); }
+  .phone .head { height: 92px; padding: 40px 18px 0; background: #17212b; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #0e1621; }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #3a8dde, #4cc2ff); display: grid;
+    place-items: center; font-weight: 700; font-size: 15px; }
+  .phone .who b { display: block; font-size: 15px; } .phone .who span { font-size: 12px; color: #7d8b99; }
+  .chat { position: absolute; top: 92px; bottom: 0; left: 0; right: 0; background: #0e1621; padding: 12px 10px 18px;
+    display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; overflow: hidden; }
+  .msg { align-self: flex-start; max-width: 92%; background: #182533; border-radius: 12px 12px 12px 4px; padding: 8px 11px 6px;
+    font-size: 13.5px; line-height: 1.4; animation: pop .25s ease-out; }
+  .msg.me { align-self: flex-end; background: #2b5278; border-radius: 12px 12px 4px 12px; }
+  .msg code { font-family: var(--mono); font-size: 12px; }
+  .msg .t { display: block; text-align: right; font-size: 11px; color: #6d7f8f; margin-top: 2px; }
+  .kb { display: grid; gap: 4px; margin-top: 6px; }
+  .kb .row { display: flex; gap: 4px; }
+  .kb button { flex: 1; font: 600 13px var(--ui); color: #e7f2ff; background: #24384c; border: 0; border-radius: 8px; padding: 8px 6px;
+    transition: background .15s, transform .15s; }
+  .kb button.tap { background: #3d6a95; transform: scale(.96); }
+  .finger { position: absolute; width: 46px; height: 46px; border-radius: 50%; background: rgba(255,255,255,.35);
+    border: 2px solid rgba(255,255,255,.8); pointer-events: none; transform: scale(0); transition: transform .2s; z-index: 5; }
+  .finger.on { transform: scale(1); }
+  @keyframes pop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* Windows notification */
+  .toast { position: absolute; right: 16px; bottom: 64px; width: 380px; background: #2b2b2b; border: 1px solid #3c3c3c; border-radius: 8px;
+    box-shadow: 0 16px 48px rgba(0,0,0,.55); padding: 12px 14px 14px; transform: translateX(440px); opacity: 0;
+    transition: transform .35s cubic-bezier(.2,.8,.2,1), opacity .35s; z-index: 4; }
+  .toast.on { transform: none; opacity: 1; }
+  .toast .app { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .toast .app i { width: 16px; height: 16px; border-radius: 50%; border: 3px solid var(--accent); display: inline-block; }
+  .toast b { display: block; margin-top: 10px; font-size: 14px; }
+  .toast p { margin: 4px 0 0; font-size: 13.5px; line-height: 1.4; color: #dcdcdc; white-space: pre-line; }
+  .toast .btns { display: flex; gap: 8px; margin-top: 12px; }
+  .toast .btns span { flex: 1; text-align: center; background: #3a3a3a; border-radius: 4px; padding: 7px 4px; font-size: 13px; }
+
+  .caption { position: absolute; left: 36px; bottom: 70px; font-size: 13px; color: rgba(255,255,255,.55); }
+</style>
+</head>
+<body>
+<div class="desk"></div>
+
+<div class="term">
+  <div class="bar"><span class="tab">PowerShell</span></div>
+  <pre id="term"></pre>
+</div>
+
+<div class="phone hidden" id="phone">
+  <div class="head"><div class="avatar">TH</div><div class="who"><b>TaskHub bot</b><span>your own bot</span></div></div>
+  <div class="chat" id="chat"></div>
+  <div class="finger" id="finger"></div>
+</div>
+
+<iframe class="panel" id="panel"></iframe>
+
+<div class="toast" id="toast">
+  <div class="app"><i></i>TaskHub</div>
+  <b id="toastTitle"></b><p id="toastBody"></p>
+  <div class="btns" id="toastBtns"></div>
+</div>
+
+<div class="taskbar"><div class="tray-ring"></div><div class="clock" id="clock"></div></div>
+<div class="caption" id="caption">Demo data · nothing here is a real job</div>
+
+<script>
+const q = new URLSearchParams(location.search);
+document.getElementById("panel").src = (q.get("hub") || "http://127.0.0.1:47898") + "/ui";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function tick() {
+  const d = new Date();
+  document.getElementById("clock").innerHTML = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) +
+    "<br>" + d.toLocaleDateString("en-US");
+}
+tick(); setInterval(tick, 5000);
+
+// Telegram HTML subset (b, i, code, pre, a) is safe to show as is; anything else is escaped by the hub already.
+const tgHtml = s => s.replace(/\n/g, "<br>");
+const plain = s => s.replace(/<[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+
+window.scene = {
+  term(lines) {   // [[cls, text], ...] appended
+    const t = document.getElementById("term");
+    for (const [c, s] of lines) t.insertAdjacentHTML("beforeend", c ? `<span class="${c}">${esc(s)}</span>\n` : esc(s) + "\n");
+    const all = t.innerHTML.split("\n"); if (all.length > 52) t.innerHTML = all.slice(-52).join("\n");
+  },
+  phone(show) { document.getElementById("phone").classList.toggle("hidden", !show); },
+  // messages: [{id, text (Telegram HTML), buttons: [[label]], me}], replaces the chat (edits included)
+  chat(messages) {
+    const c = document.getElementById("chat");
+    const known = new Set([...c.children].map(e => e.dataset.k));
+    c.innerHTML = messages.slice(-7).map(m => {
+      const k = m.id + ":" + m.v;
+      const kb = (m.buttons || []).length ? `<div class="kb">${m.buttons.map(r => `<div class="row">${r.map(b =>
+        `<button data-label="${esc(b)}">${esc(b)}</button>`).join("")}</div>`).join("")}</div>` : "";
+      return `<div class="msg${m.me ? " me" : ""}" data-k="${k}" style="${known.has(k) ? "animation:none" : ""}">${tgHtml(m.text)}` +
+        `<span class="t">${esc(m.time || "")}</span>${kb}</div>`;
+    }).join("");
+  },
+  tap(label) {   // finger on a chat button, then "pressed"
+    const b = [...document.querySelectorAll(".kb button")].reverse().find(x => x.dataset.label === label);
+    if (!b) return false;
+    const f = document.getElementById("finger"), ph = document.getElementById("phone").getBoundingClientRect(), r = b.getBoundingClientRect();
+    f.style.left = (r.left - ph.left + r.width / 2 - 33) + "px"; f.style.top = (r.top - ph.top + r.height / 2 - 33) + "px";
+    f.classList.add("on"); b.classList.add("tap");
+    setTimeout(() => f.classList.remove("on"), 700);
+    return true;
+  },
+  toast(html, buttons) {   // html: the hub's notification text as sent to Telegram (<b>title</b>\nbody)
+    const t = document.getElementById("toast");
+    if (!html) { t.classList.remove("on"); return; }
+    const p = html.split("\n"), title = plain(p[0]), body = plain(p.slice(1).join("\n")).trim();
+    document.getElementById("toastTitle").textContent = title;
+    document.getElementById("toastBody").textContent = body;
+    document.getElementById("toastBtns").innerHTML = (buttons || []).map(b => `<span>${esc(b)}</span>`).join("");
+    t.classList.add("on");
+  },
+  caption(s) { document.getElementById("caption").textContent = s; },
+};
+</script>
+</body>
+</html>
