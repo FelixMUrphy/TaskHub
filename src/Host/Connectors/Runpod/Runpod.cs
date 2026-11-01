@@ -210,6 +210,7 @@ sealed class RunpodConnector : MachineConnector
             billingModeAt = J.Now();
             try { billingMode = await RunpodGraphQlBalance.BillingMode(Post, ct) ?? billingMode; }
             catch (Exception e) when (!ct.IsCancellationRequested) { Log.W("runpod: billingMode: " + e.GetBaseException().Message); }
+            catch (OperationCanceledException) { billingModeAt = 0; throw; }   // cancelled by a restart: ask again next time
         }
         if (billingMode != null) b.Raw["billingMode"] = billingMode;
         if (billingMode == "POSTPAID") b.NoStop = L.T("g_nostop_postpaid");
