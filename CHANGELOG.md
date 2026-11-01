@@ -3,7 +3,7 @@
 What changed in each release of TaskHub. The release page on GitHub shows the section of its version (CI takes it
 from here), followed by the list of commits.
 
-## Unreleased
+## 2.9.5 — 2026-11-01
 
 - Fixed: *Update to X* on the settings page could stay at an older version for up to a day after a newer one came out
   (the hub keeps running while the panel is hidden). The open settings page re-checks quietly when the last check is
