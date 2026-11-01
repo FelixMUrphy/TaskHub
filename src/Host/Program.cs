@@ -27,6 +27,9 @@ static class Program
         // tests only: one install step against a throw-away registry key / Start-menu folder (Install.SelfTest)
         if (Has("--selftest-install") && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 } testHome)
             return Install.SelfTest(S, testHome, args[(Array.IndexOf(args, "--selftest-install") + 1)..]);
+        // tests only: the update check against a local mock of the releases API, steps on stdin (Updater.SelfTest)
+        if (Arg("--selftest-update") is { } mockApi && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+            return Updater.SelfTest(S, mockApi);
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);

@@ -9,8 +9,14 @@ namespace TaskHub;
 /// </summary>
 sealed class Updater
 {
-    const string LatestApi = "https://api.github.com/repos/FelixMUrphy/TaskHub/releases/latest";
+    const string LatestApiDefault = "https://api.github.com/repos/FelixMUrphy/TaskHub/releases/latest";
+    string LatestApi = LatestApiDefault;   // a local mock only in --selftest-update
     static readonly TimeSpan Every = TimeSpan.FromHours(24);
+    // the settings page re-checks quietly when the last check is older than this: the hub keeps running while the panel
+    // is hidden, and a release found days ago must not stay on the button after a newer one is out
+    static readonly TimeSpan Fresh = TimeSpan.FromMinutes(15);
+    double lastTry;   // J.Now() of the last quiet re-check attempt (also failed ones: no retry storm while offline)
+    bool stale;       // "Update to X" was pressed: the next settings refresh re-checks whatever the age
 
     readonly Settings S;
     readonly Hub hub;
@@ -55,12 +61,24 @@ sealed class Updater
 
     /// <summary>Checks GitHub. manual: waits for a check already running, and the answer (latest version / a newer one /
     /// failed) comes back in words for the settings page; a newer version also gets its notification.</summary>
-    public async Task<Release> Check(bool manual) => (await CheckSay(manual)).Release;
+    public async Task<Release> Check(bool manual) => (await CheckSay(manual, false)).Release;
 
     /// <summary>A manual check from the settings page: the answer in words.</summary>
-    public async Task<string> CheckNow() => (await CheckSay(true)).Text;
+    public async Task<string> CheckNow() => (await CheckSay(true, false)).Text;
 
-    async Task<(Release Release, string Text)> CheckSay(bool manual)
+    /// <summary>The settings page is open (called on its every refresh): when automatic checks are on and the last check
+    /// is older than <see cref="Fresh"/>, check again in the background, without a notification - the page shows the
+    /// result on its next refresh. Returns the running check (tests), or null when nothing was started.</summary>
+    public Task RecheckIfStale()
+    {
+        if (!Auto) return null;   // automatic checks off: no network on its own
+        double now = J.Now(), last = Math.Max(J.Num(S.Get("update_checked")) ?? 0, lastTry);
+        if (!stale && now - last < Fresh.TotalSeconds) return null;
+        lastTry = now; stale = false;
+        return CheckSay(false, true);
+    }
+
+    async Task<(Release Release, string Text)> CheckSay(bool manual, bool quiet)
     {
         if (manual) await busy.WaitAsync();
         else if (!await busy.WaitAsync(0)) return (Available, null);
@@ -74,11 +92,13 @@ sealed class Updater
                 return (null, L.T("update_latest", Settings.Version));
             }
             Available = r;
-            // automatic checks announce each version once; a manual check always answers
-            if (manual || (J.Str(S.Get("update_notified")) != r.Tag && !hub.Muted))
+            // automatic checks announce each version once; a manual check always answers; a quiet re-check from the open
+            // settings page shows it there (and counts as announced)
+            if (quiet) S.Set(("update_notified", r.Tag));
+            else if (manual || (J.Str(S.Get("update_notified")) != r.Tag && hub?.Muted != true))
             {
                 S.Set(("update_notified", r.Tag));
-                notifier.UpdateToast(L.T("update_title", r.Version), L.T("update_msg", Settings.Version));
+                notifier?.UpdateToast(L.T("update_title", r.Version), L.T("update_msg", Settings.Version));
             }
             return (r, L.T("update_title", r.Version));
         }
@@ -104,6 +124,40 @@ sealed class Updater
         return new Release(v, tag, url);
     }
 
-    public void OpenPage() => Hub.OpenTarget(Available?.Url ?? L.RepoUrl + "/releases/latest");
+    /// <summary>"Update to X" / the notification: the newest release page, never a remembered older one (a newer version
+    /// may have come out since the check); the button's version is refreshed by a quiet re-check.</summary>
+    public void OpenPage()
+    {
+        Hub.OpenTarget(L.RepoUrl + "/releases/latest");
+        stale = true;   // the next settings refresh re-checks (when automatic checks are on)
+    }
+
+    /// <summary>Tests only (with TASKHUB_TEST_HOME): the stale-offer scenario against a local mock of the releases API.
+    /// Prints one line per step; no notifications, no hub.</summary>
+    public static int SelfTest(Settings s, string api)
+    {
+        if (!Uri.TryCreate(api, UriKind.Absolute, out var u) || !u.IsLoopback) return 2;
+        var up = new Updater(s, null, null) { LatestApi = u.ToString() };
+        string Av() => up.Available?.Version.ToString(3) ?? "none";
+        foreach (var step in Console.In.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            switch (step)
+            {
+                case "manual": Console.WriteLine("manual " + up.CheckNow().GetAwaiter().GetResult()); break;
+                case "recheck":
+                {
+                    var t = up.RecheckIfStale();
+                    t?.GetAwaiter().GetResult();
+                    Console.WriteLine("recheck " + (t == null ? "skipped" : "ran"));
+                    break;
+                }
+                case "age": s.Set(("update_checked", J.Now() - 3600)); up.lastTry = 0; Console.WriteLine("aged"); break;
+                case "auto-off": s.Set(("update_check", false)); Console.WriteLine("auto off"); break;
+                case "open": up.stale = true; Console.WriteLine("open"); break;   // OpenPage without the browser
+            }
+            Console.WriteLine("available " + Av());
+        }
+        return 0;
+    }
 
 }
