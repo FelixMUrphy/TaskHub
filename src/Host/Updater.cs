@@ -9,9 +9,7 @@ namespace TaskHub;
 /// </summary>
 sealed class Updater
 {
-    const string LatestApiDefault = "https://api.github.com/repos/FelixMUrphy/TaskHub/releases/latest";
-    // tests: config.json "update_api" may point at a local mock (loopback only); anything else is GitHub
-    string LatestApi => Uri.TryCreate(J.Str(S.Get("update_api")), UriKind.Absolute, out var u) && u.IsLoopback ? u.ToString() : LatestApiDefault;
+    const string LatestApi = "https://api.github.com/repos/FelixMUrphy/TaskHub/releases/latest";
     static readonly TimeSpan Every = TimeSpan.FromHours(24);
 
     readonly Settings S;
@@ -55,15 +53,17 @@ sealed class Updater
         catch (Exception e) { Log.W("update loop: " + e.Message); }
     }
 
-    /// <summary>The answer of the last manual check in words ("TaskHub 2.9.3 is the latest version." / available / failed).</summary>
-    public string ManualText { get; private set; }
+    /// <summary>Checks GitHub. manual: waits for a check already running, and the answer (latest version / a newer one /
+    /// failed) comes back in words for the settings page; a newer version also gets its notification.</summary>
+    public async Task<Release> Check(bool manual) => (await CheckSay(manual)).Release;
 
-    /// <summary>Checks GitHub. manual: waits for a check already running, and says the result (<see cref="ManualText"/>,
-    /// shown on the settings page; a newer version also gets its notification). Returns the newer release or null.</summary>
-    public async Task<Release> Check(bool manual)
+    /// <summary>A manual check from the settings page: the answer in words.</summary>
+    public async Task<string> CheckNow() => (await CheckSay(true)).Text;
+
+    async Task<(Release Release, string Text)> CheckSay(bool manual)
     {
         if (manual) await busy.WaitAsync();
-        else if (!await busy.WaitAsync(0)) return Available;
+        else if (!await busy.WaitAsync(0)) return (Available, null);
         try
         {
             var r = await Fetch();
@@ -71,10 +71,8 @@ sealed class Updater
             if (r == null || r.Version <= Version.Parse(Settings.Version))
             {
                 Available = null;
-                if (manual) ManualText = L.T("update_latest", Settings.Version);
-                return null;
+                return (null, L.T("update_latest", Settings.Version));
             }
-            if (manual) ManualText = L.T("update_title", r.Version);
             Available = r;
             // automatic checks announce each version once; a manual check always answers
             if (manual || (J.Str(S.Get("update_notified")) != r.Tag && !hub.Muted))
@@ -82,13 +80,12 @@ sealed class Updater
                 S.Set(("update_notified", r.Tag));
                 notifier.UpdateToast(L.T("update_title", r.Version), L.T("update_msg", Settings.Version));
             }
-            return r;
+            return (r, L.T("update_title", r.Version));
         }
         catch (Exception e)
         {
             Log.W("update check failed: " + e.Message);
-            if (manual) ManualText = L.T("update_failed", e.GetBaseException().Message);
-            return null;
+            return (null, L.T("update_failed", e.GetBaseException().Message));
         }
         finally { busy.Release(); }
     }

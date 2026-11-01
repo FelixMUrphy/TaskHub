@@ -167,11 +167,17 @@ sealed class SettingsBridge
                     {
                         // Telegram, set up on the page: the link is not opened by itself (the Telegram account may be on the phone)
                         case "tg_pair":
+                        case "tg_relink":
                             if (tg == null) break;
-                            try { await Task.Run(() => tg.Pair(J.Str(c["token"]))); }
+                            try
+                            {
+                                bool fresh = J.Str(c["what"]) == "tg_pair";
+                                var st = await Task.Run(() => fresh ? tg.Pair(J.Str(c["token"])) : tg.Relink());
+                                // always an answer (the page shows "Checking…" until one comes)
+                                info = J.Str(st["link"]).Length > 0 ? L.T("tg_state_wait") : J.Str(st["status"]);
+                            }
                             catch (ApiError e) when (e.Code == 400) { err = L.T(e.Message.StartsWith("Telegram") ? "tg_rejected" : "tg_bad_token"); }
                             break;
-                        case "tg_relink": if (tg != null) await Task.Run(tg.Relink); break;
                         case "tg_test": if (tg != null && tg.Linked) { tg.Test(); info = L.T("tg_test_sent"); } break;
                         case "tg_disconnect": tg?.Disconnect(); break;
                         case "test_toast":
@@ -189,7 +195,7 @@ sealed class SettingsBridge
                             break;
                         }
                         case "update_check_now":   // the answer is shown on the page (a notification may be turned off)
-                            if (updater() is { } u1) { await u1.Check(true); info = u1.ManualText; }
+                            if (updater() is { } u1) info = await u1.CheckNow();
                             break;
                         case "update_open": updater()?.OpenPage(); break;
                         case "support": Hub.OpenTarget(L.SupportUrl); break;

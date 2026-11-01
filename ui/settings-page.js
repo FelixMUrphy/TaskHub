@@ -92,7 +92,7 @@ $("#sethost").addEventListener("change",e=>{
   host({settings:"set",connector:i.dataset.conn,[k]: v===""? null : +v});
 });
 function settingsReply(d){
-  if (d.error || d.note || d.info){ CHECKING.clear(); clearTimeout(checkTimer); }   // the answer to a key just saved
+  if (d.error || d.note || d.info){ CHECKING.clear(); clearTimeout(checkTimer); clearTimeout(TGBUSY); TGBUSY=0; }   // the answer to a key just saved
   SET=d.settings_state; renderSet();
   if (d.error || d.note) ask(d.error || d.note, true);
   else if (d.info) snack(d.info);
