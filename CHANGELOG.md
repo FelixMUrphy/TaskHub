@@ -3,7 +3,7 @@
 What changed in each release of TaskHub. The release page on GitHub shows the section of its version (CI takes it
 from here), followed by the list of commits.
 
-## Unreleased
+## 2.9.2 — 2026-11-01
 
 - MCP: new tool `task_wait` — blocks up to 50 s until a task finishes, so an agent waits for a job instead of polling
   with sleep.
