@@ -75,8 +75,8 @@ sealed class SettingsBridge
             }
             catch (Exception e) { Log.W("qr: " + e.Message); }
         }
-        string state = linked ? L.T("tg_state_ok", bot) + (st == "connected" ? "" : "  (" + st + ")")
-            : configured ? (link.Length > 0 ? L.T("tg_state_wait") : st) : L.T("tg_state_off");
+        string state = linked ? L.T("tg_state_ok", bot) + (st == "connected" ? "" : "  (" + TgStatus(st) + ")")
+            : configured ? (link.Length > 0 ? L.T("tg_state_wait") : TgStatus(st)) : L.T("tg_state_off");
         return new JsonObject
         {
             ["configured"] = configured, ["linked"] = linked, ["bot"] = J.C(t["bot"]), ["status"] = st,
@@ -88,10 +88,21 @@ sealed class SettingsBridge
                 ["state"] = state, ["intro"] = L.T("tg_intro"), ["token"] = L.T("tg_token").TrimEnd(':', '：', ' '),
                 ["connect"] = L.T("tg_connect"), ["qr"] = L.T("tg_qr"), ["open"] = L.T("tg_open", "").TrimEnd(),
                 ["away"] = L.T("tg_away"), ["progress"] = L.T("tg_progress"), ["test"] = L.T("tg_test"),
-                ["relink"] = L.T("tg_relink"), ["disconnect"] = L.T("tg_disconnect"), ["disconnect_q"] = L.T("tg_disconnect_q"),
+                ["relink"] = L.T("tg_relink"), ["relink_q"] = L.T("tg_relink_q"), ["disconnect"] = L.T("tg_disconnect"), ["disconnect_q"] = L.T("tg_disconnect_q"),
             },
         };
     }
+
+    /// <summary>TelegramBridge.Status (English, also in the API) in the UI language.</summary>
+    static string TgStatus(string st) => st switch
+    {
+        "connecting" => L.T("tg_st_connecting"),
+        "invalid token" => L.T("tg_rejected"),
+        "waiting for /start" => L.T("tg_state_wait"),
+        _ when st.StartsWith("another program") => L.T("tg_st_conflict"),
+        _ when st.StartsWith("offline") => L.T("tg_st_offline"),
+        _ => st,
+    };
 
     /// <summary>
     /// The connectors as the settings page shows them, all the same way, each row built by its connector
@@ -174,7 +185,7 @@ sealed class SettingsBridge
                                 bool fresh = J.Str(c["what"]) == "tg_pair";
                                 var st = await Task.Run(() => fresh ? tg.Pair(J.Str(c["token"])) : tg.Relink());
                                 // always an answer (the page shows "Checking…" until one comes)
-                                info = J.Str(st["link"]).Length > 0 ? L.T("tg_state_wait") : J.Str(st["status"]);
+                                info = J.Str(st["link"]).Length > 0 ? L.T("tg_state_wait") : TgStatus(J.Str(st["status"]));
                             }
                             catch (ApiError e) when (e.Code == 400) { err = L.T(e.Message.StartsWith("Telegram") ? "tg_rejected" : "tg_bad_token"); }
                             break;
@@ -186,7 +197,10 @@ sealed class SettingsBridge
                         case "data_folder": Hub.OpenTarget(S.DataDir); break;
                         case "notif_settings": Hub.OpenTarget("ms-settings:notifications"); break;
                         case "colors_settings": Hub.OpenTarget("ms-settings:colors"); break;
-                        case "energy_settings": Hub.OpenTarget("ms-settings:batterysaver"); break;
+                        case "energy_settings":   // ms-settings:batterysaver exists only on devices with a battery
+                            Hub.OpenTarget(SystemInformation.PowerStatus.BatteryChargeStatus.HasFlag(BatteryChargeStatus.NoSystemBattery)
+                                ? "ms-settings:powersleep" : "ms-settings:batterysaver");
+                            break;
                         case "api_help":
                         {
                             var p = Path.Combine(S.ExeDir, "API.md");

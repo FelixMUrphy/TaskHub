@@ -28,7 +28,7 @@ function renderSet(){
   const f=document.activeElement, fk=f && box.contains(f) ? ckey(f) : null;
   // a key being pasted, a number being typed
   const IN="input[data-ckey],input[data-cset],input[data-tgtok]";
-  const typed={}; for (const e of box.querySelectorAll(IN)) if (e.dataset.ckey||e.dataset.tgtok? e.value : e===f) typed[ckey(e)]=e.value;
+  const typed={}; for (const e of box.querySelectorAll(IN)) if (e.dataset.ckey||e.dataset.tgtok!=null? e.value : e===f) typed[ckey(e)]=e.value;
   box.innerHTML=h; box.__h=h;
   for (const e of box.querySelectorAll(IN)) if (ckey(e) in typed) e.value=typed[ckey(e)];
   if (fk) for (const e of box.querySelectorAll("button,input")) if (ckey(e)===fk){ e.focus({preventScroll:true}); break; }
@@ -40,6 +40,7 @@ $("#sethost").addEventListener("click",e=>{
   const a=e.target.closest("a[data-open]"); if (a){ e.preventDefault(); host({open:a.dataset.open}); return; }   // the default browser
   const t=e.target.closest("button"); if (!t || t.disabled) return;
   if (t.dataset.do==="tg_pair"){ tgPair(); return; }
+  if (t.dataset.do==="tg_relink"){ const go=()=>tgBusy(()=>host({settings:"do",what:"tg_relink"})); if (t.dataset.q) ask(t.dataset.q).then(ok=>{ if (ok) go(); }); else go(); return; }
   if (t.dataset.do==="tg_disconnect"){ ask(t.dataset.q).then(ok=>{ if (ok) host({settings:"do",what:"tg_disconnect"}); }); return; }
   if (t.dataset.do){ if (t.dataset.do==="update_check_now") snack(T("s_upd_checking")); host({settings:"do",what:t.dataset.do}); return; }
   if (t.dataset.ck){ connKey(t.dataset.conn, t.dataset.ck); return; }
