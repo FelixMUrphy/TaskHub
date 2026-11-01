@@ -3,7 +3,7 @@
 What changed in each release of TaskHub. The release page on GitHub shows the section of its version (CI takes it
 from here), followed by the list of commits.
 
-## Unreleased
+## 2.9.3 — 2026-11-01
 
 - Runpod / Vast.ai: **auto-stop on GPU idle** (off by default): *Stop when the GPU is idle for, min*. A machine idle that
   long gets the balance guard's announcement with *Stop now* / *Snooze*; GPU busy again cancels it; stop only, never
