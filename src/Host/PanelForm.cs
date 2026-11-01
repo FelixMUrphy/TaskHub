@@ -67,8 +67,12 @@ sealed class PanelForm : Form
         {
             uiSettings = new UISettings();
             uiSettings.ColorValuesChanged += (_, _) => { if (IsHandleCreated) BeginInvoke(ApplyLook); };
+            // Transparency effects switched in Settings -> Personalization -> Colors (fires on a worker thread)
+            uiSettings.AdvancedEffectsEnabledChanged += (_, _) => { if (IsHandleCreated) BeginInvoke(ApplyLook); };
         }
         catch (Exception e) { Log.W("UISettings unavailable: " + e.Message); }
+        try { Windows.System.Power.PowerManager.EnergySaverStatusChanged += (_, _) => { if (IsHandleCreated) BeginInvoke(ApplyLook); }; }
+        catch (Exception e) { Log.W("energy saver status unavailable: " + e.Message); }
     }
 
     protected override CreateParams CreateParams
@@ -121,6 +125,18 @@ sealed class PanelForm : Form
         return null;
     }
 
+    /// <summary>Why Windows draws no blur behind the panel although we ask for it: "energy_saver" (energy saver turns
+    /// transparency off - https://learn.microsoft.com/windows-hardware/design/component-guidelines/energy-saver),
+    /// "off" (Transparency effects off in Settings -> Personalization -> Colors), or null.</summary>
+    string TransparencyBlocked()
+    {
+        try { if (Windows.System.Power.PowerManager.EnergySaverStatus == Windows.System.Power.EnergySaverStatus.On) return "energy_saver"; }
+        catch { }
+        try { if (uiSettings != null && !uiSettings.AdvancedEffectsEnabled) return "off"; }
+        catch { }
+        return null;
+    }
+
     /// <summary>Applies theme / accent / backdrop to the window and WebView2 and tells the page (idempotent).</summary>
     void ApplyLook()
     {
@@ -160,7 +176,7 @@ sealed class PanelForm : Form
                 };
             }
             catch { }
-            var look = new JsonObject { ["look"] = new JsonObject { ["dark"] = dark, ["accent"] = Accent(), ["backdrop"] = backdrop } }.ToJsonString();
+            var look = new JsonObject { ["look"] = new JsonObject { ["dark"] = dark, ["accent"] = Accent(), ["backdrop"] = backdrop, ["transparency"] = backdrop ? TransparencyBlocked() : null } }.ToJsonString();
             if (ready && look != lookSent)
             {
                 try { cw.PostWebMessageAsJson(look); lookSent = look; } catch { }

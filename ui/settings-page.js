@@ -11,9 +11,7 @@ function renderSet(){
     // turned off in Windows (Settings › Notifications): toasts vanish silently, so say it and offer the switch
     const winOff=/^disabled/.test(s.notifications||"")? srow(T("s_win_off"),T("s_win_off_d"),sbtn("notif_settings",T("s_open"))) : "";
     h=sec(T("sec_notif"), winOff + mute + srow(HL("test_toast"),"",sbtn("test_toast",T("s_send")))
-      + (tg? srow("Telegram", tg.linked? [tg.bot?"@"+tg.bot:"",T("s_linked")].filter(Boolean).join(" · ")
-          : tg.configured? (tg.status||T("s_not_linked")) : T("s_off"), sbtn("telegram",T("s_setup")))
-          + (tg.warning? srow("⚠ "+tg.warning,"","","sub") : "") : ""));
+      + (tg? tgRows(tg) : ""));
     h+=sec(HL("connectors"), (s.connectors||[]).map(connRow).join(""), T("s_conn_note"));
     h+=sec(HL("integrations"), (s.agents||[]).map(a=>srow(a.name, a.detected? "" : T("s_not_found"), "")
         + ["hooks","mcp"].map(k=>srow(HL("menu_"+k),"",tgl("agent",a[k],` data-agent="${a.agent}" data-kind="${k}"`),"sub")).join("")).join(""));
@@ -29,15 +27,22 @@ function renderSet(){
   // keep the focus on the same control across a re-render (the state comes back every few seconds)
   const f=document.activeElement, fk=f && box.contains(f) ? ckey(f) : null;
   // a key being pasted, a number being typed
-  const typed={}; for (const e of box.querySelectorAll("input[data-ckey],input[data-cset]")) if (e.dataset.ckey? e.value : e===f) typed[ckey(e)]=e.value;
+  const IN="input[data-ckey],input[data-cset],input[data-tgtok]";
+  const typed={}; for (const e of box.querySelectorAll(IN)) if (e.dataset.ckey||e.dataset.tgtok!=null? e.value : e===f) typed[ckey(e)]=e.value;
   box.innerHTML=h; box.__h=h;
-  for (const e of box.querySelectorAll("input[data-ckey],input[data-cset]")) if (ckey(e) in typed) e.value=typed[ckey(e)];
+  for (const e of box.querySelectorAll(IN)) if (ckey(e) in typed) e.value=typed[ckey(e)];
   if (fk) for (const e of box.querySelectorAll("button,input")) if (ckey(e)===fk){ e.focus({preventScroll:true}); break; }
 }
+// "Settings" next to the transparency hint: Windows Settings, the page that turned the blur off
+{ const l=$("#transphl"), go=()=>{ if (l.dataset.do) host({settings:"do",what:l.dataset.do}); };
+  l.onclick=e=>{ e.preventDefault(); go(); }; l.onkeydown=e=>{ if (e.key==="Enter"||e.key===" "){ e.preventDefault(); go(); } }; }
 $("#sethost").addEventListener("click",e=>{
   const a=e.target.closest("a[data-open]"); if (a){ e.preventDefault(); host({open:a.dataset.open}); return; }   // the default browser
   const t=e.target.closest("button"); if (!t || t.disabled) return;
-  if (t.dataset.do){ host({settings:"do",what:t.dataset.do}); return; }
+  if (t.dataset.do==="tg_pair"){ tgPair(); return; }
+  if (t.dataset.do==="tg_relink"){ const go=()=>tgBusy(()=>host({settings:"do",what:"tg_relink"})); if (t.dataset.q) ask(t.dataset.q).then(ok=>{ if (ok) go(); }); else go(); return; }
+  if (t.dataset.do==="tg_disconnect"){ ask(t.dataset.q).then(ok=>{ if (ok) host({settings:"do",what:"tg_disconnect"}); }); return; }
+  if (t.dataset.do){ if (t.dataset.do==="update_check_now") snack(T("s_upd_checking")); host({settings:"do",what:t.dataset.do}); return; }
   if (t.dataset.ck){ connKey(t.dataset.conn, t.dataset.ck); return; }
   if (t.dataset.gact){
     const go=()=>host({settings:"do",what:"guard",connector:t.dataset.conn,act:t.dataset.gact});
@@ -77,6 +82,7 @@ function connKey(id, what){
 }
 $("#sethost").addEventListener("keydown",e=>{
   const a=e.target.closest && e.target.closest("a[data-open]"); if (a && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); host({open:a.dataset.open}); return; }
+  if (e.key==="Enter" && e.target.dataset && e.target.dataset.tgtok!=null){ e.preventDefault(); tgPair(); return; }
   const i=e.target.closest && e.target.closest("input[data-ckey]"); if (i && e.key==="Enter"){ e.preventDefault(); connKey(i.dataset.ckey,"save"); } });
 // a number field of a connector (idle GPU minutes, runway hours, low balance $...): sent when changed; empty = off where the
 // field allows it (data-empty), else the old value is put back
@@ -87,7 +93,7 @@ $("#sethost").addEventListener("change",e=>{
   host({settings:"set",connector:i.dataset.conn,[k]: v===""? null : +v});
 });
 function settingsReply(d){
-  if (d.error || d.note || d.info){ CHECKING.clear(); clearTimeout(checkTimer); }   // the answer to a key just saved
+  if (d.error || d.note || d.info){ CHECKING.clear(); clearTimeout(checkTimer); clearTimeout(TGBUSY); TGBUSY=0; }   // the answer to a key just saved
   SET=d.settings_state; renderSet();
   if (d.error || d.note) ask(d.error || d.note, true);
   else if (d.info) snack(d.info);

@@ -219,6 +219,13 @@ body.setmode #set{display:flex}
 #set input[type=range]{flex:1;min-width:0;accent-color:var(--acc)}
 #set .rv{font-variant-numeric:tabular-nums;color:var(--mut);font-size:12px;min-width:34px;text-align:right}
 #set .rg.off{opacity:.45}
+#set .tgb{justify-content:flex-end;flex-wrap:wrap;gap:6px;min-height:0}
+#set .tgqr{align-items:flex-start}
+#set .qr{flex:none;width:132px;height:132px;border-radius:6px;background:#fff;image-rendering:pixelated}
+#set #transph{min-height:0;gap:8px}
+#set #transph .sd{margin:0}
+#set .tri{font:normal 14px/1 "Segoe Fluent Icons","Segoe MDL2 Assets";color:var(--mut);flex:none}
+#set #transph .klink{flex:none;font-size:12px}
 #set .btn{flex:none;padding:4px 12px}
 #set .btn.heart::before{content:"\EB51";font:normal 13px/1 "Segoe Fluent Icons","Segoe MDL2 Assets";margin-right:6px;vertical-align:-2px;color:color-mix(in srgb,#e0526b 55%,var(--fg))}
 /* Windows 11 toggle switch: outlined pill with a dot when off, filled with the accent when on */

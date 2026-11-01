@@ -60,11 +60,13 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
   plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
-- **Update check**: a notification when a new version is released (once a day; switch and *Check now* in Settings → *System*).
+- **Update check**: a notification when a new version is released (once a day; switch and *Check now* in Settings → *System*; *Check now* answers right
+  there, also when you already have the latest version).
 - **Panel like the Windows notification center**: docked to the right edge of the screen at full height, slides in
   and out (instant if Windows animations are off), width by dragging its left edge, a pin to keep it open; blurred
   see-through background and cards (*Panel transparency*; *Card transparency* from 2.9 — in ⚙), light / dark theme and accent colour follow Windows
-  (or set in ⚙).
+  (or set in ⚙). *From 2.9.4* the settings say when Windows itself draws no blur (energy saver on, or *Transparency
+  effects* off in Windows settings), with a link to that setting.
 - **Settings in the panel** *(from 2.9)*: ⚙ in the panel (or *Settings* in the tray menu) opens one page with everything —
   appearance, notifications and Telegram, connectors, AI agents, autostart, updates, data folder, API reference; the tray
   menu keeps only the quick actions (open the panel, mute, settings, support, exit) in the Windows 11 style.
@@ -136,8 +138,9 @@ Scripted: `TaskHubHost.exe --integrations claude=on codex=on claude-mcp=on codex
 ### Telegram
 Settings → *Notifications* → *Telegram*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
 *Connect*, scan the QR code with your phone (or open the link on this PC) and press *Start* (in a private chat with the bot:
-groups can't be linked, since every member could press the tasks' buttons). To link another account
-later (e.g. the one on your phone), leave the token field empty and press *Connect* again. From then on every notification TaskHub shows also arrives in
+groups can't be linked, since every member could press the tasks' buttons). Everything is set up right on the settings
+page *(from 2.9.4; before, in a window of its own)*. To link another account later (e.g. the one on your phone), press
+*New link*; *Disconnect* removes the bot token from this PC. From then on every notification TaskHub shows also arrives in
 that chat (only that chat can talk to the bot); a task's notification buttons become inline buttons — including
 select options and yes/no; number / text inputs: the bot asks for the value and your reply goes to the task — and presses
 go back to the task. A task with progress gets one silent message with a progress bar, ETA, status and the task's

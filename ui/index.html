@@ -30,6 +30,7 @@
       <div class="srow"><label class="sl" for="accent" data-i="accent"></label><select id="accent"></select></div>
       <div class="srow" id="transpl"><label class="sl" for="transp" data-i="transparency"></label><div class="rg" id="transpr"><input type="range" id="transp" min="0" max="100" step="5"><span class="rv" id="transpv"></span></div></div>
       <div class="srow" id="ctranspl"><label class="sl" for="ctransp" data-i="card_transparency"></label><div class="rg" id="ctranspr"><input type="range" id="ctransp" min="0" max="100" step="5"><span class="rv" id="ctranspv"></span></div></div>
+      <div class="srow" id="transph" style="display:none"><i class="tri">&#xE946;</i><span class="sl sd" id="transpht"></span><a class="klink" id="transphl" tabindex="0" role="link"></a></div>
       <div class="srow"><label class="sl" for="grp" data-i="group_by"></label><select id="grp"></select></div>
     </div>
     <div id="sethost"></div>
@@ -52,6 +53,7 @@
 @@include seen.js@@
 @@include settings.js@@
 @@include settings-connectors.js@@
+@@include settings-telegram.js@@
 @@include settings-page.js@@
 @@include scrollbar.js@@
 </script>

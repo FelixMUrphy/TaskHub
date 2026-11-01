@@ -16,6 +16,7 @@ sealed class SettingsBridge
     readonly ISettingsConnector[] conns;   // in the order of the page
     readonly Func<Updater> updater;
     readonly Action<Action> ui;
+    string qrFor, qrData;   // the QR code of the current t.me link, made once per link
 
     public SettingsBridge(Settings s, Hub h, TelegramBridge t, IEnumerable<ISettingsConnector> c, Func<Updater> u, Action<Action> uiThread)
     {
@@ -50,15 +51,58 @@ sealed class SettingsBridge
             ["notifications"] = hub.Notifier?.SystemSetting,   // "disabled_*": turned off in Windows -> a warning row
             ["updates"] = up == null ? null : new JsonObject { ["auto"] = up.Auto, ["available"] = up.Available?.Version.ToString(3) },
             ["agents"] = agents,
-            ["telegram"] = t == null ? null : new JsonObject
-            {
-                ["configured"] = J.C(t["configured"]), ["linked"] = J.C(t["linked"]), ["bot"] = J.C(t["bot"]), ["status"] = J.C(t["status"]),
-                ["warning"] = J.C(t["warning"]),
-            },
+            ["telegram"] = t == null ? null : TelegramState(t),
             // every connector the same way: what it is, on / off, a short state line; its own window for the details
             ["connectors"] = rows,
         };
     }
+
+    /// <summary>Telegram as the settings page shows it (set up right there: the token, the t.me link and its QR code,
+    /// the switches, Send test / New link / Disconnect). Never the token. The words come from the host's translations.</summary>
+    JsonObject TelegramState(JsonObject t)
+    {
+        bool linked = J.Truthy(t["linked"]), configured = J.Truthy(t["configured"]);
+        string st = J.Str(t["status"]), bot = J.Str(t["bot"]), link = J.Str(t["link"]);
+        if (linked || link.Length == 0) { qrFor = qrData = null; }
+        else if (link != qrFor)
+        {
+            qrFor = link; qrData = null;
+            try
+            {
+                using var gen = new QRCoder.QRCodeGenerator();
+                using var data = gen.CreateQrCode(link, QRCoder.QRCodeGenerator.ECCLevel.M);
+                qrData = "data:image/png;base64," + Convert.ToBase64String(new QRCoder.PngByteQRCode(data).GetGraphic(8));
+            }
+            catch (Exception e) { Log.W("qr: " + e.Message); }
+        }
+        string state = linked ? L.T("tg_state_ok", bot) + (st == "connected" ? "" : "  (" + TgStatus(st) + ")")
+            : configured ? (link.Length > 0 ? L.T("tg_state_wait") : TgStatus(st)) : L.T("tg_state_off");
+        return new JsonObject
+        {
+            ["configured"] = configured, ["linked"] = linked, ["bot"] = J.C(t["bot"]), ["status"] = st,
+            ["warning"] = J.C(t["warning"]),
+            ["away"] = J.Truthy(t["away_only"]), ["progress"] = J.Truthy(t["progress"]),
+            ["link"] = linked || link.Length == 0 ? null : link, ["qr"] = linked ? null : qrData,
+            ["texts"] = new JsonObject
+            {
+                ["state"] = state, ["intro"] = L.T("tg_intro"), ["token"] = L.T("tg_token").TrimEnd(':', '：', ' '),
+                ["connect"] = L.T("tg_connect"), ["qr"] = L.T("tg_qr"), ["open"] = L.T("tg_open", "").TrimEnd(),
+                ["away"] = L.T("tg_away"), ["progress"] = L.T("tg_progress"), ["test"] = L.T("tg_test"),
+                ["relink"] = L.T("tg_relink"), ["relink_q"] = L.T("tg_relink_q"), ["disconnect"] = L.T("tg_disconnect"), ["disconnect_q"] = L.T("tg_disconnect_q"),
+            },
+        };
+    }
+
+    /// <summary>TelegramBridge.Status (English, also in the API) in the UI language.</summary>
+    static string TgStatus(string st) => st switch
+    {
+        "connecting" => L.T("tg_st_connecting"),
+        "invalid token" => L.T("tg_rejected"),
+        "waiting for /start" => L.T("tg_state_wait"),
+        _ when st.StartsWith("another program") => L.T("tg_st_conflict"),
+        _ when st.StartsWith("offline") => L.T("tg_st_offline"),
+        _ => st,
+    };
 
     /// <summary>
     /// The connectors as the settings page shows them, all the same way, each row built by its connector
@@ -90,6 +134,8 @@ sealed class SettingsBridge
                     }
                     if (c.ContainsKey("update_check")) S.Set(("update_check", J.Truthy(c["update_check"])));
                     if (c.ContainsKey("muted")) hub.SetMuted(J.Truthy(c["muted"]));
+                    if (c.ContainsKey("tg_away")) tg?.SetAwayOnly(J.Truthy(c["tg_away"]));
+                    if (c.ContainsKey("tg_progress")) tg?.SetProgress(J.Truthy(c["tg_progress"]));
                     // a connector: on / off (off keeps the key), the key (checked with the service, then kept in the
                     // Credential Manager - never config.json), remove the key (only this deletes it), thresholds
                     if (J.IsStr(c["connector"]))
@@ -130,12 +176,31 @@ sealed class SettingsBridge
                 case "do":
                     switch (J.Str(c["what"]))
                     {
-                        case "telegram": if (tg != null) ui(() => TelegramForm.ShowFor(tg)); break;
+                        // Telegram, set up on the page: the link is not opened by itself (the Telegram account may be on the phone)
+                        case "tg_pair":
+                        case "tg_relink":
+                            if (tg == null) break;
+                            try
+                            {
+                                bool fresh = J.Str(c["what"]) == "tg_pair";
+                                var st = await Task.Run(() => fresh ? tg.Pair(J.Str(c["token"])) : tg.Relink());
+                                // always an answer (the page shows "Checking…" until one comes)
+                                info = J.Str(st["link"]).Length > 0 ? L.T("tg_state_wait") : TgStatus(J.Str(st["status"]));
+                            }
+                            catch (ApiError e) when (e.Code == 400) { err = L.T(e.Message.StartsWith("Telegram") ? "tg_rejected" : "tg_bad_token"); }
+                            break;
+                        case "tg_test": if (tg != null && tg.Linked) { tg.Test(); info = L.T("tg_test_sent"); } break;
+                        case "tg_disconnect": tg?.Disconnect(); break;
                         case "test_toast":
                             hub.Notify(new JsonObject { ["title"] = "TaskHub", ["message"] = L.T("test_toast") + " ✓", ["force"] = true });
                             break;
                         case "data_folder": Hub.OpenTarget(S.DataDir); break;
                         case "notif_settings": Hub.OpenTarget("ms-settings:notifications"); break;
+                        case "colors_settings": Hub.OpenTarget("ms-settings:colors"); break;
+                        case "energy_settings":   // ms-settings:batterysaver exists only on devices with a battery
+                            Hub.OpenTarget(SystemInformation.PowerStatus.BatteryChargeStatus.HasFlag(BatteryChargeStatus.NoSystemBattery)
+                                ? "ms-settings:powersleep" : "ms-settings:batterysaver");
+                            break;
                         case "api_help":
                         {
                             var p = Path.Combine(S.ExeDir, "API.md");
@@ -143,7 +208,9 @@ sealed class SettingsBridge
                             Hub.OpenTarget(p);
                             break;
                         }
-                        case "update_check_now": if (updater() is { } u1) await u1.Check(true); break;
+                        case "update_check_now":   // the answer is shown on the page (a notification may be turned off)
+                            if (updater() is { } u1) info = await u1.CheckNow();
+                            break;
                         case "update_open": updater()?.OpenPage(); break;
                         case "support": Hub.OpenTarget(L.SupportUrl); break;
                         case "guard":   // Stop now / Snooze of a pending balance-guard stop, from the settings page

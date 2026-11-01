@@ -53,10 +53,17 @@ sealed class Updater
         catch (Exception e) { Log.W("update loop: " + e.Message); }
     }
 
-    /// <summary>Checks GitHub. manual: also report "up to date" / errors. Returns the newer release or null.</summary>
-    public async Task<Release> Check(bool manual)
+    /// <summary>Checks GitHub. manual: waits for a check already running, and the answer (latest version / a newer one /
+    /// failed) comes back in words for the settings page; a newer version also gets its notification.</summary>
+    public async Task<Release> Check(bool manual) => (await CheckSay(manual)).Release;
+
+    /// <summary>A manual check from the settings page: the answer in words.</summary>
+    public async Task<string> CheckNow() => (await CheckSay(true)).Text;
+
+    async Task<(Release Release, string Text)> CheckSay(bool manual)
     {
-        if (!await busy.WaitAsync(0)) return Available;
+        if (manual) await busy.WaitAsync();
+        else if (!await busy.WaitAsync(0)) return (Available, null);
         try
         {
             var r = await Fetch();
@@ -64,8 +71,7 @@ sealed class Updater
             if (r == null || r.Version <= Version.Parse(Settings.Version))
             {
                 Available = null;
-                if (manual) Say(L.T("update_latest", Settings.Version));
-                return null;
+                return (null, L.T("update_latest", Settings.Version));
             }
             Available = r;
             // automatic checks announce each version once; a manual check always answers
@@ -74,13 +80,12 @@ sealed class Updater
                 S.Set(("update_notified", r.Tag));
                 notifier.UpdateToast(L.T("update_title", r.Version), L.T("update_msg", Settings.Version));
             }
-            return r;
+            return (r, L.T("update_title", r.Version));
         }
         catch (Exception e)
         {
             Log.W("update check failed: " + e.Message);
-            if (manual) Say(L.T("update_failed", e.GetBaseException().Message));
-            return null;
+            return (null, L.T("update_failed", e.GetBaseException().Message));
         }
         finally { busy.Release(); }
     }
@@ -101,5 +106,4 @@ sealed class Updater
 
     public void OpenPage() => Hub.OpenTarget(Available?.Url ?? L.RepoUrl + "/releases/latest");
 
-    void Say(string msg) => hub.Notify(new JsonObject { ["title"] = "TaskHub", ["message"] = msg, ["force"] = true, ["click"] = "dismiss" });
 }

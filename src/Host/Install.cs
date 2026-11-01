@@ -64,7 +64,7 @@ static class Install
 
     // ------------------------------------------------------------ Microsoft Store edition (MSIX package)
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
-    static extern int GetCurrentPackageFullName(ref int length, StringBuilder name);
+    static extern int GetCurrentPackagePath(ref int length, StringBuilder path);
 
     /// <summary>Running from an MSIX package (Microsoft Store edition): Windows installs, updates and removes it, and
     /// autostart, taskhub:// and the `taskhub` command come from the package manifest instead of the registry / PATH.</summary>
@@ -72,9 +72,42 @@ static class Install
     public static string Edition => IsPackaged ? "store" : "exe";
     const string StartupTaskId = "TaskHubStartup";   // packaging\AppxManifest.xml
 
+    /// <summary>Only TaskHub's own package counts: the one this exe lives in. A process can run with another package's
+    /// identity - started inside a packaged app's context (UpdateProcThreadAttribute PROC_THREAD_ATTRIBUTE_DESKTOP_APP_POLICY,
+    /// Invoke-CommandInDesktopPackage), e.g. the exe edition's uninstaller started from Settings -> Apps - and is still the
+    /// exe edition then. Return codes other than ERROR_INSUFFICIENT_BUFFER / APPMODEL_ERROR_NO_PACKAGE are errors, not
+    /// "packaged" (https://learn.microsoft.com/windows/msix/detect-package-identity).</summary>
     static bool DetectPackage()
     {
-        try { int len = 0; return GetCurrentPackageFullName(ref len, null) != 15700; }   // APPMODEL_ERROR_NO_PACKAGE
+        try
+        {
+            string path = PackagePathForTests();
+            if (path == null)
+            {
+                int len = 0;
+                int rc = GetCurrentPackagePath(ref len, null);
+                if (rc != 122) return false;   // 15700 APPMODEL_ERROR_NO_PACKAGE, or an error
+                var sb = new StringBuilder(len);
+                if (GetCurrentPackagePath(ref len, sb) != 0) return false;
+                path = sb.ToString();
+            }
+            return path.Length > 0 && IsUnder(AppContext.BaseDirectory, path);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Tests only (with TASKHUB_TEST_HOME): the package folder the process pretends to run from.</summary>
+    static string PackagePathForTests() =>
+        Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 } ? Environment.GetEnvironmentVariable("TASKHUB_TEST_PACKAGE_PATH") : null;
+
+    static bool IsUnder(string dir, string root)
+    {
+        try
+        {
+            var d = Path.GetFullPath(dir).TrimEnd('\\') + "\\";
+            var r = Path.GetFullPath(root).TrimEnd('\\') + "\\";
+            return d.StartsWith(r, StringComparison.OrdinalIgnoreCase);
+        }
         catch { return false; }
     }
 
@@ -634,7 +667,8 @@ static class Install
     {
         using var k = Hkcu.OpenSubKey(RunKey);
         using var p = Hkcu.OpenSubKey(ProtoKey + @"\shell\open\command");
-        return $"Installed: {(IsInstalled ? InstallDir : "no")}\n" +
+        return $"Edition: {Edition}\n" +
+               $"Installed: {(IsInstalled ? InstallDir : "no")}\n" +
                $"Autostart [{RunValueName(s)}] = {k?.GetValue(RunValueName(s)) ?? "(none)"}{(DisabledInTaskManager(s) ? " (DISABLED in Task Manager)" : "")}\n" +
                $"taskhub:// = {p?.GetValue("") ?? "(none)"}";
     }
