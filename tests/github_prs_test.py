@@ -174,7 +174,9 @@ check("off: no search, no PR list", n_calls(lambda c: c[1].startswith("/search/"
 n0 = len(calls)
 s, r = call("POST", "/api/connectors/github", {"pr_reviews": True, "pr_dependabot": True})
 check("PRs on", s == 200 and r.get("pr_reviews") is True and r.get("pr_dependabot") is True, (s, r))
-t = wait(lambda: task(REV))
+# the task is registered first, its status and log line follow a moment later: wait for all of it (then the checks below)
+done = lambda x: x if x and x.get("status") and any("Review requested" in l.get("msg", "") for l in x.get("log") or []) else None
+t = wait(lambda: done(task(REV))) or task(REV)
 check("review request -> task 'Review · Add retry to the uploader'", t and t["state"] == "running" and t["source"] == "github"
       and t["name"] == "Review · Add retry to the uploader", t)
 if t:
