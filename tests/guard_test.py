@@ -644,6 +644,71 @@ check("log: Vast.ai entry, storage 0.3 × 60 / 30", e.get("provider") == "vastai
 r = call("GET", "/api/guard/log")[1]
 check("log: all providers, newest first", [x["provider"] for x in r.get("entries", [])][:1] == ["vastai"] and len(r["entries"]) == 5, r)
 
+# ---- auto-stop on GPU idle (2.9.3): off by default; validation; idle -> pending stop with Stop now / Snooze (the guard's
+# task and buttons) also with the balance guard off; GPU busy again -> cancelled; no answer -> stopped (PUT, never DELETE),
+# logged with trigger "idle"; "never auto-stop" machines are left alone; 0 turns it off
+with lock:
+    inst[201].update(intended_status="running", actual_status="running", cur_state="running", gpu_util=50.0)
+    user["credit"] = 50.0
+s, r = call("POST", "/api/connectors/vastai", {"enabled": True, "key": VA_KEY, "list_interval": 1, "detail_interval": 1,
+                                               "billing_interval": 1, "guard": False, "guard_exempt": [], "idle_minutes": 0.02})
+check("idle stop: off by default (0)", s == 200 and r.get("idle_stop_minutes") == 0, (s, r.get("idle_stop_minutes")))
+for bad in (-1, "abc", 2000):
+    s, r = call("POST", "/api/connectors/vastai", {"idle_stop_minutes": bad})
+    check(f"idle_stop_minutes {bad!r} -> 400, nothing changed", s == 400 and call("GET", "/api/connectors/vastai")[1].get("idle_stop_minutes") == 0, (s, r))
+s, r = call("POST", "/api/connectors/vastai", {"idle_stop_minutes": 0.05, "guard_grace_min": 0.1, "guard_snooze_min": 0.05})
+check("idle stop on: 0.05 min (mock), grace 0.1", s == 200 and r.get("idle_stop_minutes") == 0.05, (s, r.get("idle_stop_minutes")))
+rw = settings_row("vastai") if "settings_row" in globals() else next(
+    (x for x in call("GET", "/api/connectors?view=settings")[1]["connectors"] if x["id"] == "vastai"), {})
+check("settings row: field idle_stop_minutes, guard part shown for 'never auto-stop'",
+      any(f["key"] == "idle_stop_minutes" and f["value"] == 0.05 for f in rw.get("fields", []))
+      and (rw.get("guard") or {}).get("idle_stop") is True, rw.get("fields"))
+check("idle stop: machine running, actions allowed", wait(lambda: (task("va-201") or {}).get("state") == "running"
+      and call("GET", "/api/connectors/vastai")[1].get("can_act") is True), task("va-201"))
+v1, n9 = len(calls), len(sent)
+with lock:
+    inst[201]["gpu_util"] = 0.0
+pm = wait_sent(lambda m: "GPU has been idle" in m["text"] and "render-box" in m["text"], n9, timeout=20)
+check("GPU idle -> pending stop, Telegram with Stop now / Snooze, guard off", pm is not None
+      and any(k.startswith("Stop now") for k in buttons(pm)) and any(k.startswith("Snooze") for k in buttons(pm))
+      and guard("vastai").get("enabled") is False
+      and (guard("vastai").get("pending") or {}).get("kind") == "idle", (pm, guard("vastai").get("pending")))
+with lock:
+    inst[201]["gpu_util"] = 80.0
+busy = wait_sent(lambda m: "busy again" in m["text"], n9, timeout=15)
+check("GPU busy again -> cancelled, nothing stopped", busy is not None and wait(lambda: guard("vastai").get("pending") is None)
+      and stops("va", v1) == [], (busy, guard("vastai"), stops("va", v1)))
+v2, n10 = len(calls), len(sent)
+with lock:
+    inst[201]["gpu_util"] = 0.0
+done = wait_sent(lambda m: "Auto-stop — stopped: 1, failed: 0" in m["text"] and "render-box" in m["text"], n10, timeout=30)
+with lock:
+    va = [c for c in calls[v2:] if c[0] == "va" and c[1] in ("PUT", "DELETE") and c[2] != "/api/v0/instances/0/"]
+check("still idle at the deadline -> stopped (PUT /instances/201/ only, never DELETE)", done is not None
+      and va == [("va", "PUT", "/api/v0/instances/201/")], (done, va))
+e = (call("GET", "/api/guard/log?provider=vastai")[1].get("entries") or [{}])[0]
+check("log: trigger idle, idle minutes, no $ threshold", e.get("trigger") == "idle" and e.get("idle_minutes") == 0.05
+      and e.get("threshold") is None and e.get("result") == "stopped", e)
+rw = next((x for x in call("GET", "/api/connectors?view=settings")[1]["connectors"] if x["id"] == "vastai"), {})
+check("settings log line says 'GPU idle'", any("GPU idle" in l for l in (rw.get("guard") or {}).get("log", [])), (rw.get("guard") or {}).get("log"))
+# "never auto-stop": idle, nothing happens
+with lock:
+    inst[201].update(intended_status="running", actual_status="running", cur_state="running", gpu_util=0.0)
+call("POST", "/api/connectors/vastai", {"guard_exempt": ["201"]})
+v3, n11 = len(calls), len(sent)
+time.sleep(12)
+check("'never auto-stop' machine: idle, no pending stop, not stopped", guard("vastai").get("pending") is None
+      and stops("va", v3) == [] and n_sent(lambda m: "GPU has been idle" in m["text"], n11) == 0, (guard("vastai"), stops("va", v3)))
+# 0 = off: idle, nothing happens
+call("POST", "/api/connectors/vastai", {"guard_exempt": [], "idle_stop_minutes": 0})
+v4, n12 = len(calls), len(sent)
+time.sleep(8)
+check("idle_stop_minutes 0: no pending stop, not stopped", guard("vastai").get("pending") is None and stops("va", v4) == []
+      and n_sent(lambda m: "GPU has been idle" in m["text"], n12) == 0, (guard("vastai"), stops("va", v4)))
+with lock:
+    inst[201]["gpu_util"] = 50.0
+call("POST", "/api/connectors/vastai", {"guard": False, "enabled": False, "forget_key": True})
+
 # ---- restart: the pending stop goes on (later deadline kept), the button counter goes past the old one
 call("POST", "/api/connectors/vastai", {"guard": False, "enabled": False, "forget_key": True})
 

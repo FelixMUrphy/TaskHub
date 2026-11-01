@@ -48,6 +48,7 @@ abstract partial class MachineConnector
     {
         public int Seq, Ver;               // Ver: bumped by Snooze (a deadline check that raced with it doesn't stop)
         public bool Retry;                 // a quiet retry of failed stops (no buttons, not saved)
+        public bool Idle;                  // an idle stop of one machine (IdleStop.cs; not saved)
         public double Created, Deadline;
         public double Balance, Burn;
         public bool Held, HeldWarned, Capped;
@@ -117,8 +118,10 @@ abstract partial class MachineConnector
         bool rearm = b.ContainsKey("guard_warn") || b.ContainsKey("guard_stop") || b.ContainsKey("guard");
         if (rearm) lock (gate) { gWarned = false; gBelowWarned = false; gProbeWarned = false; gTried.Clear(); gFailed.Clear(); }
         // the guard (or the whole connector, or its key) off: a pending stop goes with it
-        if ((b.ContainsKey("guard") && !J.Truthy(b["guard"])) || (b.ContainsKey("enabled") && !J.Truthy(b["enabled"])) || J.Truthy(b["forget_key"]))
-            CancelPending(L.T("g_off"));
+        // (the guard off leaves a pending idle stop alone; the connector or its key off ends both)
+        if (b.ContainsKey("guard") && !J.Truthy(b["guard"])) CancelPending(_ => L.T("g_off"), p => !p.Idle);
+        if ((b.ContainsKey("enabled") && !J.Truthy(b["enabled"])) || J.Truthy(b["forget_key"]))
+            CancelPending(p => L.T(p.Idle ? "g_idle_off" : "g_off"));
     }
 
     // ------------------------------------------------------------ numbers
@@ -189,7 +192,7 @@ abstract partial class MachineConnector
         if (a > g.Stop)
         {
             if (a > g.Stop + hs) lock (gate) { gBelowWarned = false; gProbeWarned = false; gTried.Clear(); gFailed.Clear(); }
-            if (pending != null) CancelPending(L.T("g_topup", Money(a), Money(g.Stop)));
+            if (pending is { Idle: false }) CancelPending(_ => L.T("g_topup", Money(a), Money(g.Stop)), p => !p.Idle);
         }
         if (a <= g.Warn && a > g.Stop)
         {
@@ -208,7 +211,7 @@ abstract partial class MachineConnector
         }
         if (a <= g.Stop)
         {
-            lock (gate) { gWarned = true; if (pending != null || gStopping) return; }   // no separate warning any more in this crossing
+            lock (gate) { gWarned = true; if (pending is { Idle: false } || gStopping) return; }   // no separate warning any more in this crossing
             var targets = GuardTargets(g);
             var noStop = balance.NoStop;
             if (canAct == false || noStop != null || targets.Count == 0)
@@ -246,6 +249,8 @@ abstract partial class MachineConnector
                 _ = Task.Run(() => RunStop(p, "retry", key, CancellationToken.None, -1));
                 return;
             }
+            // a pending idle stop of one machine gives way to the balance stop of all of them
+            CancelPending(_ => L.T("g_idle_replaced"), p => p.Idle);
             StartPending(g, a, burn, targets);
         }
     }
@@ -274,7 +279,7 @@ abstract partial class MachineConnector
     }
 
     /// <summary>The balance is read every billing_interval; while a stop is pending, every minute (a top-up cancels it).</summary>
-    double BalanceEvery(Conf c) => pending != null ? Math.Min(c.BillingEvery, Mock ? 1 : 60) : c.BillingEvery;
+    double BalanceEvery(Conf c) => pending is { Idle: false } ? Math.Min(c.BillingEvery, Mock ? 1 : 60) : c.BillingEvery;
 
     // ------------------------------------------------------------ pending stop
     void StartPending(GuardConf g, double a, double burn, List<Machine> targets)
@@ -348,11 +353,19 @@ abstract partial class MachineConnector
         Try(() => hub.Update(tid, u, trusted: true));
     }
 
-    void CancelPending(string why)
+    void CancelPending(string why) => CancelPending(_ => why);
+
+    /// <summary>Cancels the pending stop (only when <paramref name="which"/> says so); the reason may depend on its kind.</summary>
+    void CancelPending(Func<PendingStop, string> reason, Func<PendingStop, bool> which = null)
     {
         PendingStop p;
-        lock (gate) { p = pending; pending = null; }
-        if (p == null) return;
+        lock (gate)
+        {
+            p = pending;
+            if (p == null || (which != null && !which(p))) return;
+            pending = null;
+        }
+        var why = reason(p);
         SaveGuard();
         Try(() => hub.Update(GuardTid, new JsonObject { ["controls"] = new JsonArray(), ["log"] = J.Cut(why, 1900) }, trusted: true));
         Try(() => hub.Finish(GuardTid, new JsonObject { ["state"] = "done", ["message"] = J.Cut(why, 300) }));
@@ -368,6 +381,7 @@ abstract partial class MachineConnector
         int ver;
         lock (gate) { p = pending; ver = p?.Ver ?? 0; }
         if (p == null || p.Retry || J.Now() < p.Deadline) return;
+        if (p.Idle) { await IdleTick(p, ver, key, ct); return; }
         var g = GCfg;
         if (!g.On) { CancelPending(L.T("g_off")); return; }
         var (b, why, _, _) = await ReadBalance(key, ct);
@@ -459,6 +473,7 @@ abstract partial class MachineConnector
         try
         {
             var g = GCfg;
+            var idleMin = Cfg.IdleStopMinutes;
             List<Machine> ms;
             lock (gate)
                 ms = p.Ids.Select(id => machines.TryGetValue(id, out var t) ? t.M : null)
@@ -512,7 +527,8 @@ abstract partial class MachineConnector
             nextList = 0;   // the tasks follow at once
             lock (gate)
                 foreach (var (m, err) in results)
-                    if (err == null) { gTried.Add(m.Id); gFailed.Remove(m.Id); }
+                    if (p.Idle) continue;   // an idle stop is no part of the balance crossing
+                    else if (err == null) { gTried.Add(m.Id); gFailed.Remove(m.Id); }
                     else gFailed.Add(m.Id);
             if (retry && results.All(x => x.Error != null))
             {
@@ -530,7 +546,8 @@ abstract partial class MachineConnector
                 entries.Add(new JsonObject
                 {
                     ["t"] = J.Now(), ["provider"] = Id, ["machine_id"] = m.Id, ["name"] = m.Name ?? m.Id, ["trigger"] = trigger,
-                    ["balance"] = bal, ["threshold"] = g.Stop, ["burn_per_hr"] = burn,
+                    ["balance"] = bal, ["threshold"] = p.Idle ? null : g.Stop, ["burn_per_hr"] = burn,
+                    ["idle_minutes"] = p.Idle ? Math.Round(idleMin, 2) : null,
                     ["spent"] = sp is double s ? Math.Round(s, 4) : null, ["spent_estimated"] = est,
                     ["result"] = err == null ? "stopped" : "failed", ["error"] = err,
                     ["storage_per_day"] = perDay is double pd ? Math.Round(pd, 4) : null, ["storage_note"] = note.Length > 0 ? note : null,
@@ -585,7 +602,7 @@ abstract partial class MachineConnector
             ["pending"] = p == null ? null : new JsonObject
             {
                 ["seq"] = p.Seq, ["deadline"] = Math.Round(p.Deadline, 2), ["held"] = p.Held, ["capped"] = p.Capped,
-                ["machines"] = J.StrArray(p.Ids), ["task"] = GuardTid,
+                ["machines"] = J.StrArray(p.Ids), ["task"] = GuardTid, ["kind"] = p.Idle ? "idle" : "balance",
             },
         };
     }
@@ -620,6 +637,7 @@ abstract partial class MachineConnector
         {
             ["enabled"] = g.On, ["warn"] = g.Warn, ["stop"] = g.Stop, ["grace_min"] = g.GraceMin, ["snooze_min"] = g.SnoozeMin,
             ["note"] = note, ["hint"] = GuardHint, ["forecast"] = forecast, ["machines"] = ms, ["log"] = log, ["exempt"] = J.StrArray(g.Exempt.OrderBy(x => x)),
+            ["idle_stop"] = Cfg.IdleStopMinutes > 0,   // the machines' "never auto-stop" also counts for it
             ["pending"] = p == null ? null : new JsonObject
             {
                 ["text"] = PendingShort(p), ["stop_label"] = L.T("g_stop_now"), ["stop_q"] = L.T("g_stop_now_q", PendingNames(p)), ["snooze_label"] = L.T("g_snooze", J.Fmt(Math.Round(g.SnoozeMin, 2))),
@@ -643,7 +661,7 @@ abstract partial class MachineConnector
             o = new JsonObject
             {
                 ["seq"] = guardSeq,
-                ["pending"] = p == null || p.Retry || gStopping ? null : new JsonObject
+                ["pending"] = p == null || p.Retry || p.Idle || gStopping ? null : new JsonObject
                 {
                     ["seq"] = p.Seq, ["created"] = p.Created, ["deadline"] = p.Deadline, ["balance"] = p.Balance, ["burn"] = p.Burn,
                     ["held"] = p.Held, ["machines"] = J.StrArray(p.Ids),
@@ -767,6 +785,7 @@ static class GuardLog
         var parts = new List<string> { t, J.Str(e["name"]) };
         parts.Add(J.Str(e["result"]) == "stopped" ? L.T("m_stopped") : L.T("g_res_failed", J.Str(e["error"])));
         parts.Add(J.Str(e["trigger"]) == "stop_now" ? L.T("g_stop_now")
+            : J.Str(e["trigger"]) == "idle" ? L.T("g_why_idle", J.Fmt(Math.Round(J.Num(e["idle_minutes"]) ?? 0)))
             : L.T("g_why", M(J.Num(e["balance"])), M(J.Num(e["threshold"])), Usd.Rate(J.Num(e["burn_per_hr"]), "?")));
         if (J.Num(e["spent"]) is double sp) parts.Add(L.T("m_spent") + " " + (J.Truthy(e["spent_estimated"]) ? "≈ " : "") + M(sp));
         if (J.Str(e["result"]) == "stopped")

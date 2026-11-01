@@ -29,10 +29,11 @@ const connRow=c=>{
   // "never auto-stop" per machine; the last stops. Texts in the UI language come from the host.
   if (gd){
     h+=srow(T("s_guard"), gd.note? "⚠ "+gd.note : T("s_guard_d"), tgl("cguard",gd.enabled,` data-conn="${id}"`), "sub");
-    if (gd.enabled){
-      h+=numv("guard_warn","s_guard_warn",0,1000000,1,gd.warn)+numv("guard_stop","s_guard_stop",0,1000000,1,gd.stop,gd.hint)
-        +numv("guard_grace_min","s_guard_grace",1,120,1,gd.grace_min)+numv("guard_snooze_min","s_guard_snooze",5,240,5,gd.snooze_min);
-      if (gd.forecast) h+=srow(gd.forecast,"","","sub");
+    if (gd.enabled) h+=numv("guard_warn","s_guard_warn",0,1000000,1,gd.warn)+numv("guard_stop","s_guard_stop",0,1000000,1,gd.stop,gd.hint);
+    // the time to answer, snooze, a pending stop, "never auto-stop" and the log serve the auto-stop on GPU idle too
+    if (gd.enabled || gd.idle_stop){
+      h+=numv("guard_grace_min","s_guard_grace",1,120,1,gd.grace_min)+numv("guard_snooze_min","s_guard_snooze",5,240,5,gd.snooze_min);
+      if (gd.enabled && gd.forecast) h+=srow(gd.forecast,"","","sub");
       if (gd.pending) h+=srow("⚠ "+gd.pending.text,"",`<button class="btn" data-gact="stop_now" data-conn="${id}" data-q="${esc(gd.pending.stop_q||"")}">${esc(gd.pending.stop_label)}</button>`
         +`<button class="btn" data-gact="snooze" data-conn="${id}">${esc(gd.pending.snooze_label)}</button>`,"sub");
       for (const m of gd.machines||[]) h+=srow(m.name, T("s_guard_exempt"), tgl("gex",m.exempt,` data-conn="${id}" data-mid="${esc(m.id)}"`), "sub");

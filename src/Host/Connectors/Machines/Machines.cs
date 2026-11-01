@@ -112,6 +112,7 @@ abstract partial class MachineConnector : ISettingsConnector
     {
         public Machine M; public string LastSig; public double NextDetail;
         public double? IdleSince; public bool IdleWarned;
+        public bool IdleStopAsked;   // an idle stop was started in this idle period (IdleStop.cs)
     }
     readonly Dictionary<string, Track> machines = new();   // machine id -> what we know / show
     readonly HashSet<string> quiet = new();                // stopped machines first seen as stopped (no toast)
@@ -136,7 +137,7 @@ abstract partial class MachineConnector : ISettingsConnector
 
     // ------------------------------------------------------------ settings
     protected sealed record Conf(bool Enabled, double IdleMinutes, double IdleUtil, double LowRunwayHours, double? LowBalance,
-        double ListEvery, double DetailEvery, double BillingEvery);
+        double ListEvery, double DetailEvery, double BillingEvery, double IdleStopMinutes);
 
     /// <summary>The API base: a loopback mock (tests) or the service.</summary>
     protected Uri ApiUri
@@ -161,7 +162,8 @@ abstract partial class MachineConnector : ISettingsConnector
                 Math.Clamp(J.Num(c[k]) ?? def, Mock ? loMock : lo, hi);
             return new Conf(J.Truthy(c["enabled"]), Get("idle_minutes", 30, 1, 1440, 0.02), Get("idle_util", 5, 1, 50, 1),
                 Get("low_runway_hours", 12, 0, 720, 0), J.Num(c["low_balance"]) is double lb && lb >= 0 ? lb : null,
-                Get("list_interval", 60, 30, 3600, 1), Get("detail_interval", 30, 15, 3600, 1), Get("billing_interval", 600, 300, 86400, 1));
+                Get("list_interval", 60, 30, 3600, 1), Get("detail_interval", 30, 15, 3600, 1), Get("billing_interval", 600, 300, 86400, 1),
+                J.Num(c["idle_stop_minutes"]) is double im && im > 0 ? Math.Min(im, 1440) : 0);
         }
     }
 
@@ -188,11 +190,21 @@ abstract partial class MachineConnector : ISettingsConnector
             else if (J.Num(b["low_balance"]) is double d && d >= 0 && d <= 1e6) c["low_balance"] = d;
             else throw new ApiError(400, "low_balance must be a number >= 0 or null");
         }
+        // auto-stop on GPU idle: 0 = off, else at least 5 min (tests: 0.02)
+        if (b.ContainsKey("idle_stop_minutes"))
+        {
+            double lo = Mock ? 0.02 : IdleStopMin;
+            if (J.Num(b["idle_stop_minutes"]) is not double d || d < 0 || d > 1440 || (d > 0 && d < lo))
+                throw new ApiError(400, $"guard_idle: idle_stop_minutes must be 0 (off) or {J.Fmt(lo)}-1440")
+                    { Ui = L.T("g_err_idle", J.Fmt(lo), 1440) };
+            c["idle_stop_minutes"] = d;
+        }
         ConfigureGuard(b, c);
         if (b.ContainsKey("enabled")) c["enabled"] = J.Truthy(b["enabled"]);
         ExtraConfig(b, c);
         if (J.IsStr(b["key"])) SetKey(J.Str(b["key"]));   // a rejected key: nothing is changed
         Connectors.SetConfig(S, Id, c);
+        if (b.ContainsKey("idle_stop_minutes") && J.Num(b["idle_stop_minutes"]) == 0) CancelPending(_ => L.T("g_idle_off"), p => p.Idle);
         if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); canAct = null; keyHash = null; keyCheck = null; balance = null; }
         Start();
         return State();
@@ -254,7 +266,9 @@ abstract partial class MachineConnector : ISettingsConnector
     /// <summary>Languages (besides English) of its "how to get a key" page, docs/keys/&lt;id&gt;.&lt;lang&gt;.md.</summary>
     protected virtual string[] KeyDocLangs => new[] { "uk" };
 
-    static readonly string[] SettingsKeys = { "idle_minutes", "low_runway_hours", "low_balance",
+    const double IdleStopMin = 5;
+
+    static readonly string[] SettingsKeys = { "idle_minutes", "idle_stop_minutes", "low_runway_hours", "low_balance",
         "guard", "guard_warn", "guard_stop", "guard_grace_min", "guard_snooze_min", "guard_exempt" };
 
     /// <summary>On / off, the key, the warning thresholds (number fields) and the balance guard.</summary>
@@ -278,6 +292,8 @@ abstract partial class MachineConnector : ISettingsConnector
             ["fields"] = new JsonArray
             {
                 SettingsRows.Field("idle_minutes", "s_idle_min", 1, 1440, 1, ms["idle_minutes"]),
+                // auto-stop on GPU idle (2.9.3): 0 = off
+                SettingsRows.Field("idle_stop_minutes", "s_idle_stop", 0, 1440, 5, ms["idle_stop_minutes"]),
                 // the balance guard on: its warning replaces the old low-balance one (the keys stay as they are)
                 SettingsRows.Field("low_runway_hours", "s_low_runway", 0, 720, 1, ms["low_runway_hours"]),
                 SettingsRows.Field("low_balance", "s_low_bal", 0, 1000000, 1, ms["low_balance"], emptyOk: true),
@@ -314,7 +330,7 @@ abstract partial class MachineConnector : ISettingsConnector
             ["key_check"] = keyCheck, ["key_check_text"] = CheckText(),
             ["can_act"] = canAct, ["probed_at"] = probedAt > 0 ? probedAt : null,
             ["machines"] = list, ["running"] = running,
-            ["idle_minutes"] = c.IdleMinutes, ["idle_util"] = c.IdleUtil,
+            ["idle_minutes"] = c.IdleMinutes, ["idle_util"] = c.IdleUtil, ["idle_stop_minutes"] = c.IdleStopMinutes,
             ["low_runway_hours"] = c.LowRunwayHours, ["low_balance"] = c.LowBalance,
             ["balance"] = b == null ? null : new JsonObject
             {
@@ -545,7 +561,7 @@ abstract partial class MachineConnector : ISettingsConnector
                     m.Uptime ??= t.M.Uptime;
                 }
                 t.M = m;
-                if (m.State != "running") { t.IdleSince = null; t.IdleWarned = false; }
+                if (m.State != "running") { t.IdleSince = null; t.IdleWarned = false; t.IdleStopAsked = false; }
                 if (prev != m.State) t.NextDetail = 0;
             }
             Transition(t, prev, c);
@@ -754,9 +770,11 @@ abstract partial class MachineConnector : ISettingsConnector
             bool was = t.IdleWarned;
             t.IdleSince = null; t.IdleWarned = false;
             if (was) t.LastSig = null;   // attention goes
+            IdleStopSample(t, c, false, now);
             return;
         }
         t.IdleSince ??= now;
+        IdleStopSample(t, c, true, now);
         if (!t.IdleWarned && now - t.IdleSince >= c.IdleMinutes * 60)
         {
             t.IdleWarned = true;
