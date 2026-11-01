@@ -79,7 +79,7 @@ function connList(id, key, add, remove){
     if (base.some(x=>x.toLowerCase()===v.toLowerCase())){ if (c && c.list && c.list.dup) snack(c.list.dup); i.select(); return; }
     next=[...base, v];   // the text stays until the host takes it (a refused name can be corrected, not retyped)
   }
-  LPEND={id,key,list:next,add:v}; clearTimeout(lpendTimer); lpendTimer=setTimeout(()=>{ LPEND=null; },5000);
+  LPEND={id,key,list:next,before:cur,add:v}; clearTimeout(lpendTimer); lpendTimer=setTimeout(()=>{ LPEND=null; },15000);
   host({settings:"set",connector:id,[key]:next});
 }
 // the host's answer to a list change: refused -> the pending change goes (the text stays); taken -> the added text goes
@@ -88,7 +88,9 @@ function listReply(d){
   const p=LPEND, c=(d.settings_state && d.settings_state.connectors||[]).find(x=>x.id===p.id);
   const now=((c && c.list && c.list.items)||[]).map(x=>x.v);
   if (d.error){ LPEND=null; return; }
-  if (now.length!==p.list.length || now.some((x,k)=>x!==p.list[k])) return;   // an older state: still waiting
+  // the host may write the names its own way (a pasted URL -> owner/repo, duplicates dropped): any change from the list
+  // before the edit means it was taken; the same list as before = an older state, still waiting
+  if (now.length===p.before.length && now.every((x,k)=>x===p.before[k])) return;
   LPEND=null;
   if (p.add){ const i=[...$("#sethost").querySelectorAll("input[data-ladd]")].find(e=>e.dataset.conn===p.id && e.dataset.ladd===p.key); if (i && i.value.trim()===p.add) i.value=""; }
 }

@@ -3,6 +3,11 @@
 What changed in each release of TaskHub. The release page on GitHub shows the section of its version (CI takes it
 from here), followed by the list of commits.
 
+## Unreleased
+
+- Fixed: after adding a repository on the GitHub settings page as a link (`https://github.com/owner/repo`), the text
+  stayed in the field although the repository was added.
+
 ## 2.9.6 — 2026-11-01
 
 - GitHub Actions is set up right on the settings page (*Connectors* → *GitHub Actions*): access, repositories with their
