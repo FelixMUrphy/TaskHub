@@ -440,8 +440,10 @@ abstract partial class MachineConnector : ISettingsConnector
         var kh = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..12];
         if (kh != keyHash || now - probedAt > 86400)
         {
-            keyHash = kh;
+            // the key counts as probed only once the probe has answered: a save restarts the loop and cancels a probe in flight,
+            // and the new loop must probe again (else the guard held its stop until the next retry, 10 min to a day)
             await RunProbe(key, ct);
+            keyHash = kh;
         }
         await GuardTick(key, ct);   // a pending stop whose time has come
         if (now >= nextList)

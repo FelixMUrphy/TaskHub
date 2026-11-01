@@ -3,6 +3,13 @@
 What changed in each release of TaskHub. The release page on GitHub shows the section of its version (CI takes it
 from here), followed by the list of commits.
 
+## Unreleased
+
+- GitHub Actions is set up right on the settings page (*Connectors* → *GitHub Actions*): access, repositories with their
+  state, interval, notifications and pull requests, instead of a separate window.
+- Fixed: the spend guard (Runpod / Vast.ai) could hold its automatic stop for up to 10 minutes (or a day) when the key
+  was saved while a check of its rights was still running; the check now runs again after the save.
+
 ## 2.9.5 — 2026-11-01
 
 - Fixed: *Update to X* on the settings page could stay at an older version for up to a day after a newer one came out

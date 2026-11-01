@@ -24,7 +24,7 @@ CHAT = 4242
 fails = 0
 lock = threading.RLock()
 calls = []                     # (service, method, path)
-faults = {"gql500": False, "stop500": set(), "gqlslow": 0, "probe500": False}
+faults = {"gql500": False, "stop500": set(), "gqlslow": 0, "probe500": False, "probeslow": 0}
 EXE = sys.argv[1] if len(sys.argv) > 1 else None
 balance = {"clientBalance": 50.0, "currentSpendPerHr": 1.0, "spendLimit": 80}
 
@@ -94,6 +94,8 @@ class Runpod(Mock):
         p = self.path.split("?")[0]
         if p == "/graphql" and faults["gqlslow"]:
             time.sleep(faults["gqlslow"])   # outside the lock
+        if "pod_taskhub_probe" in p and faults["probeslow"]:
+            time.sleep(faults["probeslow"])   # outside the lock
         with lock:
             calls.append(("rp", m, p))
             if auth not in ("Bearer " + RP_KEY_RO, "Bearer " + RP_KEY_RW):
@@ -559,8 +561,13 @@ time.sleep(3)
 check("…once, no pending stop, nothing stopped", n_sent(lambda m: "able to check yet" in m["text"], n8) == 1
       and guard().get("pending") is None and stops("rp", a6) == [], (guard(), stops("rp", a6)))
 faults["probe500"] = False
+# the key saved again while the loop's probe is still out (slow probe, slow balance check in the save): the restart cancels
+# that probe; the new loop must probe again, not take the key as already probed (that held the stop for 10 min)
+faults["probeslow"], faults["gqlslow"] = 1.5, 0.7
 call("POST", "/api/connectors/runpod", {"key": RP_KEY_RW})
+faults["gqlslow"] = 0
 check("probe answers -> the stop is pending", wait(lambda: guard().get("pending")) is not None, guard())
+faults["probeslow"] = 0
 with lock:
     balance["clientBalance"] = 50.0
 check("top-up -> cancelled", wait(lambda: guard().get("pending") is None), guard())

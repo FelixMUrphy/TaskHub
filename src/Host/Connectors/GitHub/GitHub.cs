@@ -107,13 +107,14 @@ sealed partial class GitHubConnector : ISettingsConnector
                 : J.Str(b["repos"]).Split(new[] { ',', ';', '\n', ' ' }, StringSplitOptions.RemoveEmptyEntries).ToList();
             list = list.Select(NormRepo).ToList();
             var bad = list.FirstOrDefault(x => !RepoRx.IsMatch(x));
-            if (bad != null) throw new ApiError(400, $"'{J.Cut(bad, 80)}' is not owner/repo");
-            if (list.Count > 50) throw new ApiError(400, "at most 50 repositories");
+            if (bad != null) throw new ApiError(400, $"'{J.Cut(bad, 80)}' is not owner/repo") { Ui = L.T("gh_bad_repo", J.Cut(bad, 80)) };
+            if (list.Count > 50) throw new ApiError(400, "at most 50 repositories") { Ui = L.T("gh_too_many", 50) };
             c["repos"] = J.StrArray(list.Distinct(StringComparer.OrdinalIgnoreCase));
         }
         if (b.ContainsKey("interval"))
         {
-            if (J.Num(b["interval"]) is not double d || d < MinInterval || d > 3600) throw new ApiError(400, $"interval must be {MinInterval}-3600 s");
+            if (J.Num(b["interval"]) is not double d || d < MinInterval || d > 3600)
+                throw new ApiError(400, $"interval must be {MinInterval}-3600 s") { Ui = L.T("gh_bad_interval", MinInterval, 3600) };
             c["interval"] = (int)d;
         }
         if (b.ContainsKey("active_interval"))   // while a run is going (default 10 s)
@@ -200,36 +201,80 @@ sealed partial class GitHubConnector : ISettingsConnector
     // ------------------------------------------------------------ settings page row
     public string Title => "GitHub";
 
-    /// <summary>On / off, the token (or the Git Credential Manager's login), repositories; options: the GitHub window.</summary>
+    /// <summary>Everything on the settings page (it used to be a window of its own): on / off, access (own token or the Git
+    /// Credential Manager's login), the token, repositories (a list with Add / Remove and each one's state), the polling
+    /// interval, notify on success, logs, the two pull-request switches, state lines. Never the token. Words in the UI language.</summary>
     public JsonObject SettingsRow()
     {
         var g = State();
-        bool on = J.Truthy(g["enabled"]), tokenAuth = J.Str(g["auth"]) != "gcm";
+        bool on = J.Truthy(g["enabled"]), tokenAuth = J.Str(g["auth"]) != "gcm", keySet = J.Truthy(g["token_set"]);
         var st = J.Str(g["status"]);
         var check = J.Str(g["token_check"]);
-        int n = (g["repos"] as JsonArray)?.Count ?? 0;
+        var repoList = (g["repos"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x)).ToList();
+        int n = repoList.Count;
         var login = J.Str(g["login"]);
-        return new JsonObject
+        var row = new JsonObject
         {
             ["id"] = Id, ["name"] = "GitHub Actions", ["kind"] = "key", ["enabled"] = on,
-            ["uses_key"] = tokenAuth, ["key_set"] = J.Truthy(g["token_set"]),
+            ["uses_key"] = tokenAuth, ["key_set"] = keySet,
             ["key_check"] = check.Length > 0 ? check : null,
             ["summary"] = !on ? "" : SettingsRows.Line(tokenAuth ? J.Str(g["token_check_text"]) : (login.Length > 0 ? "@" + login : ""),
                 (tokenAuth ? SettingsRows.Normal(st) : st is "ok" or "starting" or "off" or "") ? "" : st, n > 0 ? L.N("gh_repos_n", n) : ""),
             ["help_url"] = SettingsRows.KeyHelpUrl(Id, "uk"),
-            ["setup"] = Id,   // repositories and options: the GitHub window
         };
+        if (!on) return row;
+        // access: own token (fine-grained, read-only is enough) or the login Git already has
+        row["choice"] = new JsonObject
+        {
+            ["key"] = "auth", ["label"] = L.T("gh_access"), ["value"] = tokenAuth ? "token" : "gcm",
+            ["options"] = new JsonArray(new JsonObject { ["v"] = "token", ["t"] = L.T("gh_auth_token") },
+                                        new JsonObject { ["v"] = "gcm", ["t"] = L.T("gh_auth_gcm") }),
+            ["note"] = tokenAuth ? (keySet ? "" : L.T("gh_perm_hint")) : L.T("gh_gcm_warn"),
+        };
+        var rst = g["repo_status"] as JsonObject ?? new JsonObject();
+        var pst = g["pr_status"] as JsonObject ?? new JsonObject();
+        var items = new JsonArray();
+        foreach (var r in repoList)
+        {
+            var note = SettingsRows.Line(J.Str(rst[r]) is { Length: > 0 } v && v != "ok" ? v : "", J.Str(pst[r]));
+            items.Add(new JsonObject { ["v"] = r, ["note"] = note });
+        }
+        row["list"] = new JsonObject
+        {
+            ["key"] = "repos", ["label"] = L.T("gh_repos"), ["items"] = items, ["placeholder"] = "owner/repo",
+            ["add"] = L.T("gh_add"), ["remove"] = L.T("gh_remove"), ["empty"] = L.T("gh_repos_empty"), ["dup"] = L.T("gh_repo_dup"),
+        };
+        var f = SettingsRows.Field("interval", null, MinInterval, 3600, 15, g["interval"]);
+        f["text"] = L.T("gh_interval");
+        row["fields"] = new JsonArray(f);
+        row["switches"] = new JsonArray(
+            new JsonObject { ["key"] = "notify_success", ["text"] = L.T("gh_notify_success"), ["value"] = J.Truthy(g["notify_success"]) },
+            new JsonObject { ["key"] = "logs", ["text"] = L.T("gh_logs"), ["value"] = J.Truthy(g["logs"]) },
+            new JsonObject
+            {
+                ["key"] = "pr_reviews", ["text"] = L.T("pr_reviews"), ["value"] = J.Truthy(g["pr_reviews"]),
+                ["head"] = L.T("pr_section"), ["hint"] = L.T("pr_hint"),
+            },
+            new JsonObject { ["key"] = "pr_dependabot", ["text"] = L.T("pr_dependabot"), ["value"] = J.Truthy(g["pr_dependabot"]) });
+        var notes = new JsonArray();
+        if (tokenAuth && J.Num(g["token_expires"]) is double e)
+        {
+            var exp = DateTimeOffset.FromUnixTimeSeconds((long)e).ToLocalTime();
+            notes.Add(JsonValue.Create((exp - DateTimeOffset.Now < TimeSpan.FromDays(7) ? "\u26a0 " : "") + L.T("gh_expires", exp.ToString("d MMM yyyy"))));
+        }
+        if (J.Num(g["rate_remaining"]) is double rl && rl < 1000) notes.Add(JsonValue.Create(L.T("gh_rate_left", J.Fmt(rl))));
+        if (notes.Count > 0) row["notes"] = notes;
+        return row;
     }
 
-    public JsonObject SettingsChange(JsonObject page) => SettingsRows.Change(page, "token", "forget_token");
+    public JsonObject SettingsChange(JsonObject page) =>
+        SettingsRows.Change(page, "token", "forget_token", new[] { "auth", "repos", "interval", "notify_success", "logs", "pr_reviews", "pr_dependabot" });
 
     public (string Check, string Text) KeyVerdict()
     {
         var v = State();
         return (J.Str(v["token_check"]), J.Str(v["token_check_text"]));
     }
-
-    public Action Setup => () => GitHubForm.ShowFor(this);
 
     int Count() { lock (gate) return active.Count; }
 

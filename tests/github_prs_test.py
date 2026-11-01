@@ -230,9 +230,10 @@ check("another review request -> task", wait(lambda: task(R6)) is not None)
 s, r = call("POST", "/api/connectors/github", {"pr_reviews": False})
 t6 = wait(lambda: (task(R6) or {}).get("state") == "done" and task(R6))
 check("pr_reviews off -> review task ends 'Pull requests turned off in TaskHub'", t6 and t6.get("message") == "Pull requests turned off in TaskHub", t6)
-t14 = task(tid("o/r", 14))
-check("…the review request that is also Dependabot's stays open, now 'Dependabot · …'", t14 and t14["state"] == "running"
-      and t14["name"].startswith("Dependabot · Bump urllib3") and t14.get("status") == "Open" and not t14.get("attention"), t14)
+# the task is re-registered as a Dependabot PR first and gets its status a moment later: wait for the final state
+ok14 = lambda t: t and t["state"] == "running" and t["name"].startswith("Dependabot · Bump urllib3") and t.get("status") == "Open"     and not t.get("attention")
+t14 = wait(lambda: ok14(task(tid("o/r", 14))) and task(tid("o/r", 14)))
+check("…the review request that is also Dependabot's stays open, now 'Dependabot · …'", ok14(t14), task(tid("o/r", 14)))
 
 # ---- the connector turned off: every PR task ends
 s, r = call("POST", "/api/connectors/github", {"enabled": False})
