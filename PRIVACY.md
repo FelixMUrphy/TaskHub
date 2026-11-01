@@ -63,7 +63,8 @@ it.
   kept in `guard_runpod.json` / `guard_vastai.json` in the same folder so it survives a restart. Both are deleted with that
   folder.
 - **Update check** (only in the version installed from GitHub, not in the Microsoft Store version). Once a day TaskHub
-  asks `api.github.com` for the latest release number. It sends no personal data, and you can turn the check off in the
+  asks `api.github.com` for the latest release number; from TaskHub 2.9.5 also when you open its settings page and the
+  last check is older than 15 minutes, and after *Update to X* (the same request, so the offered version is current). It sends no personal data, and you can turn the check off in the
   tray menu (*Updates*; from TaskHub 2.9: Settings in the panel → *System*).
 
 *Support TaskHub* in the tray menu, the panel and its settings only opens GitHub Sponsors in your browser; TaskHub itself sends

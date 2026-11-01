@@ -17,6 +17,7 @@ sealed class Updater
     static readonly TimeSpan Fresh = TimeSpan.FromMinutes(15);
     double lastTry;   // J.Now() of the last quiet re-check attempt (also failed ones: no retry storm while offline)
     bool stale;       // "Update to X" was pressed: the next settings refresh re-checks whatever the age
+    bool selfTest;    // --selftest-update: a mock API stands in for the installed copy
 
     readonly Settings S;
     readonly Hub hub;
@@ -72,6 +73,7 @@ sealed class Updater
     public Task RecheckIfStale()
     {
         if (!Auto) return null;   // automatic checks off: no network on its own
+        if (!Install.IsInstalledCopy && !selfTest) return null;   // dev / test / demo hubs never call GitHub on their own
         double now = J.Now(), last = Math.Max(J.Num(S.Get("update_checked")) ?? 0, lastTry);
         if (!stale && now - last < Fresh.TotalSeconds) return null;
         lastTry = now; stale = false;
@@ -137,7 +139,7 @@ sealed class Updater
     public static int SelfTest(Settings s, string api)
     {
         if (!Uri.TryCreate(api, UriKind.Absolute, out var u) || !u.IsLoopback) return 2;
-        var up = new Updater(s, null, null) { LatestApi = u.ToString() };
+        var up = new Updater(s, null, null) { LatestApi = u.ToString(), selfTest = true };
         string Av() => up.Available?.Version.ToString(3) ?? "none";
         foreach (var step in Console.In.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
