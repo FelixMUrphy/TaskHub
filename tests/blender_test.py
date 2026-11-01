@@ -60,6 +60,13 @@ out("Blender 4.2.3 LTS (hash 0e7f0b6d6a9d built 2024-10-15 00:00:00)")
 if mode == "v4":
     for f in range(1, 4):
         frame4(f)
+elif mode == "long":       # 6 frames, -s 1 -e 6; FAKE_CRASH_AT: exit 11 while rendering that frame
+    crash = int(os.environ.get("FAKE_CRASH_AT", "0"))
+    for f in range(1, 7):
+        if f == crash:
+            out(f"Fra:{f} Mem:210.33M (Peak 260.10M) | Time:00:00.10 | Mem:99.00M, Peak:99.00M | Scene, ViewLayer | Sample 1/128")
+            sys.exit(11)
+        frame4(f)
 elif mode == "eevee":
     frame4(7, eevee=True)
 elif mode == "v5":
@@ -117,13 +124,51 @@ check("v4: while rendering 'Frame 2 · 2/3 · Sample 64/128' at 50% overall", mi
 spf = widget(t, "blender_spf")
 check("v4: s/frame chart got 3 points (1.5, 2.5, 3.5 s)", spf and [p[1] if isinstance(p, list) else p.get("y", p.get("v"))
       for p in spf.get("points", [])][-3:] == [1.5, 2.5, 3.5], spf)
+mem = widget(t, "blender_mem")
+check("v4: memory chart from Cycles' own Mem (120.4 MB)", mem and mem.get("unit") == "MB" and mem.get("points")
+      and mem["points"][-1][1] == 120.4, mem)
+check("v4: 'Stop after this frame' button", any(c.get("id") == "blender_stop" for c in t.get("controls") or []), t.get("controls"))
 check("v4: 'Last saved' widget = the last file", (widget(t, "blender_saved") or {}).get("value", "").endswith("frame_0003.png"), widget(t, "blender_saved"))
+
+# 1b) "Stop after this frame" pressed while frame 2 renders -> Blender ended right after frame 2 is saved; resume hint
+def press_when(tid, status_prefix, cid):
+    end = time.time() + 30
+    while time.time() < end:
+        t = task(tid)
+        if t and (t.get("status") or "").startswith(status_prefix):
+            return call("POST", f"/api/tasks/{tid}/controls/{cid}", {})
+        time.sleep(0.05)
+    return None, None
+
+
+res = {}
+th = threading.Thread(target=lambda: res.update(r=press_when("bls", "Frame 2", "blender_stop")), daemon=True)
+th.start()
+r = run("bls", [blender_cmd, "-b", "scene.blend", "-s", "1", "-e", "6", "-a"], env={"FAKE_BLENDER": "long", "FAKE_PAUSE": "1.5"})
+th.join(5)
+t = task("bls")
+check("stop after frame: button accepted", res.get("r") and res["r"][0] == 200, res)
+check("stop after frame: cancelled, 'Stopped after frame 2 · 2/6 saved · resume: -s 3'", t and t["state"] == "cancelled"
+      and t.get("message") == "Stopped after frame 2 · 2/6 saved · resume: -s 3", t and (t["state"], t.get("message")))
+check("…frame 3 never saved", "frame_0003" not in json.dumps(t.get("log") or []), (t.get("log") or [])[-4:])
+check("…resume command printed: -s 3 instead of -s 1", "resume with:" in r.stderr and " -s 3 -e 6 -a" in r.stderr, r.stderr)
+
+# 1c) Blender crashes while rendering frame 3 of 6 (no -s given) -> failed, resume from 3, -s inserted before -a
+r = run("blc", [blender_cmd, "-b", "scene.blend", "-e", "6", "-a"], env={"FAKE_BLENDER": "long", "FAKE_CRASH_AT": "3"})
+t = task("blc")
+check("crash at frame 3: exit 11, failed, 'exit code 11 · 2 saved · resume: -s 3'", r.returncode == 11 and t["state"] == "failed"
+      and t.get("message") == "exit code 11 · 2 saved · resume: -s 3", (r.returncode, t.get("message")))
+check("…resume command: -s 3 inserted before -a", "-e 6 -s 3 -a" in r.stderr, r.stderr)
 
 # 2) EEVEE, -f 7: one frame
 r = run("ble", [blender_cmd, "-b", "scene.blend", "-f", "7"], env={"FAKE_BLENDER": "eevee"})
 t = task("ble")
 check("eevee -f 7: done, progress 1, '1 frame · …'", r.returncode == 0 and t and t["state"] == "done" and t.get("progress") == 1
       and t.get("message", "").startswith("1 frame · "), t)
+check("eevee: memory from Blender's 'Fra: Mem:' (210.3 MB); single frame -> no stop button",
+      ((widget(t, "blender_mem") or {}).get("points") or [[0, 0]])[-1][1] == 210.3
+      and not any(c.get("id") == "blender_stop" for c in t.get("controls") or []), (widget(t, "blender_mem"), t.get("controls")))
+check("…no resume hint after a normal end", "resume" not in r.stderr, r.stderr)
 
 # 3) Blender 5.0 lines (CLOG prefix, range from 'Rendering animation (frames 10..11)'), explicit --preset with python
 r = run("bl5", [sys.executable, fake, "-b", "scene.blend", "-a"], env={"FAKE_BLENDER": "v5", "FAKE_PAUSE": "0.8"}, preset="blender")

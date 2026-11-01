@@ -104,6 +104,7 @@ static class Runner
                 (JsonNode)new JsonObject { ["id"] = "interrupt", ["label"] = "Ctrl+C", ["kind"] = "signal", ["confirm"] = "Надіслати Ctrl+C процесу?", ["toast"] = toastCtl },
                 (JsonNode)new JsonObject { ["id"] = "stdin", ["label"] = "Send input", ["kind"] = "signal", ["input"] = new JsonObject { ["type"] = "text", ["label"] = "stdin" } },
             };
+            foreach (var pc in preset?.Controls ?? Enumerable.Empty<JsonObject>()) controls.Add(pc);
             var reg = new JsonObject
             {
                 ["id"] = tid, ["name"] = name ?? Cut(cmdline, 80), ["source"] = source,
@@ -137,10 +138,17 @@ static class Runner
         {
             sender = new Thread(() => SenderLoop(c, tid, pending, stop.Token)) { IsBackground = true };
             sender.Start();
-            new Thread(() => PollLoop(c, tid, p, stop.Token, v => forwarding = v)) { IsBackground = true }.Start();
+            new Thread(() => PollLoop(c, tid, p, stop.Token, v => forwarding = v, preset, pending.L)) { IsBackground = true }.Start();
         }
 
         string lastLine = "";
+        bool ending = false;   // the preset asked to end the command (e.g. "stop after this frame")
+        void EndIfAsked()
+        {
+            if (ending || preset?.WantsStop != true) return;
+            ending = true;
+            new Thread(() => { try { p.Kill(entireProcessTree: true); } catch { } }) { IsBackground = true }.Start();
+        }
         var outLock = new object();
         Stream stdout = quiet ? null : Console.OpenStandardOutput();
         void OnLine(string raw)
@@ -152,12 +160,13 @@ static class Runner
                 // without a hub nobody sends the pending lines: keep only the last one (fail-soft, no growing buffer)
                 if (!useHub)
                 {
-                    if (!line.StartsWith("::")) { lastLine = line; preset?.Line(line, pending.Fields, pending.Widgets); }   // for the verdict
+                    if (!line.StartsWith("::")) { lastLine = line; preset?.Line(line, pending.Fields, pending.Widgets); EndIfAsked(); }   // for the verdict
                     return;
                 }
                 if (line.StartsWith("::") && Directive(line, pending)) { TrimLog(pending); return; }
                 lastLine = line;
                 var entry = preset?.Line(Cut(line, 2000), pending.Fields, pending.Widgets);
+                EndIfAsked();
                 pending.Log.Add(entry ?? JsonValue.Create(Cut(line, 2000)));
                 TrimLog(pending);
                 pending.Widgets["last"] = Cut(line, 300);
@@ -212,7 +221,9 @@ static class Runner
         int rc = p.ExitCode;
         stop.Cancel();
         (string State, string Message)? verdict;
-        lock (pending.L) verdict = preset?.Verdict(rc);
+        string resume;
+        lock (pending.L) { verdict = preset?.Verdict(rc); resume = preset?.ResumeCommand; }
+        if (resume != null) Console.Error.WriteLine("taskhub: resume with: " + resume);
         if (useHub)
         {
             sender?.Join(2000);
@@ -341,7 +352,7 @@ static class Runner
         }
     }
 
-    static void PollLoop(Client c, string tid, Process p, CancellationToken ct, Action<bool> setForwarding)
+    static void PollLoop(Client c, string tid, Process p, CancellationToken ct, Action<bool> setForwarding, IOutputPreset preset, object presetLock)
     {
         while (!ct.IsCancellationRequested && !p.HasExited)
         {
@@ -372,8 +383,9 @@ static class Runner
                             reply = "written";
                             break;
                         default:
-                            ok = false;
-                            reply = "unknown control";
+                            (bool Ok, string Reply)? pr;
+                            lock (presetLock) pr = preset?.OnControl(cid, cmd["value"]);
+                            (ok, reply) = pr ?? (false, "unknown control");
                             break;
                     }
                 }
