@@ -3,6 +3,12 @@
 What changed in each release of TaskHub. The release page on GitHub shows the section of its version (CI takes it
 from here), followed by the list of commits.
 
+## Unreleased
+
+- The pinned panel keeps its edge of the screen: maximized windows make room for it and get the space back when you
+  unpin or hide it. A new switch on the settings page (off by default) also moves or narrows the other windows on that
+  screen, and puts them back on unpin.
+
 ## 2.9.6 — 2026-11-01
 
 - GitHub Actions is set up right on the settings page (*Connectors* → *GitHub Actions*): access, repositories with their

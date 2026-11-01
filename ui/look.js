@@ -1,6 +1,6 @@
 /* ---------------- look: theme, accent, background transparency ---------------- */
 let LOOK = null;   // from the host: {dark, accent:"#rrggbb", backdrop:bool, transparency:null|"energy_saver"|"off"}
-let PANEL = {theme:"system",accent:"system",panel_transparency:30,card_transparency:30,panel_group:"project",panel_pinned:false};   // config.json, via /api/tasks
+let PANEL = {theme:"system",accent:"system",panel_transparency:30,card_transparency:30,panel_group:"project",panel_pinned:false,panel_push_windows:false};   // config.json, via /api/tasks
 // relative luminance -> black or white text on the accent colour (WCAG: whichever contrasts more)
 function lum(h){ const m=/^#([0-9a-f]{6})$/i.exec(h||""); if(!m) return 0; const n=parseInt(m[1],16);
   const c=[n>>16&255,n>>8&255,n&255].map(v=>{ v/=255; return v<=0.03928? v/12.92 : Math.pow((v+0.055)/1.055,2.4); });
@@ -35,6 +35,8 @@ function applyLook(){
   if (known){ document.getElementById("transpht").textContent=T(why==="off"?"tr_off":"tr_energy");
     const l=document.getElementById("transphl"); l.textContent=T("tr_open"); l.dataset.do=why==="off"?"colors_settings":"energy_settings"; }
   const p=document.getElementById("pin"); $("i",p).textContent=PANEL.panel_pinned?"\uE841":"\uE718";   /* filled pin = pinned */ p.title=T(PANEL.panel_pinned?"unpin":"pin"); p.setAttribute("aria-label",p.title); p.setAttribute("aria-pressed",PANEL.panel_pinned?"true":"false"); p.style.display=NATIVE?"":"none";
+  { const b=document.getElementById("push"), on=!!PANEL.panel_push_windows; b.classList.toggle("on",on); b.setAttribute("aria-checked",on?"true":"false");
+    b.setAttribute("aria-label",T("push_windows")); document.getElementById("pushl").style.display=NATIVE?"":"none"; }   /* the edge is reserved only by the app */
 }
 let modal = false;   // confirm() dialog open -> don't auto-hide
 // info: a message with OK only (no choice to make)

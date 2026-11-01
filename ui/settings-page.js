@@ -114,6 +114,7 @@ $("#transp").onchange=e=>setPanel({panel_transparency:+e.target.value});
 $("#ctransp").oninput=e=>{ PANEL.card_transparency=+e.target.value; applyLook(); };
 $("#ctransp").onchange=e=>setPanel({card_transparency:+e.target.value});
 $("#pin").onclick=()=>setPanel({panel_pinned:!PANEL.panel_pinned});
+$("#push").onclick=()=>setPanel({panel_push_windows:!PANEL.panel_push_windows});
 window.addEventListener("blur",()=>{
   if (!AUTOHIDE || NATIVE) return;   // the native host hides itself on deactivation
   setTimeout(async ()=>{

@@ -400,6 +400,7 @@ sealed partial class Hub
         ["card_transparency"] = Math.Clamp(S.Int("card_transparency", 30), 0, 100),
         ["panel_group"] = J.Str(S.Get("panel_group"), "project"),
         ["panel_pinned"] = S.Bool("panel_pinned", false),
+        ["panel_push_windows"] = S.Bool("panel_push_windows", false),
     };
 
     /// <summary>Raised (on the caller's thread) after a panel setting changed.</summary>
@@ -434,6 +435,7 @@ sealed partial class Hub
             kv.Add(("panel_group", v));
         }
         if (b.ContainsKey("panel_pinned")) kv.Add(("panel_pinned", J.Truthy(b["panel_pinned"])));
+        if (b.ContainsKey("panel_push_windows")) kv.Add(("panel_push_windows", J.Truthy(b["panel_push_windows"])));
         if (kv.Count == 0) return;
         S.Set(kv.ToArray());
         lock (Lock) Bump();
