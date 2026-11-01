@@ -63,7 +63,8 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
 - **Update check**: a notification when a new version is released (once a day; switch and *Check now* in Settings → *System*; *Check now* answers right
   there, also when you already have the latest version).
 - **Panel like the Windows notification center**: docked to the right edge of the screen at full height, slides in
-  and out (instant if Windows animations are off), width by dragging its left edge, a pin to keep it open; blurred
+  and out (instant if Windows animations are off), width by dragging its left edge, a pin to keep it open (*from 2.9.7* the pinned panel keeps its screen edge: maximized
+  windows make room, other windows too if you switch that on in ⚙); blurred
   see-through background and cards (*Panel transparency*; *Card transparency* from 2.9 — in ⚙), light / dark theme and accent colour follow Windows
   (or set in ⚙). *From 2.9.4* the settings say when Windows itself draws no blur (energy saver on, or *Transparency
   effects* off in Windows settings), with a link to that setting.

@@ -56,7 +56,8 @@ sealed class Settings
         ["log_lines"] = 400,
         ["panel_width"] = 480,              // width of the panel docked to the right edge (px at 96 dpi; drag its left edge)
         ["panel_autohide"] = true,
-        ["panel_pinned"] = false,           // pin button: the panel stays open when it loses focus
+        ["panel_pinned"] = false,           // pin button: the panel stays open when it loses focus and keeps its screen edge
+        ["panel_push_windows"] = false,     // pinned panel: also move / narrow normal windows out of its way
         ["panel_topmost"] = true,
         ["panel_transparency"] = 30,        // background transparency 0-100 % (Windows 11 acrylic behind it)
         ["card_transparency"] = 30,         // the cards' own background, 0-100 %

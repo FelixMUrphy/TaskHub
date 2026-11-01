@@ -62,7 +62,7 @@ sealed class PanelForm : Form
         Deactivate += (_, _) => OnDeactivated();
         VisibleChanged += (_, _) => IsShown = Visible;
         ResizeEnd += (_, _) => SaveWidth();
-        hub.PanelSettingsChanged += () => { if (IsHandleCreated) BeginInvoke(ApplyLook); };
+        hub.PanelSettingsChanged += () => { if (IsHandleCreated) BeginInvoke(() => { ApplyLook(); UpdateBar(); }); };
         try
         {
             uiSettings = new UISettings();
@@ -187,13 +187,98 @@ sealed class PanelForm : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        bar = new AppBar(Handle);
         ApplyLook();
+        BeginInvoke(() => UpdateBar());   // a recreated handle: take the edge again if pinned and shown
+    }
+
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        bar?.Remove(true);
+        bar = null;
+        base.OnHandleDestroyed(e);
+    }
+
+    // ------------------------------------------------------------ pinned: the screen edge is ours (AppBar)
+    AppBar bar;
+    bool lastPush, fullScreenAside;
+
+    /// <summary>Where the pushed windows really ended up, once they had a moment to move.</summary>
+    async Task SettleLater()
+    {
+        await Task.Delay(600);
+        bar?.SettlePushed();
+    }
+    /// <summary>The edge is reserved only while the panel is pinned and fully shown; hidden / unpinned gives it back.</summary>
+    bool BarWanted => Pinned && Visible && !hiding && !sliding && WindowState != FormWindowState.Minimized;
+
+    /// <summary>Reserves (or frees) the panel's strip at the right edge of its monitor and puts the panel exactly there.
+    /// `width` in physical px: the current panel width by default.</summary>
+    void UpdateBar(int width = 0)
+    {
+        if (bar == null) return;
+        try
+        {
+            bool push = S.Bool("panel_push_windows", false), pushNow = push && !lastPush;
+            if (!push && lastPush) bar.RestoreWindows();   // the switch turned off: the windows go back now
+            lastPush = push;
+            if (!BarWanted)
+            {
+                bar.Remove(!Pinned);   // unpinned: windows back; only hidden: they stay (no jumping on every tray toggle)
+                fullScreenAside = false;
+                TopMost = S.Bool("panel_topmost", true);
+                return;
+            }
+            var r = bar.Reserve(width > 0 ? width : target.Width > 0 ? target.Width : Width, push, pushNow);
+            if (push) _ = SettleLater();
+            if (r.Width <= 0 || r.Height <= 0) return;
+            target = r;
+            shownPx = r.Width;
+            if (Bounds != r) Native.SetWindowPos(Handle, IntPtr.Zero, r.X, r.Y, r.Width, r.Height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+            web.Dock = DockStyle.Fill;
+        }
+        catch (Exception e) { Log.W("appbar: " + e.Message); }
     }
 
     protected override void WndProc(ref Message m)
     {
+        if (m.Msg == AppBar.CallbackMessage)
+        {
+            switch ((int)m.WParam)
+            {
+                case AppBar.ABN_POSCHANGED:   // the taskbar or another bar moved: take our place again
+                    if (bar?.Registered == true) BeginInvoke(() => UpdateBar());
+                    break;
+                case AppBar.ABN_FULLSCREENAPP:   // a full-screen app: step back from top-most until it ends (ours only)
+                    if (m.LParam != IntPtr.Zero)
+                    {
+                        if (bar?.Registered == true && bar.ForegroundOnOurMonitor()) { fullScreenAside = true; TopMost = false; }
+                    }
+                    else if (fullScreenAside) { fullScreenAside = false; TopMost = S.Bool("panel_topmost", true); }
+                    break;
+            }
+            return;
+        }
+        if (m.Msg == AppBar.TaskbarCreated && AppBar.TaskbarCreated != 0)   // Explorer restarted: our reservation went with it
+        {
+            if (bar?.Registered == true) { bar.Lost(); BeginInvoke(() => UpdateBar()); }
+            base.WndProc(ref m);
+            return;
+        }
         switch (m.Msg)
         {
+            case WM_ACTIVATE:
+                base.WndProc(ref m);
+                bar?.Activated();
+                return;
+            case WM_WINDOWPOSCHANGED:
+                base.WndProc(ref m);
+                bar?.PosChanged();
+                return;
+            case WM_DISPLAYCHANGE:   // monitors added / removed / resolution: re-place on the monitor we're on
+                base.WndProc(ref m);
+                if (bar?.Registered == true) BeginInvoke(() => UpdateBar(Px(Math.Clamp(S.Int("panel_width", 480), MinWidth, MaxWidth))));
+                return;
             case Native.WM_NCCALCSIZE when m.WParam != IntPtr.Zero:
                 m.Result = IntPtr.Zero;    // client area = whole window -> no visible frame / caption
                 return;
@@ -244,7 +329,12 @@ sealed class PanelForm : Form
                 return;
             case Native.WM_DPICHANGED:
                 base.WndProc(ref m);
-                if (Visible && target.Width > 0) BeginInvoke(() => { if (Visible && !animating) { Place(); ShowFull(); } });
+                if (Visible && target.Width > 0) BeginInvoke(() =>
+                {
+                    if (!Visible || animating) return;
+                    if (bar?.Registered == true) UpdateBar(Px(Math.Clamp(S.Int("panel_width", 480), MinWidth, MaxWidth)));
+                    else { Place(); ShowFull(); }
+                });
                 return;
             case Native.WM_SETTINGCHANGE:
                 base.WndProc(ref m);
@@ -258,6 +348,8 @@ sealed class PanelForm : Form
         }
         base.WndProc(ref m);
     }
+
+    const int WM_ACTIVATE = 0x06, WM_WINDOWPOSCHANGED = 0x47, WM_DISPLAYCHANGE = 0x7E;
 
     WebView2 NewWeb() => new() { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };   // undocked (fixed size) while sliding
 
@@ -559,6 +651,13 @@ sealed class PanelForm : Form
     void SaveWidth()
     {
         if (animating || !Visible) return;
+        if (bar?.Registered == true)
+        {
+            int d = Math.Clamp((int)Math.Round(Width * 96.0 / DeviceDpi), MinWidth, MaxWidth);
+            if (S.Int("panel_width", 480) != d) S.Set(("panel_width", d));
+            UpdateBar(Width);
+            return;
+        }
         var wa = Screen.FromControl(this).WorkingArea;
         int dip = Math.Clamp((int)Math.Round(Width * 96.0 / DeviceDpi), MinWidth, MaxWidth);
         target = new Rectangle(wa.Right - Width, wa.Top, Width, wa.Height);
@@ -671,7 +770,7 @@ sealed class PanelForm : Form
         {
             ApplyLook();
             target = ComputeTarget();
-            if (!anim) { Show(); animGen++; animating = false; ShowFull(); return; }
+            if (!anim) { Show(); animGen++; animating = false; ShowFull(); UpdateBar(); return; }
             sliding = true;
             PinWebSize();
             SetShown(0);
@@ -679,9 +778,9 @@ sealed class PanelForm : Form
             await WaitPainted();
             if (!sliding) return;    // hidden meanwhile
         }
-        if (!anim) { animGen++; animating = false; ShowFull(); return; }
+        if (!anim) { animGen++; animating = false; ShowFull(); UpdateBar(); return; }
         sliding = true;
-        if (await Slide(true)) ShowFull();
+        if (await Slide(true)) { ShowFull(); UpdateBar(); }
     }
 
     public void HidePanel(bool auto)
@@ -711,6 +810,8 @@ sealed class PanelForm : Form
         sliding = false;
         animGen++;
         animating = false;
+        bar?.Remove(!Pinned);
+        if (fullScreenAside) { fullScreenAside = false; TopMost = S.Bool("panel_topmost", true); }
         Hide();
         shownPx = 0;
         PostShown(false);   // also: nothing stays open in a hidden panel (settings popover etc.)
@@ -763,6 +864,7 @@ sealed class PanelForm : Form
 
     public void ReallyClose()
     {
+        bar?.Remove(true);
         allowClose = true;
         Close();
     }

@@ -5,6 +5,9 @@ from here), followed by the list of commits.
 
 ## Unreleased
 
+- The pinned panel keeps its edge of the screen: maximized windows make room for it and get the space back when you
+  unpin or hide it. A new switch on the settings page (off by default) also moves or narrows the other windows on that
+  screen, and puts them back on unpin.
 - Fixed: after adding a repository on the GitHub settings page as a link (`https://github.com/owner/repo`), the text
   stayed in the field although the repository was added.
 
