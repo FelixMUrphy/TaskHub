@@ -3,7 +3,7 @@
 What changed in each release of TaskHub. The release page on GitHub shows the section of its version (CI takes it
 from here), followed by the list of commits.
 
-## Unreleased
+## 2.9.4 — 2026-11-01
 
 - GitHub: **pull requests, read-only** (off by default): PRs waiting for your review and open Dependabot PRs of the
   watched repositories become tasks with a link and a notification; they end quietly when merged, closed or reviewed.
