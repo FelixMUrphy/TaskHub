@@ -117,7 +117,33 @@ jobs:
           name: setup
           path: dist
 
-      # creates the release, or adds the files to one made by hand for this tag
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+          path: src
+
+      # release notes = this version's section of CHANGELOG.md + how to install / verify; GitHub appends the commit list
+      - name: Release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          v="${TAG#v}"
+          awk -v v="$v" '$0 ~ "^## " { if (on) exit; if (index($0, "## " v " ") == 1 || $0 == "## " v) { on = 1; next } } on'             src/CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error file=CHANGELOG.md::no section '## $v' in CHANGELOG.md"; exit 1
+          fi
+          sha=$(cut -d' ' -f1 "dist/TaskHub-$v-setup.exe.sha256")
+          {
+            echo
+            echo "### Install"
+            echo "- **[TaskHub-$v-setup.exe](https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/TaskHub-$v-setup.exe)** — per-user, no admin rights; run it and press *Install*. Silent: \`TaskHub-$v-setup.exe --install --quiet\`."
+            echo
+            echo "SHA-256 of the setup exe: \`$sha\`"
+          } >> notes.md
+          cat notes.md
+
+      # creates the release, or adds the files to one made by hand for this tag (its text is kept)
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -127,5 +153,30 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "$TAG" dist/* --title "TaskHub ${TAG#v}" --generate-notes --verify-tag
+            gh release create "$TAG" dist/* --title "TaskHub ${TAG#v}" --notes-file notes.md --generate-notes --verify-tag
           fi
+
+  # winget: a PR with the new version to microsoft/winget-pkgs (Komac via winget-releaser) after each release.
+  # Off until the repository secret WINGET_TOKEN exists (classic PAT, scope public_repo, of the account that owns a fork
+  # of microsoft/winget-pkgs). Only updates an existing package: the first version (packaging/winget/) goes in by hand.
+  winget:
+    needs: release
+    if: github.ref_type == 'tag'
+    runs-on: windows-latest
+    steps:
+      - name: Token present?
+        id: has
+        shell: pwsh
+        env:
+          T: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if ($env:T) { "on=1" >> $env:GITHUB_OUTPUT } else { Write-Output "::notice::WINGET_TOKEN not set: winget update skipped" }
+
+      - uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54   # v2
+        if: steps.has.outputs.on == '1'
+        with:
+          identifier: FelixMUrphy.TaskHub
+          installers-regex: 'setup\.exe$'
+          release-tag: ${{ github.ref_name }}
+          release-notes-url: https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md
+          token: ${{ secrets.WINGET_TOKEN }}

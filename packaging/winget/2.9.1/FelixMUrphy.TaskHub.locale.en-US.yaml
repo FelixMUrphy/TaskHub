@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
+PackageIdentifier: FelixMUrphy.TaskHub
+PackageVersion: 2.9.1
+PackageLocale: en-US
+Publisher: TaskHub
+PublisherUrl: https://github.com/FelixMUrphy
+PublisherSupportUrl: https://github.com/FelixMUrphy/TaskHub/issues
+PrivacyUrl: https://github.com/FelixMUrphy/TaskHub/blob/main/PRIVACY.md
+Author: FelixMUrphy
+PackageName: TaskHub
+PackageUrl: https://github.com/FelixMUrphy/TaskHub
+License: PolyForm Shield 1.0.0
+LicenseUrl: https://github.com/FelixMUrphy/TaskHub/blob/main/LICENSE.md
+ShortDescription: Tray hub for long-running jobs and AI-agent tasks - progress, notifications, charts and controls over a local API.
+Description: |-
+  TaskHub shows everything that runs in the background on your PC - training runs, renders, builds, backups and the
+  scripts your AI agents start - in a tray icon with a progress ring, Windows notifications and a panel with live
+  charts and the task's own buttons. Processes report over a local HTTP API (127.0.0.1 only), the taskhub CLI, MCP
+  (Claude Code, Codex) or a Python client. Optional: Telegram bot, GitHub Actions, Runpod and Vast.ai connectors.
+Moniker: taskhub
+Tags:
+- tray
+- notifications
+- progress
+- task-monitor
+- ai-agents
+- claude-code
+- mcp
+- developer-tools
+ReleaseNotesUrl: https://github.com/FelixMUrphy/TaskHub/blob/main/CHANGELOG.md
+ManifestType: defaultLocale
+ManifestVersion: 1.12.0
