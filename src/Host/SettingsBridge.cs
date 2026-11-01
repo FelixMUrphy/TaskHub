@@ -135,6 +135,7 @@ sealed class SettingsBridge
                     }
                     if (c.ContainsKey("update_check")) S.Set(("update_check", J.Truthy(c["update_check"])));
                     if (c.ContainsKey("muted")) hub.SetMuted(J.Truthy(c["muted"]));
+                    if (c.ContainsKey("panel_push_windows")) hub.SetPushWindows(J.Truthy(c["panel_push_windows"]));
                     if (c.ContainsKey("tg_away")) tg?.SetAwayOnly(J.Truthy(c["tg_away"]));
                     if (c.ContainsKey("tg_progress")) tg?.SetProgress(J.Truthy(c["tg_progress"]));
                     // a connector: on / off (off keeps the key), the key (checked with the service, then kept in the

@@ -435,9 +435,16 @@ sealed partial class Hub
             kv.Add(("panel_group", v));
         }
         if (b.ContainsKey("panel_pinned")) kv.Add(("panel_pinned", J.Truthy(b["panel_pinned"])));
-        if (b.ContainsKey("panel_push_windows")) kv.Add(("panel_push_windows", J.Truthy(b["panel_push_windows"])));
         if (kv.Count == 0) return;
         S.Set(kv.ToArray());
+        lock (Lock) Bump();
+        PanelSettingsChanged?.Invoke();
+    }
+
+    /// <summary>Moving other apps' windows is a system-changing action: only the settings page (SettingsBridge), never HTTP.</summary>
+    public void SetPushWindows(bool on)
+    {
+        S.Set(("panel_push_windows", on));
         lock (Lock) Bump();
         PanelSettingsChanged?.Invoke();
     }
