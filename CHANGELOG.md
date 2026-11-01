@@ -9,6 +9,10 @@ from here), followed by the list of commits.
   with sleep.
 - The MCP server is also published as an MCP bundle (`taskhub-mcp-win-x64.mcpb`, a release asset) and listed in the
   MCP Registry as `io.github.FelixMUrphy/taskhub`; it needs the TaskHub app installed.
+- `taskhub run -- blender -b …` reads Blender's render output: frame and samples, overall progress when the frame range
+  is known, seconds-per-frame and memory charts, the last saved file. A render error fails the task (Blender itself
+  exits with 0). *Stop after this frame* ends the render cleanly; after a stop or a crash the task and the console say
+  how to resume (`-s` set to the next frame). `--preset blender` / `--preset none` choose it by hand.
 
 ## 2.9.1 — 2026-10-31
 

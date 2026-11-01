@@ -122,12 +122,19 @@ http://127.0.0.1:47800; env TASKHUB_URL / TASKHUB_TOKEN override them)
                                                     prints nothing, always exits 0, never starts the hub)
   taskhub run [--name N] [--id ID] [--source S] [--description D] [--cwd DIR] [--heartbeat SEC]
               [--auto-progress] [--progress-regex RX] [--status-regex RX] [--milestones 25,50,75]
-              [--progress-toast] [--toast-controls] [--encoding utf8|oem|ansi] [--quiet] -- COMMAND [ARGS...]
+              [--progress-toast] [--toast-controls] [--encoding utf8|oem|ansi] [--preset blender|none] [--quiet]
+              -- COMMAND [ARGS...]
       Runs COMMAND, echoes its output, streams it into the task log, parses progress, and understands
       these directives printed by the command on their own line:
         ::progress 5/20   ::progress 5   ::percent 40   ::total 20   ::status text   ::stage text
         ::log text   ::warn text   ::error text   ::toast text   ::metric key=value   ::widget id=<json|text>
-      Adds Ctrl+C, 'Send input' (stdin) and Kill controls; exits with the command's exit code.
+      Presets read a known tool's own output: blender (frame, samples, overall progress when the frame range is
+      known, s/frame and memory charts, saved files; 'Error:' lines fail the task even though Blender exits with 0;
+      a 'Stop after this frame' button; after a stop or a crash it prints the command to resume from the next
+      frame). Chosen by the command's file name unless --progress-regex / --status-regex / --auto-progress is
+      given; --preset none turns it off.
+      Adds Ctrl+C, 'Send input' (stdin) and Kill controls; exits with the command's exit code (1 when a preset saw
+      the tool fail while it exited with 0).
       The child gets TASKHUB_URL and TASKHUB_TASK_ID in its environment (so it can call the API itself).
 
 Global option: --url URL";

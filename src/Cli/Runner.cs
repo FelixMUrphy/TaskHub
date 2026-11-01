@@ -38,6 +38,7 @@ static class Runner
         string hb = Program.TakeOpt(a, "--heartbeat");
         string ms = Program.TakeOpt(a, "--milestones");
         string enc = Program.TakeOpt(a, "--encoding") ?? "utf8";
+        string presetName = Program.TakeOpt(a, "--preset");
         bool auto = Program.TakeFlag(a, "--auto-progress");
         bool quiet = Program.TakeFlag(a, "--quiet");
         bool ptoast = Program.TakeFlag(a, "--progress-toast");
@@ -45,6 +46,10 @@ static class Runner
         int dd = a.IndexOf("--");
         var cmd = dd >= 0 ? a.Skip(dd + 1).ToList() : a.ToList();
         if (cmd.Count == 0) { Console.Error.WriteLine("taskhub run: no command given (use: run --name X -- cmd args)"); return 2; }
+        // a known tool's own output (Blender...): by --preset, or by its file name unless the caller parses it already
+        IOutputPreset preset;
+        try { preset = presetName != null || (progRx == null && statRx == null && !auto) ? Presets.For(presetName, cmd) : null; }
+        catch (ArgumentException e) { Console.Error.WriteLine("taskhub run: " + e.Message); return 2; }
 
         Encoding encoding = enc.ToLowerInvariant() switch
         {
@@ -99,13 +104,15 @@ static class Runner
                 (JsonNode)new JsonObject { ["id"] = "interrupt", ["label"] = "Ctrl+C", ["kind"] = "signal", ["confirm"] = "Надіслати Ctrl+C процесу?", ["toast"] = toastCtl },
                 (JsonNode)new JsonObject { ["id"] = "stdin", ["label"] = "Send input", ["kind"] = "signal", ["input"] = new JsonObject { ["type"] = "text", ["label"] = "stdin" } },
             };
+            foreach (var pc in preset?.Controls ?? Enumerable.Empty<JsonObject>()) controls.Add(pc);
             var reg = new JsonObject
             {
                 ["id"] = tid, ["name"] = name ?? Cut(cmdline, 80), ["source"] = source,
                 ["description"] = desc ?? Cut(cmdline, 300), ["pid"] = p.Id, ["cwd"] = psi.WorkingDirectory,
                 ["heartbeat_timeout"] = hb != null ? double.Parse(hb, CultureInfo.InvariantCulture) : 0,
                 ["controls"] = controls,
-                ["widgets"] = new JsonArray { (JsonNode)new JsonObject { ["id"] = "last", ["type"] = "text", ["label"] = "Last line", ["mono"] = true, ["span"] = 2 } },
+                ["widgets"] = new JsonArray(new[] { (JsonNode)new JsonObject { ["id"] = "last", ["type"] = "text", ["label"] = "Last line", ["mono"] = true, ["span"] = 2 } }
+                    .Concat(preset?.Widgets ?? Enumerable.Empty<JsonObject>()).ToArray()),
                 ["progress_toast"] = ptoast,
             };
             if (ms != null)
@@ -131,10 +138,17 @@ static class Runner
         {
             sender = new Thread(() => SenderLoop(c, tid, pending, stop.Token)) { IsBackground = true };
             sender.Start();
-            new Thread(() => PollLoop(c, tid, p, stop.Token, v => forwarding = v)) { IsBackground = true }.Start();
+            new Thread(() => PollLoop(c, tid, p, stop.Token, v => forwarding = v, preset, pending.L)) { IsBackground = true }.Start();
         }
 
         string lastLine = "";
+        bool ending = false;   // the preset asked to end the command (e.g. "stop after this frame")
+        void EndIfAsked()
+        {
+            if (ending || preset?.WantsStop != true) return;
+            ending = true;
+            new Thread(() => { try { p.Kill(entireProcessTree: true); } catch { } }) { IsBackground = true }.Start();
+        }
         var outLock = new object();
         Stream stdout = quiet ? null : Console.OpenStandardOutput();
         void OnLine(string raw)
@@ -144,10 +158,16 @@ static class Runner
             lock (pending.L)
             {
                 // without a hub nobody sends the pending lines: keep only the last one (fail-soft, no growing buffer)
-                if (!useHub) { if (!line.StartsWith("::")) lastLine = line; return; }
+                if (!useHub)
+                {
+                    if (!line.StartsWith("::")) { lastLine = line; preset?.Line(line, pending.Fields, pending.Widgets); EndIfAsked(); }   // for the verdict
+                    return;
+                }
                 if (line.StartsWith("::") && Directive(line, pending)) { TrimLog(pending); return; }
                 lastLine = line;
-                pending.Log.Add(JsonValue.Create(Cut(line, 2000)));
+                var entry = preset?.Line(Cut(line, 2000), pending.Fields, pending.Widgets);
+                EndIfAsked();
+                pending.Log.Add(entry ?? JsonValue.Create(Cut(line, 2000)));
                 TrimLog(pending);
                 pending.Widgets["last"] = Cut(line, 300);
                 if (prog != null)
@@ -200,16 +220,21 @@ static class Runner
         t1.Join(3000); t2.Join(3000);
         int rc = p.ExitCode;
         stop.Cancel();
+        (string State, string Message)? verdict;
+        string resume;
+        lock (pending.L) { verdict = preset?.Verdict(rc); resume = preset?.ResumeCommand; }
+        if (resume != null) Console.Error.WriteLine("taskhub: resume with: " + resume);
         if (useHub)
         {
             sender?.Join(2000);
             Flush(c, tid, pending);
-            var state = rc == 0 ? "done" : (userCancelled ? "cancelled" : "failed");
-            var msg = $"exit code {rc}" + (lastLine.Length > 0 ? " · " + Cut(lastLine, 200) : "");
+            var state = verdict?.State ?? (rc == 0 ? "done" : (userCancelled ? "cancelled" : "failed"));
+            var msg = verdict?.Message ?? $"exit code {rc}" + (lastLine.Length > 0 ? " · " + Cut(lastLine, 200) : "");
             try { c.Call("POST", $"/api/tasks/{tid}/finish", new JsonObject { ["state"] = state, ["message"] = msg }); }
             catch (Exception e) { Console.Error.WriteLine("taskhub: finish failed: " + e.Message); }
         }
-        return rc;
+        // a tool that failed but exited with 0 (Blender after a render error): scripts see the failure too
+        return rc == 0 && verdict?.State == "failed" ? 1 : rc;
     }
 
     static Encoding CodePage(int cp)
@@ -327,7 +352,7 @@ static class Runner
         }
     }
 
-    static void PollLoop(Client c, string tid, Process p, CancellationToken ct, Action<bool> setForwarding)
+    static void PollLoop(Client c, string tid, Process p, CancellationToken ct, Action<bool> setForwarding, IOutputPreset preset, object presetLock)
     {
         while (!ct.IsCancellationRequested && !p.HasExited)
         {
@@ -358,8 +383,9 @@ static class Runner
                             reply = "written";
                             break;
                         default:
-                            ok = false;
-                            reply = "unknown control";
+                            (bool Ok, string Reply)? pr;
+                            lock (presetLock) pr = preset?.OnControl(cid, cmd["value"]);
+                            (ok, reply) = pr ?? (false, "unknown control");
                             break;
                     }
                 }
