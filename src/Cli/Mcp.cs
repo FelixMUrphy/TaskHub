@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -31,18 +34,50 @@ static class Mcp
         var source = Program.TakeOpt(args, "--source") ?? Environment.GetEnvironmentVariable("TASKHUB_SOURCE") ?? "agent";
         var stdin = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false));
         var stdout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
-        bool hubChecked = false;
+        var outLock = new object();
+        void Out(JsonObject o) { lock (outLock) Send(stdout, o); }
+        // the hub is looked for (and started) once, on the first tool call
+        var hub = new Lazy<bool>(() => { ensureHub(); return true; }, LazyThreadSafetyMode.ExecutionAndPublication);
+        // tool calls run side by side: a task_wait (up to 50 s) must not hold a ping, a notify or a cancel behind it
+        var running = new ConcurrentDictionary<string, CancellationTokenSource>();
+        WatchParent();
         string line;
         while ((line = stdin.ReadLine()) != null)
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
             JsonObject req;
             try { req = JsonNode.Parse(line) as JsonObject; }
-            catch { Send(stdout, Error(null, -32700, "parse error")); continue; }
+            catch { Out(Error(null, -32700, "parse error")); continue; }
             if (req == null) continue;
             var id = req["id"]?.DeepClone();
             var method = Program.S(req["method"]);
-            if (id == null) continue;   // notifications (initialized, cancelled, ...) need no answer
+            if (id == null)   // notifications need no answer; "cancelled" stops the call it names
+            {
+                if (method == "notifications/cancelled" && req["params"]?["requestId"] is JsonNode rid
+                    && running.TryGetValue(rid.ToJsonString(), out var victim))
+                    try { victim.Cancel(); } catch (ObjectDisposedException) { }
+                continue;
+            }
+            if (method == "tools/call")
+            {
+                var key = id.ToJsonString();
+                var cts = new CancellationTokenSource();
+                running[key] = cts;
+                var prm = req["params"] as JsonObject ?? new JsonObject();
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        var result = Call(c, prm, source, () => _ = hub.Value, cts.Token);
+                        if (!cts.IsCancellationRequested) Out(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result });
+                    }
+                    catch (OperationCanceledException) when (cts.IsCancellationRequested) { }   // cancelled: no answer (MCP)
+                    catch (McpError e) { Out(Error(id, e.Code, e.Message)); }
+                    catch (Exception e) { Console.Error.WriteLine("taskhub mcp: " + e); Out(Error(id, -32603, e.Message)); }
+                    finally { running.TryRemove(key, out _); cts.Dispose(); }
+                });
+                continue;
+            }
             try
             {
                 JsonNode result = method switch
@@ -56,18 +91,43 @@ static class Mcp
                     },
                     "ping" => new JsonObject(),
                     "tools/list" => new JsonObject { ["tools"] = Tools() },
-                    "tools/call" => Call(c, req["params"] as JsonObject ?? new JsonObject(), source, () =>
-                    {
-                        if (!hubChecked) { hubChecked = true; ensureHub(); }
-                    }),
                     _ => throw new McpError(-32601, "method not found: " + method),
                 };
-                Send(stdout, new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result });
+                Out(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result });
             }
-            catch (McpError e) { Send(stdout, Error(id, e.Code, e.Message)); }
-            catch (Exception e) { Send(stdout, Error(id, -32603, e.Message)); }
+            catch (McpError e) { Out(Error(id, e.Code, e.Message)); }
+            catch (Exception e) { Console.Error.WriteLine("taskhub mcp: " + e); Out(Error(id, -32603, e.Message)); }
         }
-        return 0;
+        return 0;   // stdin closed: the client is gone (calls still waiting end with the process)
+    }
+
+    // ------------------------------------------------------------ the parent's lifetime
+    [StructLayout(LayoutKind.Sequential)]
+    struct BasicInfo { public IntPtr ExitStatus, Peb, Affinity, BasePriority, UniqueId, ParentId; }
+    [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr process, int cls, ref BasicInfo info, int size, out int ret);
+
+    /// <summary>Ends this server when the program that started it ends, even if its stdin stays open (a pipe handle the
+    /// client's other children inherited keeps the EOF from coming: orphaned servers piled up). Only a parent seen alive,
+    /// and started before us (not a reused pid), is watched; anything unexpected -> no watch, stdin EOF still ends us.</summary>
+    static void WatchParent()
+    {
+        try
+        {
+            using var me = Process.GetCurrentProcess();
+            var bi = new BasicInfo();
+            if (NtQueryInformationProcess(me.Handle, 0, ref bi, Marshal.SizeOf<BasicInfo>(), out _) != 0) return;
+            var parent = Process.GetProcessById((int)bi.ParentId);
+            if (parent.StartTime > me.StartTime) { parent.Dispose(); return; }
+            var started = DateTime.UtcNow;
+            new Thread(() =>
+            {
+                try { parent.WaitForExit(); } catch { return; }
+                // gone within seconds: a launcher that started us and left (the client talks to us through the pipe), not the client
+                if (DateTime.UtcNow - started < TimeSpan.FromSeconds(10)) return;
+                Environment.Exit(0);
+            }) { IsBackground = true, Name = "parent watch" }.Start();
+        }
+        catch { }
     }
 
     sealed class McpError : Exception { public int Code; public McpError(int c, string m) : base(m) { Code = c; } }
@@ -145,7 +205,7 @@ static class Mcp
         return r;
     }
 
-    static JsonObject Call(Client c, JsonObject p, string source, Action ensureHub)
+    static JsonObject Call(Client c, JsonObject p, string source, Action ensureHub, CancellationToken ct = default)
     {
         var name = Program.S(p["name"]);
         var a = p["arguments"] as JsonObject ?? new JsonObject();
@@ -210,9 +270,10 @@ static class Mcp
                     long ver = 0;
                     while (true)
                     {
+                        ct.ThrowIfCancellationRequested();
                         var left = Math.Clamp((deadline - DateTime.UtcNow).TotalSeconds, 0, 25);
                         var snap = c.Call("GET", $"/api/tasks?brief=1&since={ver}&wait={left.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}",
-                            null, left + 15) as JsonObject;
+                            null, left + 15, ct) as JsonObject;
                         ver = (long)Program.Num(snap?["version"]);
                         var t = (snap?["tasks"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().FirstOrDefault(x => Program.S(x["id"]) == tid);
                         if (t == null) return Text($"TaskHub: task {tid} not found", true);

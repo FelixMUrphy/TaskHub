@@ -57,9 +57,10 @@ sealed class Client
         return ReadJson(Path.Combine(data, "config.json"));
     }
 
-    public JsonNode Call(string method, string path, JsonNode body = null, double timeoutSec = 10)
+    public JsonNode Call(string method, string path, JsonNode body = null, double timeoutSec = 10, CancellationToken ct = default)
     {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSec));
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(timeoutSec));
         var req = new HttpRequestMessage(new HttpMethod(method), Url + path);
         if (method != "GET")
         {
@@ -69,6 +70,7 @@ sealed class Client
         if (!string.IsNullOrEmpty(token)) req.Headers.Add("Authorization", "Bearer " + token);
         HttpResponseMessage r;
         try { r = http.Send(req, cts.Token); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }   // the caller gave up (MCP: request cancelled)
         catch (Exception e) { throw new HubError(0, $"hub not reachable at {Url}: {e.GetBaseException().Message}"); }
         using (r)
         {
