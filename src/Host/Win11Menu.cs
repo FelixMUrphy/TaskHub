@@ -15,7 +15,7 @@ sealed class Win11Menu : ToolStripRenderer
     public bool Dark;
     float s = 1;   // scale of the monitor the menu opens on (1 = 100 %)
 
-    // the panel's colours (ui.html: --fg, --mut; the support heart = #e0526b mixed 55 % into the text colour)
+    // the panel's colours (ui/panel.css: --fg, --mut; the support heart = #e0526b mixed 55 % into the text colour)
     static Color Back(bool dark) => dark ? Color.FromArgb(0x2c, 0x2c, 0x2c) : Color.FromArgb(0xf9, 0xf9, 0xf9);
     static Color Fore(bool dark) => dark ? Color.FromArgb(0xf3, 0xf3, 0xf3) : Color.FromArgb(0x1a, 0x1a, 0x1a);
     static Color Hover(bool dark) => dark ? Color.FromArgb(0x3a, 0x3a, 0x3a) : Color.FromArgb(0xeb, 0xeb, 0xeb);

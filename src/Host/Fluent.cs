@@ -22,7 +22,7 @@ static class Fluent
             var theme = J.Str(s?.Get("theme"), "system");
             bool dark = theme == "dark" || (theme == "system" && SystemDark());
             var t = new Theme { Dark = dark };
-            // as ui.html: --bg, --card, --fg, --mut, controls lighten / darken what is under them by a few percent
+            // as ui/panel.css: --bg, --card, --fg, --mut, controls lighten / darken what is under them by a few percent
             t.Bg = dark ? Color.FromArgb(0x20, 0x20, 0x20) : Color.FromArgb(0xf3, 0xf3, 0xf3);
             t.Card = dark ? Color.FromArgb(0x2b, 0x2b, 0x2b) : Color.FromArgb(0xfb, 0xfb, 0xfb);
             t.Fg = dark ? Color.FromArgb(0xf3, 0xf3, 0xf3) : Color.FromArgb(0x1a, 0x1a, 0x1a);

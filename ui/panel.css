@@ -1,0 +1,232 @@
+:root{
+  --bg:#f3f3f3;--card:#fbfbfb;--fg:#1a1a1a;--mut:#616161;--line:#e5e5e5;--track:#e6e6e6;
+  --blue:#2f6fed;--green:#16a34a;--red:#dc2626;--amber:#d97706;--grey:#8a8a8a;--violet:#7c3aed;
+  --s1:#2f6fed;--s2:#e8590c;--s3:#16a34a;--s4:#9333ea;--s5:#0891b2;--s6:#ca8a04;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+  /* accent (Windows accent colour from the host, or TaskHub blue) and the text colour on it */
+  --acc:var(--blue);--accfg:#fff;
+  /* "busy / working" indicators: the accent, or TaskHub blue when the accent is grey */
+  --live:var(--acc);
+  /* background opacity: 100% unless the host has a Windows 11 backdrop behind the page (panel_transparency) */
+  --alpha:100%;--calpha:100%;--halo:0%;--hhalo:0%;
+  color-scheme:light;
+}
+/* Fluent-style layers: plates, controls and hairlines inside a card have no colour of their own - they lighten (dark
+   theme) or darken (light theme) whatever is under them by a few percent, so they are exactly as see-through as the card */
+:root,:root[data-theme]{
+  --o1:color-mix(in srgb,var(--fg) 6%,transparent);
+  --o2:color-mix(in srgb,var(--fg) 10%,transparent);
+  --o3:color-mix(in srgb,var(--fg) 15%,transparent);
+  --ln:color-mix(in srgb,var(--fg) 12%,transparent);
+}
+html.acc-neutral{--live:var(--blue)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#202020;--card:#2b2b2b;--fg:#f3f3f3;--mut:#9e9e9e;--line:#3a3a3a;--track:#3d3d3d;
+  --blue:#5b8ff9;--green:#3ccf74;--red:#f87171;--amber:#fbbf24;--grey:#808080;
+  --s1:#5b8ff9;--s2:#ff8a4c;--s3:#3ccf74;--s4:#b57bff;--s5:#34c3e0;--s6:#f2c94c;color-scheme:dark;}}
+:root[data-theme=dark]{
+  --bg:#202020;--card:#2b2b2b;--fg:#f3f3f3;--mut:#9e9e9e;--line:#3a3a3a;--track:#3d3d3d;
+  --blue:#5b8ff9;--green:#3ccf74;--red:#f87171;--amber:#fbbf24;--grey:#808080;
+  --s1:#5b8ff9;--s2:#ff8a4c;--s3:#3ccf74;--s4:#b57bff;--s5:#34c3e0;--s6:#f2c94c;color-scheme:dark;}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;color:var(--fg);font:13px/1.4 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif}
+body{background:color-mix(in srgb,var(--bg) var(--alpha),transparent);display:flex;flex-direction:column;overflow:hidden}
+/* docked panel: no hard line on the left edge - the tint fades in over the first pixels; an invisible grip there resizes it */
+html.native body{background:linear-gradient(to right,transparent,color-mix(in srgb,var(--bg) var(--alpha),transparent) 14px)}
+/* see-through settings: a soft halo in the background colour keeps text readable over any window */
+html.halo #list{text-shadow:0 0 3px color-mix(in srgb,var(--bg) var(--halo),transparent),0 0 1px color-mix(in srgb,var(--bg) var(--halo),transparent)}
+html.halo header{text-shadow:0 0 3px color-mix(in srgb,var(--bg) var(--hhalo),transparent),0 0 1px color-mix(in srgb,var(--bg) var(--hhalo),transparent)}
+#grip{display:none;position:fixed;left:0;top:0;bottom:0;width:6px;cursor:ew-resize;z-index:31}
+html.native #grip{display:block}
+header{user-select:none;flex:none;position:relative;z-index:5;display:flex;align-items:center;gap:8px;padding:10px 12px 8px;border-bottom:1px solid var(--ln)}
+header h1{font-size:14px;margin:0;font-weight:650;letter-spacing:.2px}
+header .cnt{color:var(--mut);font-size:12px}
+header .sp{flex:1}
+.tabs{display:flex;gap:2px;background:var(--o1);border-radius:7px;padding:2px}
+.tabs button{border:0;background:none;color:var(--mut);padding:3px 9px;border-radius:5px;font:inherit;font-size:12px;cursor:pointer}
+.tabs button.on{background:var(--o3);color:var(--fg)}
+.tabs button:not(.on):hover{background:var(--o1);color:var(--fg)}
+.ib{border:0;background:none;color:var(--fg);cursor:pointer;width:32px;height:30px;padding:0;border-radius:5px;flex:none;
+  display:inline-flex;align-items:center;justify-content:center}
+.ib:hover{background:var(--o2)} .ib:active{background:var(--o1)}
+/* header icons: the Windows 11 system icon font (Segoe Fluent Icons; Segoe MDL2 Assets on Windows 10) - one colour, one size;
+   states by shape (bell / crossed bell, outline / filled pin), the support heart only slightly warmer than the rest */
+.ib i{font:normal 16px/1 "Segoe Fluent Icons","Segoe MDL2 Assets";speak:none}
+#sup i{color:color-mix(in srgb,#e0526b 55%,var(--fg))}
+#off{display:none;background:var(--red);color:#fff;font-size:12px;padding:4px 12px}
+main{padding:10px;display:flex;flex-direction:column;gap:9px}
+#off{flex:none}
+/* the list scrolls (wheel, touchpad, keys) with no native scrollbar: a thin overlay thumb (#sb) shows while scrolling or
+   near the right edge and fades out; the edges fade when there is more content above / below */
+#list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;outline:none;scrollbar-width:none;
+  --ft:0px;--fb:0px;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 var(--ft),#000 calc(100% - var(--fb)),transparent 100%);
+  mask-image:linear-gradient(to bottom,transparent 0,#000 var(--ft),#000 calc(100% - var(--fb)),transparent 100%)}
+#list::-webkit-scrollbar{display:none}
+#list.ft{--ft:18px} #list.fb{--fb:30px}
+#list>*{flex-shrink:0}
+#sb{position:fixed;right:0;width:14px;z-index:6;opacity:0;transition:opacity .35s ease;pointer-events:none}
+#sb.on{opacity:1;pointer-events:auto;transition-duration:.1s}
+#sb i{position:absolute;right:3px;top:0;width:4px;border-radius:3px;background:color-mix(in srgb,var(--fg) 45%,transparent);transition:width .12s,right .12s,background .12s}
+#sb:hover i,#sb.drag i{width:6px;right:2px;background:color-mix(in srgb,var(--fg) 62%,transparent)}
+#sb.none{display:none}
+.empty{color:var(--mut);text-align:center;padding:50px 10px}
+/* many tasks: structure only when needed - quiet text and shades, no lines or frames */
+#srcf{display:none;gap:2px;padding:0 10px 6px;font-size:12px;color:var(--mut);flex:none;flex-wrap:wrap;user-select:none}
+#srcf.on{display:flex}
+#srcf span{padding:1px 8px;border-radius:9px;cursor:pointer} #srcf span.on{background:var(--o2);color:var(--fg)}
+.sec{display:flex;align-items:baseline;gap:6px;font-size:11.5px;color:var(--mut);margin:2px 4px -2px;user-select:none}
+.sec b{color:var(--fg);font-weight:600;font-size:12px} .sec .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);align-self:center}
+.grp{display:flex;align-items:baseline;gap:7px;font-size:12px;color:var(--mut);padding:5px 6px 0;cursor:pointer;user-select:none;border-radius:8px;min-width:0}
+.grp .chev{width:10px;font-size:10px;flex:none} .grp b{color:var(--fg);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.grp .sum{margin-left:auto;font-size:11.5px;white-space:nowrap;padding-left:8px}
+.grp.closed{padding:6px}
+.row{display:flex;align-items:center;gap:8px;padding:4px 8px 4px 10px;margin:-4px 0;border-radius:8px;font-size:12.5px;min-width:0;cursor:pointer}
+/* faint chevron: the row opens into the full card (rotated on an open card, which folds back) */
+.fold{color:var(--mut);opacity:.55;font-size:13px;line-height:1;flex:none;width:10px;text-align:center;transition:transform .2s ease;user-select:none}
+.card .fold{display:none;margin-left:2px} .card:not([data-active]) .fold{display:inline-block;transform:rotate(90deg)}
+.row>i{width:7px;height:7px;border-radius:50%;flex:none;background:var(--sc,var(--grey))}
+.row .n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.row .r{color:var(--mut);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 0}
+.row .t{color:var(--mut);font-size:11px;white-space:nowrap;padding-left:6px;flex:none}
+.row.new .n{font-weight:650} .row.new .r{color:var(--fg);opacity:.8}
+.badge{display:inline-block;min-width:16px;padding:0 5px;margin-left:5px;border-radius:8px;font-size:10.5px;line-height:16px;text-align:center;font-weight:650;background:var(--o3);color:var(--fg)}
+.badge.bad{background:var(--red);color:#fff}
+.row[data-s=done]{--sc:var(--green)} .row[data-s=failed],.row[data-s=lost]{--sc:var(--red)} .row[data-s=cancelled]{--sc:var(--grey)}
+.hist{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--mut);padding:6px 10px;border-radius:8px;cursor:pointer;user-select:none}
+.hist.open .fold{transform:rotate(90deg)}
+.empty .lnk{display:inline-block;margin-top:8px;font-size:12px;cursor:pointer;color:var(--fg);opacity:.8}
+.card:not([data-active]) .hd{cursor:pointer}
+.card[data-attn][data-s]{--sc:var(--amber)}
+.attn{color:var(--amber);font-size:12px;margin-top:3px;word-break:break-word}
+.chip.prj{color:var(--fg);opacity:.75}
+.card{border-radius:10px;padding:10px 11px 9px 14px;position:relative;isolation:isolate}
+/* the card's own layer: blurred, so its edges are soft rather than a frame */
+.card::after{content:"";position:absolute;inset:1px;z-index:-1;border-radius:12px;background:color-mix(in srgb,var(--card) var(--calpha),transparent);filter:blur(4px);pointer-events:none}
+.card::before{content:"";position:absolute;left:3px;top:10px;bottom:10px;width:3px;border-radius:3px;background:var(--sc,var(--grey))}
+.card.flash{animation:fl 1.4s}
+@keyframes fl{0%,40%{box-shadow:0 0 0 3px var(--acc)}100%{box-shadow:none}}
+.card[data-s=running]{--sc:var(--acc)} .card[data-s=paused]{--sc:var(--violet)}
+.card[data-s=stale]{--sc:var(--amber)} .card[data-s=done]{--sc:var(--green)}
+.card[data-s=failed],.card[data-s=lost]{--sc:var(--red)} .card[data-s=cancelled]{--sc:var(--grey)}
+.hd{display:flex;align-items:center;gap:6px}
+.name{font-weight:620;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.chip{font-size:10.5px;color:var(--mut);border:1px solid var(--ln);border-radius:9px;padding:0 6px;white-space:nowrap}
+.st{font-size:10.5px;font-weight:650;text-transform:uppercase;letter-spacing:.4px;color:var(--sc)}
+.hd .sp{flex:1}
+.tm{color:var(--mut);font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.x{border:0;background:none;color:var(--mut);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;visibility:hidden}
+.card:not([data-active]) .x{visibility:visible}
+.desc{color:var(--mut);font-size:12px;margin-top:2px}
+.bar{height:6px;background:var(--o2);border-radius:4px;overflow:hidden;margin:8px 0 4px}
+.bar i{display:block;height:100%;background:var(--sc);border-radius:4px;transition:width .4s}
+.bar.ind i{width:30%!important;animation:ind 1.3s infinite ease-in-out}
+@keyframes ind{0%{transform:translateX(-100%)}100%{transform:translateX(340%)}}
+.l1{display:flex;gap:10px;color:var(--mut);font-size:11.5px;font-variant-numeric:tabular-nums}
+.l1 b{color:var(--fg);font-weight:600}
+.status{margin-top:4px;word-break:break-word}
+.stage{color:var(--mut);font-size:12px}
+.msg{margin-top:6px;font-size:12px;padding:5px 8px;border-radius:6px;background:var(--o1);word-break:break-word}
+.card[data-s=failed] .msg,.card[data-s=lost] .msg{color:var(--red)}
+/* widgets */
+.wg{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.w{background:var(--o1);border-radius:7px;padding:6px 8px;min-width:0}
+.w.span2{grid-column:span 2}
+.w .lb{font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;gap:6px}
+.w .lb .lv{margin-left:auto;text-transform:none;letter-spacing:0;color:var(--fg);font-variant-numeric:tabular-nums}
+.w .v{font-size:13px;word-break:break-word}
+.w .v.mono{font-family:var(--mono);font-size:12px;white-space:pre-wrap}
+.w .big{font-size:20px;font-weight:620;font-variant-numeric:tabular-nums;line-height:1.2}
+.w .big small{font-size:12px;color:var(--mut);font-weight:400;margin-left:3px}
+.dl{font-size:11px;margin-left:6px} .dl.up{color:var(--green)} .dl.dn{color:var(--red)}
+.w .pb{height:7px;background:var(--o2);border-radius:4px;overflow:hidden;margin-top:4px}
+.w .pb i{display:block;height:100%;border-radius:4px;background:var(--wc,var(--acc));transition:width .4s}
+.led{display:flex;align-items:center;gap:7px}
+.led i{width:10px;height:10px;border-radius:50%;background:transparent;box-shadow:inset 0 0 0 1.5px var(--grey);flex:none}
+.led i.ok{background:var(--green);box-shadow:0 0 6px var(--green)} .led i.warn{background:var(--amber);box-shadow:0 0 6px var(--amber)}
+.led i.error{background:var(--red);box-shadow:0 0 6px var(--red)} .led i.busy{background:var(--live);box-shadow:0 0 0 0 var(--live);animation:pulse 1.6s infinite ease-out}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--live) 70%,transparent)}100%{box-shadow:0 0 0 7px transparent}}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:1px 10px;font-size:12px;margin-top:2px}
+.kv span:nth-child(odd){color:var(--mut)} .kv span:nth-child(even){font-variant-numeric:tabular-nums;word-break:break-word}
+table.tb{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:3px;font-variant-numeric:tabular-nums}
+table.tb th{text-align:left;color:var(--mut);font-weight:500;border-bottom:1px solid var(--ln);padding:2px 4px}
+table.tb td{padding:2px 4px;border-bottom:1px solid var(--ln)}
+svg.ch{display:block;width:100%;margin-top:3px;overflow:visible}
+.chw{display:flex;gap:6px;margin-top:3px}
+.chw svg.ch{flex:1;width:0;min-width:0;margin-top:0}
+.chw .ax{flex:none;display:flex;flex-direction:column;justify-content:space-between;font:9.5px/1 var(--mono);color:var(--mut);text-align:right;font-variant-numeric:tabular-nums}
+.wait{color:var(--mut);font-size:11px;padding:8px 0}
+.lg{display:flex;flex-wrap:wrap;gap:8px;font-size:10.5px;color:var(--mut);margin-top:2px}
+.lg i{display:inline-block;width:8px;height:3px;border-radius:2px;vertical-align:middle;margin-right:3px}
+/* controls */
+.ctl{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.ctl:empty{display:none}
+.btn{font:inherit;font-size:12px;border:1px solid var(--ln);background:var(--o1);color:var(--fg);border-radius:6px;padding:3px 10px;cursor:pointer}
+.btn:hover,.btn:focus-visible{background:var(--o2)}
+.btn:active{background:var(--o3)}
+.btn.primary{background:var(--acc);border-color:var(--acc);color:var(--accfg);font-weight:600}
+.btn.primary:hover{background:color-mix(in srgb,var(--acc) 88%,var(--fg))}
+html.acc-neutral .btn.primary{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+html.acc-neutral .btn.primary:hover{background:color-mix(in srgb,var(--fg) 85%,var(--bg))}
+.btn.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 45%,transparent)}
+.btn.danger:hover{background:var(--red);color:#fff}
+.btn:disabled{opacity:.5;cursor:default}
+.form{display:none;margin-top:6px;gap:6px;align-items:center;flex-wrap:wrap;background:var(--o1);padding:7px;border-radius:7px}
+.form.on{display:flex}
+.form label{font-size:12px;color:var(--mut)}
+.form input,.form select{font:inherit;font-size:12px;background:var(--o1);color:var(--fg);border:1px solid var(--ln);border-radius:5px;padding:3px 6px;min-width:0;flex:1}
+.form input:hover,.form select:hover{background:var(--o2)}
+.form input:focus,.form select:focus{background:var(--o2);border-color:var(--acc);outline:none}
+.form select option{background:var(--card);color:var(--fg)}
+.form input[type=checkbox]{flex:none}
+details.lgx{margin-top:7px}
+details.lgx summary{cursor:pointer;color:var(--mut);font-size:11.5px;user-select:none}
+details.lgx pre{margin:5px 0 0;max-height:220px;overflow:auto;background:var(--o1);border-radius:6px;padding:6px 7px;font:11px/1.45 var(--mono);white-space:pre-wrap;word-break:break-all}
+pre .warn{color:var(--amber)} pre .error{color:var(--red)} pre .cmd{color:var(--blue)} pre .sys{color:var(--mut)}
+.meta{color:var(--mut);font-size:11px;margin-top:5px;display:flex;gap:10px;flex-wrap:wrap}
+.meta a{color:var(--acc);text-decoration:none}
+#snack{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:6px 12px;border-radius:7px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90%}
+#snack.on{opacity:1}
+.dlg{position:fixed;inset:0;background:#0008;display:none;align-items:center;justify-content:center;z-index:20}
+.dlg.on{display:flex}
+.dlg .box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 14px 12px;max-width:86%;box-shadow:0 10px 30px #0006}
+.dlg .t{margin-bottom:12px;word-break:break-word}
+.dlg .row{display:flex;gap:6px;justify-content:flex-end}
+.pywebview-drag-region{cursor:default}
+.lng{font:inherit;font-size:12px;background:var(--track);color:var(--fg);border:0;border-radius:6px;padding:2px 4px;cursor:pointer;max-width:110px}
+/* settings page: replaces the header and the list while open (Windows 11 settings: sections of rounded cards, rows with
+   a title, a grey description and the control on the right, toggle switches) */
+body.setmode>header,body.setmode #srcf,body.setmode #list,body.setmode #sb{display:none}
+#set{display:none;flex:1;min-height:0;flex-direction:column}
+body.setmode #set{display:flex}
+#set .sh{flex:none;display:flex;align-items:center;gap:6px;padding:8px 12px 8px 8px;border-bottom:1px solid var(--ln);user-select:none}
+#set .sh h2{font-size:14px;font-weight:650;margin:0}
+#set .sc{flex:1;min-height:0;overflow-y:auto;outline:none;padding:4px 10px 16px;scrollbar-width:thin;overscroll-behavior:contain}
+#set h3{font-size:12.5px;font-weight:600;margin:14px 2px 6px}
+#set .scard{background:color-mix(in srgb,var(--card) var(--calpha),transparent);border:1px solid var(--ln);border-radius:8px}
+#set .srow{display:flex;align-items:center;gap:10px;padding:8px 12px;min-height:44px}
+#set .srow+.srow{border-top:1px solid var(--ln)}
+#set .sl{flex:1;min-width:0;overflow-wrap:anywhere}
+#set .sd{color:var(--mut);font-size:11.5px;margin-top:1px}
+#set .srow.sub .sl{padding-left:14px}
+#set .kin{font:inherit;font-size:12px;background:var(--o1);color:var(--fg);border:1px solid var(--ln);border-radius:5px;padding:4px 6px;min-width:0;width:44%}
+#set .kin:focus{background:var(--o2);border-color:var(--acc);outline:none}
+#set .kin.num{width:72px;flex:none}
+#set .klink{color:var(--acc);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+#set select{font:inherit;font-size:12px;background:var(--o1);color:var(--fg);border:1px solid var(--ln);border-radius:5px;padding:3px 4px;min-width:0;max-width:52%}
+#set select:hover{background:var(--o2)}
+#set select option{background:var(--card);color:var(--fg)}
+#set .rg{display:flex;align-items:center;gap:6px;min-width:0;width:48%}
+#set input[type=range]{flex:1;min-width:0;accent-color:var(--acc)}
+#set .rv{font-variant-numeric:tabular-nums;color:var(--mut);font-size:12px;min-width:34px;text-align:right}
+#set .rg.off{opacity:.45}
+#set .btn{flex:none;padding:4px 12px}
+#set .btn.heart::before{content:"\EB51";font:normal 13px/1 "Segoe Fluent Icons","Segoe MDL2 Assets";margin-right:6px;vertical-align:-2px;color:color-mix(in srgb,#e0526b 55%,var(--fg))}
+/* Windows 11 toggle switch: outlined pill with a dot when off, filled with the accent when on */
+.tgl{flex:none;width:40px;height:20px;border-radius:10px;border:1px solid color-mix(in srgb,var(--fg) 55%,transparent);background:var(--o1);
+  position:relative;cursor:pointer;padding:0;transition:background .12s,border-color .12s}
+.tgl i{position:absolute;left:4px;top:4px;width:10px;height:10px;border-radius:50%;background:color-mix(in srgb,var(--fg) 80%,transparent);transition:left .12s,width .12s}
+.tgl:hover i{width:12px;height:12px;top:3px;left:3px}
+.tgl.on{background:var(--acc);border-color:var(--acc)}
+.tgl.on i{left:24px;background:var(--accfg)} .tgl.on:hover i{left:22px}
+html.acc-neutral .tgl.on{background:var(--fg);border-color:var(--fg)} html.acc-neutral .tgl.on i{background:var(--bg)}
+.tgl:disabled{opacity:.45;cursor:default}

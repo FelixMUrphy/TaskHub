@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TaskHub</title>
+<link rel="icon" href="/icon.png">
+<style>
+@@include panel.css@@
+</style>
+</head>
+<body>
+<header>
+  <h1 class="pywebview-drag-region">TaskHub</h1><span class="cnt pywebview-drag-region" id="cnt"></span>
+  <span class="sp pywebview-drag-region" style="align-self:stretch"></span>
+  <div class="tabs"><button data-f="active" class="on" data-i="active"></button><button data-f="all" data-i="all"></button></div>
+  <button class="ib" id="mute" title="Сповіщення"><i>&#xEA8F;</i></button>
+  <button class="ib" id="clear"><i>&#xEA99;</i></button>
+  <button class="ib" id="sup"><i>&#xEB51;</i></button>
+  <button class="ib" id="cfg"><i>&#xE713;</i></button>
+  <button class="ib" id="pin"><i>&#xE718;</i></button>
+</header>
+<div id="set" role="dialog" aria-labelledby="settitle">
+  <div class="sh"><button class="ib" id="setback"><i>&#xE72B;</i></button><h2 id="settitle" data-i="settings"></h2></div>
+  <div class="sc" tabindex="-1">
+    <h3 data-i="sec_look"></h3>
+    <div class="scard">
+      <div class="srow"><label class="sl" for="lang" data-i="language"></label><select id="lang"></select></div>
+      <div class="srow"><label class="sl" for="theme" data-i="theme"></label><select id="theme"></select></div>
+      <div class="srow"><label class="sl" for="accent" data-i="accent"></label><select id="accent"></select></div>
+      <div class="srow" id="transpl"><label class="sl" for="transp" data-i="transparency"></label><div class="rg" id="transpr"><input type="range" id="transp" min="0" max="100" step="5"><span class="rv" id="transpv"></span></div></div>
+      <div class="srow" id="ctranspl"><label class="sl" for="ctransp" data-i="card_transparency"></label><div class="rg" id="ctranspr"><input type="range" id="ctransp" min="0" max="100" step="5"><span class="rv" id="ctranspv"></span></div></div>
+      <div class="srow"><label class="sl" for="grp" data-i="group_by"></label><select id="grp"></select></div>
+    </div>
+    <div id="sethost"></div>
+  </div>
+</div>
+<div id="grip"></div>
+<div id="srcf"></div>
+<div id="off" data-i="offline"></div>
+<main id="list" tabindex="-1"></main>
+<div id="sb"><i></i></div>
+<div id="snack"></div>
+<div id="dlg" class="dlg"><div class="box"><div class="t"></div><div class="row"><button class="btn primary">OK</button><button class="btn">Скасувати</button></div></div></div>
+<script>
+@@include boot.js@@
+@@include look.js@@
+@@include i18n.js@@
+@@include widgets.js@@
+@@include cards.js@@
+@@include list.js@@
+@@include seen.js@@
+@@include settings.js@@
+@@include settings-connectors.js@@
+@@include settings-page.js@@
+@@include scrollbar.js@@
+</script>
+</body>
+</html>

@@ -39,7 +39,7 @@ sealed class Api
         R("GET", "/", (c, q, g) => { c.Response.Redirect("/ui"); return V(null); });
         R("GET", "/ui", async (c, q, g) =>
         {
-            var html = Encoding.UTF8.GetString(Res.Read("ui.html") ?? Array.Empty<byte>());
+            var html = UiPage.Html();
             html = html.Replace("__TOKEN__", J.Dump(JsonValue.Create(S.Token)))
                 .Replace("__VERSION__", Settings.Version)
                 .Replace("__AUTOHIDE__", S.Bool("panel_autohide", true) ? "true" : "false");

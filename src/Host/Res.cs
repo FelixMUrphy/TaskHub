@@ -3,8 +3,8 @@ using System.Reflection;
 namespace TaskHub;
 
 /// <summary>
-/// Files shipped inside the single-file exe (ui.html, API.md, taskhub_client.py, taskhub.exe CLI).
-/// A file with the same name next to the exe wins (handy while developing ui.html).
+/// Files shipped inside the single-file exe (ui/ panel page parts, API.md, taskhub_client.py, taskhub.exe CLI).
+/// A file with the same name next to the exe wins (handy while developing the panel: ui.html or ui/<part>).
 /// </summary>
 static class Res
 {
