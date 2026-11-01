@@ -48,7 +48,10 @@ it.
   *Remove* deletes the key.
 - **Balance guard** (TaskHub 2.9 and later; off by default). If you turn it on for Runpod or Vast.ai, TaskHub uses the
   balance it already reads from that service; at your stop threshold it sends that service the same *stop* request as the
-  Stop button (never delete), for the running machines you did not mark *Never auto-stop*. Its notifications — the balance,
+  Stop button (never delete), for the running machines you did not mark *Never auto-stop*. Auto-stop on GPU idle
+  (TaskHub 2.9.3 and later; off by default, also without the balance guard) sends the same *stop* request for a machine
+  whose GPU stayed idle as long as you set, judged from the load TaskHub already reads; its log records the idle minutes
+  instead of a threshold, and its pending stop is not saved to disk. Its notifications — the balance,
   the spend per hour, the time left, the names of the machines it stops and what their storage costs while stopped — are
   shown on Windows and, if you connected Telegram, sent to your Telegram chat like other notifications. A record of each stop
   (time, provider, machine id and name, balance, threshold, spend, result, storage estimate) is kept only on your PC in

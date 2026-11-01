@@ -3,6 +3,12 @@
 What changed in each release of TaskHub. The release page on GitHub shows the section of its version (CI takes it
 from here), followed by the list of commits.
 
+## Unreleased
+
+- Runpod / Vast.ai: **auto-stop on GPU idle** (off by default): *Stop when the GPU is idle for, min*. A machine idle that
+  long gets the balance guard's announcement with *Stop now* / *Snooze*; GPU busy again cancels it; stop only, never
+  delete; *Never auto-stop* machines are left alone. Works with the balance guard off.
+
 ## 2.9.2 — 2026-11-01
 
 - MCP: new tool `task_wait` — blocks up to 50 s until a task finishes, so an agent waits for a job instead of polling

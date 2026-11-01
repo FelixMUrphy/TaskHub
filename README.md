@@ -212,6 +212,10 @@ Each provider has its own two thresholds in $: **warn** (default $10) and **stop
 - *Stop now* asks for confirmation first. A machine that failed to stop is tried again at the next balance reading. A
   pending stop survives a TaskHub restart. The old *low balance* warning keeps working with the guard on (no double
   warning at the guard's threshold).
+- *From version 2.9.3:* **auto-stop on GPU idle** — *Stop when the GPU is idle for, min* (0 = off, the default) in the
+  same settings, also with the balance guard off. A running machine whose GPUs all stay idle that long gets the same
+  announcement with *Stop now* / *Snooze*; the GPU busy again cancels it, and at the deadline it is stopped only if it is
+  still idle. *Never auto-stop* machines are left alone; a balance stop takes its place when both come at once.
 - After a stop TaskHub says what was stopped and what its storage costs while stopped — **≈, per the provider's price
   list**: Runpod — the container disk is wiped and not billed, the volume disk costs $0.20 / GB / month while stopped, a
   network volume $0.07 / GB / month as before (its size read from Runpod from 2.9.1; [Runpod pricing](https://docs.runpod.io/pods/pricing),

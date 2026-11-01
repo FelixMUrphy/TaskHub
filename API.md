@@ -98,8 +98,8 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/connectors/runpod` | `{enabled?, key?, forget_key?, idle_minutes?: 1-1440, idle_util?: 1-50, low_runway_hours?: 0-720, low_balance?: $\|null, list_interval?: 30-3600, detail_interval?: 15-3600, billing_interval?: 300-86400, graphql_balance?}` | Runpod connector (2.9, below) |
 | GET | `/api/connectors/vastai` | | the same as Runpod without `graphql_balance`; `balance.label` says what `amount` is ("Balance $x · Credit"), `balance.raw = {balance, credit, ...}` (2.9; the key is never returned) |
 | POST | `/api/connectors/vastai` | `{enabled?, key?, forget_key?, idle_minutes?, idle_util?, low_runway_hours?, low_balance?, list_interval?, detail_interval?, billing_interval?}` (ranges as Runpod) | Vast.ai connector (2.9, below) |
-| POST | `/api/connectors/runpod`, `/api/connectors/vastai` | `{guard?: bool, guard_warn?: $\|null, guard_stop?: $\|null, guard_grace_min?: 1-120, guard_snooze_min?: 5-240, guard_exempt?: [machine id]}` | balance guard (2.9, [below](#balance-guard)); `guard_warn` must be above `guard_stop` (>= 0), else 400 and nothing changes |
-| GET | `/api/guard/log` | `?provider=runpod\|vastai&limit=1-200` (50) | what the balance guard stopped, newest first (2.9): `{entries: [{t, provider, machine_id, name, trigger: "auto"\|"stop_now", balance, threshold, burn_per_hr, spent, spent_estimated, result: "stopped"\|"failed", error, storage_per_day, storage_note, storage_approx}]}` |
+| POST | `/api/connectors/runpod`, `/api/connectors/vastai` | `{guard?: bool, guard_warn?: $\|null, guard_stop?: $\|null, guard_grace_min?: 1-120, guard_snooze_min?: 5-240, guard_exempt?: [machine id], idle_stop_minutes?: 0\|5-1440}` | balance guard (2.9, [below](#balance-guard)); `guard_warn` must be above `guard_stop` (>= 0), else 400 and nothing changes; `idle_stop_minutes` (2.9.3): auto-stop on GPU idle, 0 = off |
+| GET | `/api/guard/log` | `?provider=runpod\|vastai&limit=1-200` (50) | what the balance guard stopped, newest first (2.9): `{entries: [{t, provider, machine_id, name, trigger: "auto"\|"stop_now"\|"idle", balance, threshold, idle_minutes, burn_per_hr, spent, spent_estimated, result: "stopped"\|"failed", error, storage_per_day, storage_note, storage_approx}]}` |
 | POST | `/api/clear` | | remove finished tasks |
 | POST | `/api/settings` | `{muted?: bool, seen?: true | [task ids], language?, theme?: "system"\|"light"\|"dark", accent?: "system"\|"taskhub", panel_transparency?: 0-100, card_transparency?: 0-100, panel_group?: "project"\|"source"\|"none", panel_pinned?: bool}` | mute toasts; panel look (also in `GET /api/tasks` → `panel`) |
 | POST | `/api/ui/open` | `{task?}` | open panel (focus a task) |
@@ -261,8 +261,13 @@ the guard's own warning covers (balance ≤ `guard_warn`), so the two never fire
 Burn = Runpod's `currentSpendPerHr`, else the sum of the running machines' $/h (Vast.ai: `dph_total`); hours to stop =
 (balance − stop) / burn. `GET /api/connectors/<id>` → `guard: {enabled, warn, stop, grace_min, snooze_min, exempt, can_act,
 balance_source, burn_per_hr, hours_to_stop, stop_at, zero_at, unreadable, warned, stops, no_stop, retry: [machine id],
-pending: {seq, deadline, held, capped, machines, task}|null}`; the settings rows (`?view=settings`) carry `guard` with the texts in the UI language (forecast,
+pending: {seq, deadline, held, capped, machines, task, kind: "balance"|"idle"}|null}`; the settings rows (`?view=settings`) carry `guard` with the texts in the UI language (forecast,
 `hint` under the stop threshold (Runpod, 2.9.1: the balance moves in steps), pending line, machines with `exempt`, the last log lines, a note when it can only warn).
+- Auto-stop on GPU idle (2.9.3, `idle_stop_minutes`, 0 = off, else 5-1440; works with `guard` off): a running machine
+  whose GPUs all stay under `idle_util` that long gets a pending stop of kind `idle` (same task, Stop now / Snooze,
+  `guard_grace_min`, `guard_exempt`); the GPU busy again or the machine no longer running cancels it; at the deadline it
+  is stopped only if still idle; log `trigger: "idle"`, `idle_minutes`, `threshold: null`. One pending stop at a time; a
+  balance stop replaces a pending idle one. Not kept over a restart. Needs a key that may run actions.
 - balance ≤ warn: one warning per crossing (re-armed when the balance is back above warn + 5 %) with balance, burn, hours.
 - balance ≤ stop: a pending stop of the running, non-exempt machines, shown as the task `<prefix>--guard` (`rp--guard`,
   `va--guard`; source = the connector) with the buttons `gstop.<seq>` (Stop now, asks for confirmation first — panel,

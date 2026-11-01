@@ -106,7 +106,7 @@ sealed class SettingsBridge
                         {
                             err = L.T("k_invalid", cn.Title);   // nothing saved, the old key (if any) stays
                         }
-                        catch (ApiError e) when (e.Code == 400 && e.Message.StartsWith("guard_"))
+                        catch (ApiError e) when (e.Code == 400 && (e.Message.StartsWith("guard_") || e.Ui != null))
                         {
                             err = e.Ui ?? L.T("g_bad_values", e.Message);   // nothing changed
                         }
