@@ -8,6 +8,12 @@ from here), followed by the list of commits.
 - GitHub: **pull requests, read-only** (off by default): PRs waiting for your review and open Dependabot PRs of the
   watched repositories become tasks with a link and a notification; they end quietly when merged, closed or reviewed.
   Nothing is merged, approved or commented on.
+- **Telegram** is set up right on the settings page (token, the t.me link with its QR code, the switches, Send test,
+  New link, Disconnect) instead of a separate old-style window.
+- Transparency sliders say when Windows draws no blur: energy saver on, or Transparency effects off in Windows settings
+  (with a link to that setting); the hint comes and goes without a restart.
+- Fixed: uninstalling the GitHub edition from Settings → Apps said "installed from the Microsoft Store" and removed nothing.
+- Fixed: *Check for updates* said nothing when TaskHub was up to date; the answer now shows on the settings page.
 
 ## 2.9.3 — 2026-11-01
 
