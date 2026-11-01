@@ -56,8 +56,21 @@ static class Presets
         catch (ArgumentException) { return false; }
     }
 
-    public static string Quote(string s) =>
-        s.Length > 0 && !s.Any(ch => char.IsWhiteSpace(ch) || ch == '"') ? s : "\"" + s.Replace("\"", "\\\"") + "\"";
+    /// <summary>One argument for a Windows command line, read back the same by CommandLineToArgvW / the C runtime:
+    /// backslashes before a quote and at the end of a quoted argument are doubled.</summary>
+    public static string Quote(string s)
+    {
+        if (s.Length > 0 && !s.Any(ch => char.IsWhiteSpace(ch) || ch == '"')) return s;
+        var sb = new System.Text.StringBuilder("\"");
+        int bs = 0;
+        foreach (var ch in s)
+        {
+            if (ch == '\\') { bs++; continue; }
+            sb.Append('\\', ch == '"' ? bs * 2 + 1 : bs).Append(ch);
+            bs = 0;
+        }
+        return sb.Append('\\', bs * 2).Append('"').ToString();
+    }
 }
 
 /// <summary>
@@ -74,11 +87,15 @@ sealed class BlenderPreset : IOutputPreset
     static readonly Regex FrameRx = new(@"\bFra:\s?(-?\d+)\b");
     static readonly Regex SamplesRx = new(@"\bSample (\d+)/(\d+)|\bRendering (\d+) / (\d+) samples|\bRendered (\d+)/(\d+) Tiles");
     static readonly Regex SavedRx = new(@"\bSaved: '(.+)'");
+    // a frame written to a video (FFmpeg): "Append frame N" (3.6-4.x), "render | Video append frame N" (5.0)
+    static readonly Regex AppendRx = new(@"\b(?:Video a|A)ppend frame (-?\d+)\b");
     static readonly Regex SkipRx = new(@"^skipping existing frame ""(.+)""");
     static readonly Regex AnimRx = new(@"\bRendering animation \(frames (-?\d+)\.\.(-?\d+)\)");
     static readonly Regex SingleRx = new(@"\bRendering single frame\b");
     static readonly Regex TimeRx = new(@"(?:^|\|\s*)Time: (\d+(?::\d+){1,2}(?:\.\d+)?)");
     static readonly Regex ErrorRx = new(@"^Error: (.+)$|\|\s*ERROR\s+(.+)$");
+    // printed at exit by Blender's leak detector, release builds too (intern/guardedalloc/intern/leak_detector.cc): no failure
+    const string LeakPrefix = "Not freed memory blocks";
     // render memory: Cycles' own "| Mem:120.40M, Peak:..." (4.x) / "| Mem: 120M |" (5.x), else Blender's "Fra:1 Mem:210.33M"
     static readonly Regex EngineMemRx = new(@"\|\s*Mem:\s?(\d+(?:\.\d+)?)M");
     static readonly Regex FraMemRx = new(@"\bFra:\s?-?\d+ Mem:(\d+(?:\.\d+)?)M");
@@ -91,7 +108,7 @@ sealed class BlenderPreset : IOutputPreset
     int done;             // frames saved or skipped
     int frame = int.MinValue, savedFrame = int.MinValue;
     double frac;          // samples of the current frame
-    bool stopAfterFrame, stopNow;
+    bool stopAfterFrame, stopArmed, stopNow;   // armed: a frame was saved after the press; stop when the next one begins
     string samples = "", lastSaved = "", firstError, lastStatus;
 
     public BlenderPreset(IReadOnlyList<string> command)
@@ -101,6 +118,7 @@ sealed class BlenderPreset : IOutputPreset
         for (int i = 1; i < cmd.Count; i++)
         {
             string a = cmd[i], next = i + 1 < cmd.Count ? cmd[i + 1] : null;
+            if (a == "--") break;   // the rest goes to Python scripts, not to Blender
             switch (a)
             {
                 case "-s": case "--frame-start": start = Int(next) ?? start; break;
@@ -166,6 +184,9 @@ sealed class BlenderPreset : IOutputPreset
         else if (SingleRx.IsMatch(line) && total == 0) total = 1;
         if ((m = FrameRx.Match(line)).Success && Int(m.Groups[1].Value) is int f)
         {
+            // the next frame begins: a pending "stop after this frame" ends Blender now (every file / view of the saved
+            // frame is written by then; a last frame just ends normally)
+            if (stopArmed && f != savedFrame) stopNow = true;
             if (f != frame) { frame = f; frac = 0; samples = ""; }
             if ((m = SamplesRx.Match(line)).Success)
             {
@@ -176,20 +197,17 @@ sealed class BlenderPreset : IOutputPreset
             var mem = EngineMemRx.Match(line) is { Success: true } em ? em : FraMemRx.Match(line);
             if (mem.Success) widgets["blender_mem"] = Math.Round(double.Parse(mem.Groups[1].Value, CultureInfo.InvariantCulture), 1);
         }
-        else if ((m = SavedRx.Match(line)).Success)
-        {
-            done++; frac = 0; samples = ""; lastSaved = m.Groups[1].Value;
-            if (frame != int.MinValue) savedFrame = frame;
-            widgets["blender_saved"] = lastSaved;
-            if (stopAfterFrame) stopNow = true;
-        }
+        else if ((m = SavedRx.Match(line)).Success) FrameSaved(frame, m.Groups[1].Value, widgets);
+        else if ((m = AppendRx.Match(line)).Success && Int(m.Groups[1].Value) is int af)
+            FrameSaved(af, $"frame {af} → video", widgets);
         else if ((m = TimeRx.Match(line)).Success) widgets["blender_spf"] = Math.Round(Seconds(m.Groups[1].Value), 2);
         else if (SkipRx.IsMatch(line)) { done++; frac = 0; samples = ""; }
         else if ((m = ErrorRx.Match(line)).Success)
         {
             var msg = (m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value).Trim();
-            firstError ??= msg;
-            entry = new JsonObject { ["level"] = "error", ["msg"] = line };
+            bool leak = msg.StartsWith(LeakPrefix, StringComparison.Ordinal);
+            if (!leak) firstError ??= msg;
+            entry = new JsonObject { ["level"] = leak ? "warn" : "error", ["msg"] = line };
         }
 
         if (frame != int.MinValue)
@@ -203,6 +221,17 @@ sealed class BlenderPreset : IOutputPreset
             if (status != lastStatus) { fields["status"] = status; lastStatus = status; }
         }
         return entry;
+    }
+
+    /// <summary>A file of frame <paramref name="f"/> written (an image, one view of a stereo pair, or a video frame).
+    /// Another file of the same frame (stereo "Individual": one per view) doesn't count as another frame.</summary>
+    void FrameSaved(int f, string what, JsonObject widgets)
+    {
+        if (f == int.MinValue || f != savedFrame) done++;
+        if (f != int.MinValue) savedFrame = f;
+        frac = 0; samples = ""; lastSaved = what;
+        widgets["blender_saved"] = lastSaved;
+        if (stopAfterFrame) stopArmed = true;
     }
 
     /// <summary>The frame to continue from: an animation with at least one frame saved, not all of them.</summary>
@@ -233,11 +262,13 @@ sealed class BlenderPreset : IOutputPreset
         {
             if (!resumable || NextFrame is not int nf) return null;
             var a = cmd.ToList();
-            int si = a.FindIndex(x => x is "-s" or "--frame-start");
-            if (si > 0 && si + 1 < a.Count) a[si + 1] = nf.ToString(CultureInfo.InvariantCulture);
+            int end = a.IndexOf("--");   // Blender's own arguments only: after "--" they belong to Python scripts
+            if (end < 0) end = a.Count;
+            int si = a.FindIndex(0, end, x => x is "-s" or "--frame-start");
+            if (si > 0 && si + 1 < end) a[si + 1] = nf.ToString(CultureInfo.InvariantCulture);
             else
             {
-                int ai = a.FindIndex(x => x is "-a" or "--render-anim");
+                int ai = a.FindIndex(0, end, x => x is "-a" or "--render-anim");
                 a.InsertRange(ai, new[] { "-s", nf.ToString(CultureInfo.InvariantCulture) });
             }
             return string.Join(" ", a.Select(Presets.Quote));

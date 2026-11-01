@@ -67,6 +67,26 @@ elif mode == "long":       # 6 frames, -s 1 -e 6; FAKE_CRASH_AT: exit 11 while r
             out(f"Fra:{f} Mem:210.33M (Peak 260.10M) | Time:00:00.10 | Mem:99.00M, Peak:99.00M | Scene, ViewLayer | Sample 1/128")
             sys.exit(11)
         frame4(f)
+elif mode == "video":      # FFmpeg output (Blender 4.x pipeline.cc): "Append frame N", then its own Time: line
+    for f in range(1, 5):
+        for s in (64, 128):
+            out(f"Fra:{f} Mem:210.33M (Peak 260.10M) | Time:00:01.00 | Mem:120.40M, Peak:130.10M | Scene, ViewLayer | Sample {s}/128")
+            time.sleep(pause)
+        out(f"Append frame {f}")
+        out("Time: 00:01.00 (Saving: 00:00.01)")
+        out("")
+elif mode == "stereo":     # stereo "Individual" views: one Saved: per view file; FAKE_CRASH_AT as in "long"
+    crash = int(os.environ.get("FAKE_CRASH_AT", "0"))
+    for f in range(1, 5):
+        out(f"Fra:{f} Mem:210.33M (Peak 260.10M) | Time:00:01.00 | Mem:120.40M, Peak:130.10M | Scene, ViewLayer | Sample 128/128")
+        if f == crash:
+            sys.exit(11)
+        out(f"Saved: 'C:\\out\\st_{f:04d}_L.png'")
+        out(f"Saved: 'C:\\out\\st_{f:04d}_R.png'")
+        out("Time: 00:01.00 (Saving: 00:00.02)")
+elif mode == "leak":       # a good render, then the leak detector's line at exit (printed by release builds too)
+    frame4(1)
+    out("Error: Not freed memory blocks: 2, total unfreed memory 0.001234 MB")
 elif mode == "eevee":
     frame4(7, eevee=True)
 elif mode == "v5":
@@ -159,6 +179,99 @@ t = task("blc")
 check("crash at frame 3: exit 11, failed, 'exit code 11 · 2 saved · resume: -s 3'", r.returncode == 11 and t["state"] == "failed"
       and t.get("message") == "exit code 11 · 2 saved · resume: -s 3", (r.returncode, t.get("message")))
 check("…resume command: -s 3 inserted before -a", "-e 6 -s 3 -a" in r.stderr, r.stderr)
+
+# 1d) review fixes (2.9.3): the resume command keeps a quoted path ending with a backslash intact (CommandLineToArgvW
+# reads it back as the same arguments) and leaves the arguments after "--" (for Python scripts) alone
+def argv_of(line):
+    import ctypes
+    from ctypes import wintypes
+    f = ctypes.windll.shell32.CommandLineToArgvW
+    f.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_int)]
+    f.restype = ctypes.POINTER(wintypes.LPWSTR)
+    n = ctypes.c_int()
+    a = f(line, ctypes.byref(n))
+    try:
+        return [a[i] for i in range(n.value)]
+    finally:
+        ctypes.windll.kernel32.LocalFree(a)
+
+
+r = run("blq", [blender_cmd, "-b", "scene.blend", "-o", "C:\\render out\\", "-e", "6", "-a", "--", "-s", "mysetting"],
+        env={"FAKE_BLENDER": "long", "FAKE_CRASH_AT": "3"})
+line = next((x.split("resume with: ", 1)[1] for x in r.stderr.splitlines() if "resume with: " in x), "")
+check("resume command: quoted 'C:\\render out\\' read back intact, -s 3 before -a, script args after -- untouched",
+      argv_of(line)[1:] == ["-b", "scene.blend", "-o", "C:\\render out\\", "-e", "6", "-s", "3", "-a", "--", "-s", "mysetting"],
+      (line, argv_of(line) if line else None))
+check("…task message 'exit code 11 · 2 saved · resume: -s 3'", task("blq").get("message") == "exit code 11 · 2 saved · resume: -s 3",
+      task("blq").get("message"))
+
+# 1e) Ctrl+C in taskhub run's own console (a hidden console of its own; the event goes to that console only - no
+# keystrokes) during an animation with frames saved -> cancelled (as without the preset), with the resume hint
+def ctrl_c_run(tid):
+    W = ("import ctypes,signal,subprocess,sys; ctypes.windll.kernel32.SetConsoleCtrlHandler(None,False); "
+         "signal.signal(signal.SIGINT, signal.SIG_IGN); sys.exit(subprocess.call(sys.argv[1:]))")
+    si = subprocess.STARTUPINFO(); si.dwFlags = subprocess.STARTF_USESHOWWINDOW; si.wShowWindow = 0
+    p = subprocess.Popen([sys.executable, "-c", W, CLI, "run", "--id", tid, "--quiet", "--preset", "blender", "--",
+                          sys.executable, fake, "-b", "s.blend", "-s", "1", "-e", "6", "-a"],
+                         env=dict(os.environ, TASKHUB_URL=URL, FAKE_BLENDER="long", FAKE_PAUSE="1.0"),
+                         creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=si)
+    end = time.time() + 30
+    while time.time() < end and "2/6" not in ((task(tid) or {}).get("status") or "") and "3/6" not in ((task(tid) or {}).get("status") or ""):
+        time.sleep(0.1)
+    res = os.path.join(tmp, "ctrlc.txt")
+    helper = ("import ctypes;k=ctypes.windll.kernel32;k.FreeConsole();"
+              f"a=k.AttachConsole({p.pid});k.SetConsoleCtrlHandler(None,True);g=k.GenerateConsoleCtrlEvent(0,0);"
+              f"open(r'{res}','w').write(str(a and g))")
+    subprocess.run([sys.executable, "-c", helper], creationflags=subprocess.CREATE_NO_WINDOW, timeout=30)
+    ok = open(res).read().strip() not in ("0", "False", "")
+    try:
+        rc = p.wait(30)
+    except subprocess.TimeoutExpired:
+        p.kill(); rc = None
+    return ok, rc
+
+
+sent_ok, rc = ctrl_c_run("blcc")
+if not sent_ok:
+    print("SKIP Ctrl+C test: could not attach to the test console here")
+else:
+    time.sleep(1)
+    t = task("blcc") or {}
+    check("Ctrl+C with frames saved -> cancelled (not failed), resume hint kept", t.get("state") == "cancelled"
+          and "resume: -s " in (t.get("message") or ""), (rc, t.get("state"), t.get("message")))
+
+# 1f) video output (FFmpeg): "Append frame N" counts as a saved frame; "Stop after this frame" ends it after frame 2
+res = {}
+th = threading.Thread(target=lambda: res.update(r=press_when("blv", "Frame 2", "blender_stop")), daemon=True)
+th.start()
+r = run("blv", [blender_cmd, "-b", "scene.blend", "-s", "1", "-e", "4", "-a"], env={"FAKE_BLENDER": "video", "FAKE_PAUSE": "0.8"})
+th.join(5)
+t = task("blv")
+check("video: stop after frame 2 -> cancelled, 'Stopped after frame 2 · 2/4 saved · resume: -s 3'", t and t["state"] == "cancelled"
+      and t.get("message") == "Stopped after frame 2 · 2/4 saved · resume: -s 3", (r.returncode, t and t["state"], t and t.get("message")))
+check("…frame 3 never appended", "Append frame 3" not in json.dumps(t.get("log") or []), (t.get("log") or [])[-4:])
+
+# 1g) stereo "Individual": two files per frame are one frame; crash at frame 3 of 4 -> 2/4 saved, resume from 3
+r = run("blst", [blender_cmd, "-b", "scene.blend", "-s", "1", "-e", "4", "-a"], env={"FAKE_BLENDER": "stereo", "FAKE_CRASH_AT": "3"})
+t = task("blst")
+check("stereo: crash at frame 3 -> 'exit code 11 · 2/4 saved · resume: -s 3'", t and t["state"] == "failed"
+      and t.get("message") == "exit code 11 · 2/4 saved · resume: -s 3", t and t.get("message"))
+
+# 1h) the leak detector's "Error: Not freed memory blocks" after a good render: done, logged as a warning
+r = run("blk", [blender_cmd, "-b", "scene.blend", "-f", "1"], env={"FAKE_BLENDER": "leak"})
+t = task("blk")
+check("leak line after a good render -> exit 0, done, '1 frame · …'", r.returncode == 0 and t and t["state"] == "done"
+      and (t.get("message") or "").startswith("1 frame · "), (r.returncode, t and t["state"], t and t.get("message")))
+
+# 1i) "Stop after this frame" pressed during the last frame: Blender ends by itself -> done, not cancelled
+res = {}
+th = threading.Thread(target=lambda: res.update(r=press_when("bll", "Frame 3", "blender_stop")), daemon=True)
+th.start()
+r = run("bll", [blender_cmd, "-b", "scene.blend", "-s", "1", "-e", "3", "-a"], env={"FAKE_PAUSE": "1.2"})
+th.join(5)
+t = task("bll")
+check("stop pressed during the last frame -> done, '3 frames · last: …'", res.get("r") and res["r"][0] == 200 and t
+      and t["state"] == "done" and (t.get("message") or "").startswith("3 frames"), (res, t and t["state"], t and t.get("message")))
 
 # 2) EEVEE, -f 7: one frame
 r = run("ble", [blender_cmd, "-b", "scene.blend", "-f", "7"], env={"FAKE_BLENDER": "eevee"})

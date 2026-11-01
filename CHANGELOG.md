@@ -7,7 +7,14 @@ from here), followed by the list of commits.
 
 - Runpod / Vast.ai: **auto-stop on GPU idle** (off by default): *Stop when the GPU is idle for, min*. A machine idle that
   long gets the balance guard's announcement with *Stop now* / *Snooze*; GPU busy again cancels it; stop only, never
-  delete; *Never auto-stop* machines are left alone. Works with the balance guard off.
+  delete; *Never auto-stop* machines are left alone. Works with the balance guard off. At the deadline the machine must
+  have a recent idle reading (unknown load: not stopped).
+- `taskhub run`, Blender preset fixes: Ctrl+C after some frames were saved is *cancelled* again, not *failed*; the printed
+  resume command keeps a quoted path that ends with `\` intact and no longer changes the arguments after `--` (those
+  belong to Python scripts). Video output (FFmpeg, "Append frame N") counts frames and *Stop after this frame* works for
+  it; stereo views saved as separate files count as one frame; the memory-leak note Blender prints at exit no longer
+  fails a good render; *Stop after this frame* now ends Blender when the next frame begins (pressed during the last
+  frame: the render just finishes, *done*).
 
 ## 2.9.2 — 2026-11-01
 

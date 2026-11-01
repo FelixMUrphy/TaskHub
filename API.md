@@ -266,8 +266,10 @@ pending: {seq, deadline, held, capped, machines, task, kind: "balance"|"idle"}|n
 - Auto-stop on GPU idle (2.9.3, `idle_stop_minutes`, 0 = off, else 5-1440; works with `guard` off): a running machine
   whose GPUs all stay under `idle_util` that long gets a pending stop of kind `idle` (same task, Stop now / Snooze,
   `guard_grace_min`, `guard_exempt`); the GPU busy again or the machine no longer running cancels it; at the deadline it
-  is stopped only if still idle; log `trigger: "idle"`, `idle_minutes`, `threshold: null`. One pending stop at a time; a
-  balance stop replaces a pending idle one. Not kept over a restart. Needs a key that may run actions.
+  is stopped only if still idle - a load reading taken after the announcement and recent (unknown load: cancelled, not
+  stopped) and idle for at least the current `idle_stop_minutes` (raised meanwhile: cancelled); log `trigger: "idle"`,
+  `idle_minutes`, `threshold: null`. One pending stop at a time; a balance stop replaces a pending idle one; a cancelled
+  one comes back while the machine stays idle. Not kept over a restart. Needs a key that may run actions.
 - balance ≤ warn: one warning per crossing (re-armed when the balance is back above warn + 5 %) with balance, burn, hours.
 - balance ≤ stop: a pending stop of the running, non-exempt machines, shown as the task `<prefix>--guard` (`rp--guard`,
   `va--guard`; source = the connector) with the buttons `gstop.<seq>` (Stop now, asks for confirmation first — panel,
@@ -290,9 +292,9 @@ pending: {seq, deadline, held, capped, machines, task, kind: "balance"|"idle"}|n
 `taskhub run --name "<what>" --source <agent> [--auto-progress] [--heartbeat N] [--preset blender|none] -- <cmd args>`
 wraps any command (echo + log + progress; presets (2.9.2) read a known tool's output - `blender`: frame / samples status,
 overall progress when the frame range is known, widgets `blender_spf` (chart, s per frame), `blender_mem` (chart, MB) and
-`blender_saved`, control `blender_stop` ("Stop after this frame": ends Blender after the next saved frame, task
-`cancelled`); after a stop / crash / error in an animation the message ends with `resume: -s N` and `run` prints the
-command to resume on stderr; Blender's `Error:` lines fail the task and `run` exits with 1 although Blender exits with 0; chosen by the command's file name
+`blender_saved`, control `blender_stop` ("Stop after this frame": ends Blender when the next frame begins after a saved one,
+task `cancelled`; pressed during the last frame: Blender ends by itself, `done`); after a stop / crash / error in an animation the message ends with `resume: -s N` and `run` prints the
+command to resume on stderr; Blender's `Error:` lines (except the leak detector's "Not freed memory blocks", logged as a warning) fail the task and `run` exits with 1 although Blender exits with 0; video frames ("Append frame N") and stereo view files count by frame; chosen by the command's file name
 unless `--progress-regex` / `--status-regex` / `--auto-progress` is given; the command may print `::progress 5/20`, `::percent 40`, `::status s`, `::stage s`, `::warn s`,
 `::error s`, `::toast s`, `::metric k=v`, `::widget id=value` lines). Also `notify`, `list`, `show`, `register`, `update`,
 `log`, `finish`, `control`, `commands`, `ack`, `wait ID` (blocks until finished), `panel`, `delete`,

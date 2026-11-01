@@ -6,7 +6,8 @@ namespace TaskHub;
 /// Auto-stop on GPU idle (opt-in, connectors.&lt;id&gt;.idle_stop_minutes, 0 = off): a running machine whose GPUs all stay
 /// under idle_util for that long gets a pending stop - the balance guard's: the same task, Stop now / Snooze (toast,
 /// Telegram, panel), the grace time (guard_grace_min), "never auto-stop" (guard_exempt) and the log (trigger "idle").
-/// The GPU busy again before the deadline cancels it; at the deadline the machine must still be idle. Stop only - never
+/// The GPU busy again before the deadline cancels it; at the deadline the machine must still be idle - seen idle by a load
+/// sample taken after the stop was announced and recent, and for at least the current idle_stop_minutes. Stop only - never
 /// delete. Works with the balance guard off; a balance stop takes the place of a pending idle one. Only with a key that
 /// may run actions. Not kept over a restart (the idle time is counted again).
 /// </summary>
@@ -60,18 +61,24 @@ abstract partial class MachineConnector
     async Task IdleTick(PendingStop p, int ver, string key, CancellationToken ct)
     {
         var c = Cfg;
-        bool runs, stillIdle;
+        var now = J.Now();
+        bool runs, stillIdle, seen, longEnough;
         string name;
         lock (gate)
         {
             var t = p.Ids.Count == 1 && machines.TryGetValue(p.Ids[0], out var tt) ? tt : null;
             runs = t != null && t.M.Active;
             stillIdle = runs && t.IdleSince != null;
+            // a fresh idle sample: after the announcement and not older than a few detail rounds (a failed read keeps the old one)
+            seen = stillIdle && t.IdleSeenAt is double at && at >= Math.Max(p.Created, now - 3 * c.DetailEvery - 30);
+            longEnough = stillIdle && now - t.IdleSince.Value >= c.IdleStopMinutes * 60;
             name = t?.M.Name ?? p.Names.GetValueOrDefault(p.Ids.FirstOrDefault() ?? "", "?");
         }
         if (c.IdleStopMinutes <= 0) { CancelPending(_ => L.T("g_idle_off"), x => x == p); return; }
         if (!runs) { CancelPending(_ => L.T("g_idle_gone", name), x => x == p); return; }
         if (!stillIdle) { CancelPending(_ => L.T("g_idle_busy", name), x => x == p); return; }
+        if (!seen) { CancelPending(_ => L.T("g_idle_unknown", name), x => x == p); return; }
+        if (!longEnough) { CancelPending(_ => L.T("g_idle_changed", name), x => x == p); return; }
         await RunStop(p, "idle", key, ct, ver);
     }
 }

@@ -705,6 +705,34 @@ v4, n12 = len(calls), len(sent)
 time.sleep(8)
 check("idle_stop_minutes 0: no pending stop, not stopped", guard("vastai").get("pending") is None and stops("va", v4) == []
       and n_sent(lambda m: "GPU has been idle" in m["text"], n12) == 0, (guard("vastai"), stops("va", v4)))
+# review fixes (2.9.3): a pending idle stop cancelled for another reason than a busy GPU comes back (off -> on again);
+# a later, longer idle_stop_minutes is honoured at the deadline; unknown GPU load at the deadline -> not stopped
+def idle_pending():
+    return (guard("vastai").get("pending") or {}).get("kind") == "idle"
+call("POST", "/api/connectors/vastai", {"idle_stop_minutes": 0.05, "guard_grace_min": 0.1})
+with lock:
+    inst[201].update(intended_status="running", actual_status="running", cur_state="running", gpu_util=0.0)
+check("regress: idle -> pending", wait(idle_pending, 25), guard("vastai"))
+call("POST", "/api/connectors/vastai", {"idle_stop_minutes": 0})
+check("regress: 0 -> pending cancelled", wait(lambda: guard("vastai").get("pending") is None), guard("vastai"))
+call("POST", "/api/connectors/vastai", {"idle_stop_minutes": 0.05})
+check("regress: turned on again while still idle -> a new pending stop", wait(idle_pending, 25), guard("vastai"))
+v5, n13 = len(calls), len(sent)
+call("POST", "/api/connectors/vastai", {"idle_stop_minutes": 60})
+msg = wait_sent(lambda m: "not stopped" in m["text"] and "render-box" in m["text"], n13, timeout=25)
+time.sleep(3)
+check("regress: idle_stop_minutes raised to 60 while pending -> not stopped at the old deadline", msg is not None
+      and stops("va", v5) == [] and guard("vastai").get("pending") is None, (msg, stops("va", v5), guard("vastai")))
+call("POST", "/api/connectors/vastai", {"idle_stop_minutes": 0.05})
+check("regress: back to 0.05 -> pending again", wait(idle_pending, 25), guard("vastai"))
+v6, n14 = len(calls), len(sent)
+with lock:
+    inst[201]["gpu_util"] = None
+msg = wait_sent(lambda m: "not stopped" in m["text"] and "unknown" in m["text"], n14, timeout=25)
+time.sleep(3)
+check("regress: GPU load unknown at the deadline -> not stopped", msg is not None and stops("va", v6) == [],
+      (msg, stops("va", v6), guard("vastai")))
+call("POST", "/api/connectors/vastai", {"idle_stop_minutes": 0})
 with lock:
     inst[201]["gpu_util"] = 50.0
 call("POST", "/api/connectors/vastai", {"guard": False, "enabled": False, "forget_key": True})

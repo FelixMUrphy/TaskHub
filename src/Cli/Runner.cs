@@ -228,7 +228,9 @@ static class Runner
         {
             sender?.Join(2000);
             Flush(c, tid, pending);
-            var state = verdict?.State ?? (rc == 0 ? "done" : (userCancelled ? "cancelled" : "failed"));
+            // Ctrl+C stays "cancelled" also when a preset calls the non-zero exit a failure (its message, e.g. the resume hint, stays)
+            var state = userCancelled && rc != 0 && verdict?.State == "failed" ? "cancelled"
+                : verdict?.State ?? (rc == 0 ? "done" : (userCancelled ? "cancelled" : "failed"));
             var msg = verdict?.Message ?? $"exit code {rc}" + (lastLine.Length > 0 ? " · " + Cut(lastLine, 200) : "");
             try { c.Call("POST", $"/api/tasks/{tid}/finish", new JsonObject { ["state"] = state, ["message"] = msg }); }
             catch (Exception e) { Console.Error.WriteLine("taskhub: finish failed: " + e.Message); }
