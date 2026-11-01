@@ -1,0 +1,6 @@
+{
+  "_doc": "Host strings: Runpod connector. Each key: the text in all 10 languages (en uk es de fr it pt pl zh ja); plural forms separated by |.",
+  "host": {
+    "rp_zero": {"en": "At $0 Runpod stops pods and terminates those without a network volume (their data is lost).", "uk": "На $0 Runpod зупиняє поди, а ті, що без мережевого тому, видаляє (дані втрачаються).", "es": "Con $0 Runpod detiene los pods y elimina los que no tienen volumen de red (sus datos se pierden).", "de": "Bei $0 stoppt Runpod Pods und löscht die ohne Netzwerk-Volume (ihre Daten gehen verloren).", "fr": "À 0 $, Runpod arrête les pods et supprime ceux sans volume réseau (leurs données sont perdues).", "it": "A $0 Runpod ferma i pod ed elimina quelli senza volume di rete (i dati vanno persi).", "pt": "Com $0 o Runpod para os pods e exclui os que não têm volume de rede (os dados se perdem).", "pl": "Przy $0 Runpod zatrzymuje pody, a te bez wolumenu sieciowego usuwa (dane przepadają).", "zh": "余额为 $0 时，Runpod 会停止 Pod，并删除没有网络卷的 Pod（数据丢失）。", "ja": "残高が $0 になると Runpod は Pod を停止し、ネットワークボリュームのない Pod は削除されます（データは失われます）。"}
+  }
+}

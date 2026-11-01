@@ -1,4 +1,4 @@
-"""Translations (i18n/*.json, one source for the hub and the panel): every key has all 10 languages and no empty
+"""Translations (i18n/*.json + each connector's src/Host/Connectors/<Name>/*.i18n.json, one source for the hub and the panel): every key has all 10 languages and no empty
 text, no key is defined twice (in a file or across files), the {n} placeholders match English, plural entries have
 no more forms than the language has, the keys the code uses exist, and the hub serves the panel exactly this table."""
 import glob, json, os, re, urllib.request
@@ -27,7 +27,8 @@ def no_dupes(pairs):
 
 tables = {"host": {}, "panel": {}}
 bad_json, cross_dupes = [], []
-files = sorted(glob.glob(os.path.join(ROOT, "i18n", "*.json")))
+files = sorted(glob.glob(os.path.join(ROOT, "i18n", "*.json"))
+               + glob.glob(os.path.join(ROOT, "src", "Host", "Connectors", "**", "*.i18n.json"), recursive=True))
 check("i18n files found", len(files) >= 2, files)
 for f in files:
     try:
@@ -78,6 +79,10 @@ for f in glob.glob(os.path.join(ROOT, "src", "Host", "**", "*.cs"), recursive=Tr
     src += open(f, encoding="utf-8").read()
 used_host = set(re.findall(r'\bL\.[TN]\("([A-Za-z0-9_]+)"', src))
 unknown = sorted(used_host - set(tables["host"]))
+# labels of the connectors' number fields (SettingsRows.Field(key, label, ...)) are panel keys
+labels = set(re.findall(r'SettingsRows\.Field\("[A-Za-z0-9_]+", "([A-Za-z0-9_]+)"', src))
+check(f"connector field labels exist in the panel table ({len(labels)} used)", labels and labels <= set(tables["panel"]),
+      sorted(labels - set(tables["panel"])))
 check(f"host keys used in code exist ({len(used_host)} used)", not unknown, unknown)
 ui = ""
 for f in glob.glob(os.path.join(ROOT, "ui", "*")):

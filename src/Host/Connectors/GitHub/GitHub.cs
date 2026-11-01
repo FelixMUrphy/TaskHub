@@ -17,7 +17,7 @@ namespace TaskHub;
 /// Config (connectors.github): enabled, repos [owner/repo], interval, notify_success, logs, auth (token | gcm), api (tests).
 /// The token lives in the Windows Credential Manager (Secrets "github"); auth "gcm" borrows the Git Credential Manager's.
 /// </summary>
-sealed class GitHubConnector : IConnector
+sealed class GitHubConnector : ISettingsConnector
 {
     public string Id => "github";
     const int ExpectedTtl = 3600, WarnDays = 7;
@@ -192,6 +192,40 @@ sealed class GitHubConnector : IConnector
             ["repo_status"] = rst, ["active_runs"] = Count(),
         };
     }
+
+    // ------------------------------------------------------------ settings page row
+    public string Title => "GitHub";
+
+    /// <summary>On / off, the token (or the Git Credential Manager's login), repositories; options: the GitHub window.</summary>
+    public JsonObject SettingsRow()
+    {
+        var g = State();
+        bool on = J.Truthy(g["enabled"]), tokenAuth = J.Str(g["auth"]) != "gcm";
+        var st = J.Str(g["status"]);
+        var check = J.Str(g["token_check"]);
+        int n = (g["repos"] as JsonArray)?.Count ?? 0;
+        var login = J.Str(g["login"]);
+        return new JsonObject
+        {
+            ["id"] = Id, ["name"] = "GitHub Actions", ["kind"] = "key", ["enabled"] = on,
+            ["uses_key"] = tokenAuth, ["key_set"] = J.Truthy(g["token_set"]),
+            ["key_check"] = check.Length > 0 ? check : null,
+            ["summary"] = !on ? "" : SettingsRows.Line(tokenAuth ? J.Str(g["token_check_text"]) : (login.Length > 0 ? "@" + login : ""),
+                (tokenAuth ? SettingsRows.Normal(st) : st is "ok" or "starting" or "off" or "") ? "" : st, n > 0 ? L.N("gh_repos_n", n) : ""),
+            ["help_url"] = SettingsRows.KeyHelpUrl(Id, "uk"),
+            ["setup"] = Id,   // repositories and options: the GitHub window
+        };
+    }
+
+    public JsonObject SettingsChange(JsonObject page) => SettingsRows.Change(page, "token", "forget_token");
+
+    public (string Check, string Text) KeyVerdict()
+    {
+        var v = State();
+        return (J.Str(v["token_check"]), J.Str(v["token_check_text"]));
+    }
+
+    public Action Setup => () => GitHubForm.ShowFor(this);
 
     int Count() { lock (gate) return active.Count; }
 

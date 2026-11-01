@@ -120,7 +120,7 @@ sealed class Api
                 var all = Conns?.All.ToList() ?? new List<IConnector>();
                 return V(new JsonObject
                 {
-                    ["connectors"] = SettingsBridge.ConnectorRows(all.OfType<GitHubConnector>().FirstOrDefault(), all.OfType<MachineConnector>()),
+                    ["connectors"] = SettingsBridge.ConnectorRows(all.OfType<ISettingsConnector>()),
                     ["lang"] = L.Lang,
                 });
             }

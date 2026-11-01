@@ -69,7 +69,7 @@ static class Usd
 /// Config (connectors.&lt;id&gt;): enabled, idle_minutes, idle_util, low_runway_hours, low_balance, list_interval,
 /// detail_interval, billing_interval, api (tests: a loopback mock only); the balance guard's keys: see Guard.cs.
 /// </summary>
-abstract partial class MachineConnector : IConnector
+abstract partial class MachineConnector : ISettingsConnector
 {
     public abstract string Id { get; }
     public abstract string Title { get; }                 // "Runpod"
@@ -248,6 +248,51 @@ abstract partial class MachineConnector : IConnector
     {
         try { return Secrets.Read(S, Id) is { Length: > 0 }; }
         catch (Exception e) { Log.W($"{Id}: key not read: " + e.Message); return false; }
+    }
+
+    // ------------------------------------------------------------ settings page row
+    /// <summary>Languages (besides English) of its "how to get a key" page, docs/keys/&lt;id&gt;.&lt;lang&gt;.md.</summary>
+    protected virtual string[] KeyDocLangs => new[] { "uk" };
+
+    static readonly string[] SettingsKeys = { "idle_minutes", "low_runway_hours", "low_balance",
+        "guard", "guard_warn", "guard_stop", "guard_grace_min", "guard_snooze_min", "guard_exempt" };
+
+    /// <summary>On / off, the key, the warning thresholds (number fields) and the balance guard.</summary>
+    public JsonObject SettingsRow()
+    {
+        var ms = State();
+        bool on = J.Truthy(ms["enabled"]);
+        var st = J.Str(ms["status"]);
+        var check = J.Str(ms["key_check"]);
+        return new JsonObject
+        {
+            ["id"] = Id, ["name"] = Title, ["kind"] = "key", ["enabled"] = on, ["uses_key"] = true,
+            ["key_set"] = J.Truthy(ms["key_set"]), ["key_check"] = check.Length > 0 ? check : null,
+            ["summary"] = !on ? "" : SettingsRows.Line(J.Str(ms["summary"]), SettingsRows.Normal(st) ? "" : st),
+            ["help_url"] = SettingsRows.KeyHelpUrl(Id, KeyDocLangs),
+            ["thresholds"] = new JsonObject
+            {
+                ["idle_minutes"] = J.C(ms["idle_minutes"]), ["low_runway_hours"] = J.C(ms["low_runway_hours"]),
+                ["low_balance"] = J.C(ms["low_balance"]),
+            },
+            ["fields"] = new JsonArray
+            {
+                SettingsRows.Field("idle_minutes", "s_idle_min", 1, 1440, 1, ms["idle_minutes"]),
+                // the balance guard on: its warning replaces the old low-balance one (the keys stay as they are)
+                SettingsRows.Field("low_runway_hours", "s_low_runway", 0, 720, 1, ms["low_runway_hours"]),
+                SettingsRows.Field("low_balance", "s_low_bal", 0, 1000000, 1, ms["low_balance"], emptyOk: true),
+            },
+            // the balance guard (2.9): its values, forecast / pending line, machines with "never auto-stop", last stops
+            ["guard"] = on ? GuardRow() : null,
+        };
+    }
+
+    public JsonObject SettingsChange(JsonObject page) => SettingsRows.Change(page, "key", "forget_key", SettingsKeys);
+
+    public (string Check, string Text) KeyVerdict()
+    {
+        var v = State();
+        return (J.Str(v["key_check"]), J.Str(v["key_check_text"]));
     }
 
     public JsonObject State()

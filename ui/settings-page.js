@@ -78,11 +78,12 @@ function connKey(id, what){
 $("#sethost").addEventListener("keydown",e=>{
   const a=e.target.closest && e.target.closest("a[data-open]"); if (a && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); host({open:a.dataset.open}); return; }
   const i=e.target.closest && e.target.closest("input[data-ckey]"); if (i && e.key==="Enter"){ e.preventDefault(); connKey(i.dataset.ckey,"save"); } });
-// a threshold of a connector (idle GPU minutes, runway hours, low balance $): sent when changed; empty low balance = off
+// a number field of a connector (idle GPU minutes, runway hours, low balance $...): sent when changed; empty = off where the
+// field allows it (data-empty), else the old value is put back
 $("#sethost").addEventListener("change",e=>{
   const i=e.target.closest && e.target.closest("input[data-cset]"); if (!i) return;
   const k=i.dataset.cset, v=i.value.trim();
-  if (v==="" && k!=="low_balance"){ reSet(); return; }
+  if (v==="" && !i.dataset.empty){ reSet(); return; }
   host({settings:"set",connector:i.dataset.conn,[k]: v===""? null : +v});
 });
 function settingsReply(d){

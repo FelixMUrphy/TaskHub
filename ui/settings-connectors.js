@@ -21,13 +21,10 @@ const connRow=c=>{
         + `<button class="btn" data-ck="save" data-conn="${id}">${esc(T("s_key_save"))}</button>`
         + (c.key_set? `<button class="btn" data-ck="cancel" data-conn="${id}">${esc(T("cancel"))}</button>` : ""));
   }
-  const th=c.thresholds, gd=c.guard;
-  const numv=(k,lab,min,max,step,v,d)=>srow(T(lab),d||"",`<input class="kin num" type="number" min="${min}" max="${max}" step="${step}" data-cset="${k}" data-conn="${id}" aria-label="${esc(T(lab))}" value="${v==null?"":esc(v)}">`,"sub");
-  if (th){
-    h+=numv("idle_minutes","s_idle_min",1,1440,1,th.idle_minutes);
-    // the balance guard on: its warning replaces the old low-balance one (the keys stay as they are)
-    h+=numv("low_runway_hours","s_low_runway",0,720,1,th.low_runway_hours)+numv("low_balance","s_low_bal",0,1000000,1,th.low_balance);
-  }
+  const gd=c.guard;
+  const numv=(k,lab,min,max,step,v,d,emptyOk)=>srow(T(lab),d||"",`<input class="kin num" type="number" min="${min}" max="${max}" step="${step}" data-cset="${k}" data-conn="${id}"${emptyOk?' data-empty="1"':""} aria-label="${esc(T(lab))}" value="${v==null?"":esc(v)}">`,"sub");
+  // the connector's own number fields, as its row describes them (label = a key of the panel's translations)
+  for (const f of c.fields||[]) h+=numv(f.key,f.label,f.min,f.max,f.step,f.value,"",f.empty_ok);
   // balance guard (2.9): warn / stop thresholds, time to answer, snooze; forecast; a pending stop with Stop now / Snooze;
   // "never auto-stop" per machine; the last stops. Texts in the UI language come from the host.
   if (gd){
