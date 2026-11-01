@@ -187,7 +187,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         {
             ["enabled"] = c.Enabled, ["repos"] = J.StrArray(c.Repos), ["interval"] = c.Interval,
             ["notify_success"] = c.NotifySuccess, ["logs"] = c.Logs, ["auth"] = c.Auth,
-            ["pr_reviews"] = c.PrReviews, ["pr_dependabot"] = c.PrDependabot, ["prs"] = PrCount(),
+            ["pr_reviews"] = c.PrReviews, ["pr_dependabot"] = c.PrDependabot, ["prs"] = PrCount(), ["pr_status"] = PrStatus(c),
             ["token_set"] = TokenSet(),
             ["status"] = status, ["login"] = login,
             ["token_check"] = c.Auth == "token" ? tokenCheck : null, ["token_check_text"] = c.Auth == "token" ? CheckText() : null,
@@ -301,6 +301,7 @@ sealed partial class GitHubConnector : ISettingsConnector
     {
         var c = Cfg;
         var now = J.Now();
+        PrsCleanup(c);   // also while paused / without a token: switched-off PR tasks end
         if (now < pausedUntil) return;
         var token = await Token(c, ct);
         if (token == null) return;
@@ -805,7 +806,8 @@ sealed partial class GitHubConnector : ISettingsConnector
         var res = new Resp { Code = (int)r.StatusCode, ETag = r.Headers.ETag?.ToString(), Location = r.Headers.Location };
         if (res.Location != null && !res.Location.IsAbsoluteUri) res.Location = new Uri(req.RequestUri, res.Location);
         // the search API has its own bucket (30 a minute): it pauses only the pull request searches
-        bool search = r.Headers.TryGetValues("x-ratelimit-resource", out var rsrc) ? rsrc.First() == "search" : path.StartsWith("/search/") || path.Contains("/search/");
+        bool search = r.Headers.TryGetValues("x-ratelimit-resource", out var rsrc) ? rsrc.First() == "search"
+            : path.StartsWith(ApiUri.AbsolutePath.TrimEnd('/') + "/search/", StringComparison.Ordinal);
         int searchLeft = -1;
         double searchReset = 0;
         if (r.Headers.TryGetValues("x-ratelimit-remaining", out var rl) && int.TryParse(rl.First(), out var left)) { if (search) searchLeft = left; else rateLeft = left; }

@@ -25,8 +25,8 @@ If the owner is an organization that requires approval, the token stays pending 
 | (a) Watch only | **Actions:** Read-only · **Contents:** Read-only · **Metadata:** Read-only |
 | (b) Cancel / Re-run | **Actions:** Read and write · **Contents:** Read-only · **Metadata:** Read-only |
 
-Pull requests (optional) need nothing more: the open PR list and a PR's state are readable with **Contents: Read-only**
-(or **Pull requests: Read-only**), and the review-request search needs no permission. A fine-grained token sees review
+Pull requests (optional): Dependabot pull requests need **Pull requests: Read-only** as well (GitHub lists the open PR
+list only under that permission); the review-request search needs no permission. A fine-grained token sees review
 requests only in the repositories it was given and in public ones.
 
 Prefer this token over TaskHub's other option (the token the Git Credential Manager already has), which has

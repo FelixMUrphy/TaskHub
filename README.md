@@ -162,7 +162,8 @@ followed and reported (*repository moved to …*); GitHub's rate limits pause po
 [API.md → Connectors](API.md#connectors-github-actions).
 *From version 2.9.4:* **pull requests, read-only** (two switches in the same window, both off by default): pull requests
 waiting for **your review** (any repository the token can see; a fine-grained token sees only its own repositories and
-public ones) and open **Dependabot** pull requests in the listed repositories. Each is a task with a link and a
+public ones) and open **Dependabot** pull requests in the listed repositories (the token also needs *Pull requests:
+Read-only*). Each is a task with a link and a
 notification when it appears; it ends quietly when it leaves the list (*Merged*, *Closed without merging*, *No longer
 waiting for your review*). Nothing is merged, approved or commented on.
 *How to get a token:* [docs/keys/github.md](docs/keys/github.md) (step by step, minimum permissions, revoking; [українською](docs/keys/github.uk.md)).

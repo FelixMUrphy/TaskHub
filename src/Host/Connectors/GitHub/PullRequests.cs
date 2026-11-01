@@ -23,10 +23,12 @@ sealed partial class GitHubConnector
     {
         public string Kind = "", Repo = "", Title = "", Url = "", Author = ""; public int Number; public bool Draft;
         public string Key => Repo.ToLowerInvariant() + "#" + Number;
+        public Pr Copy() => (Pr)MemberwiseClone();   // the cached lists, the round's view and the shown tasks never share one
     }
-    sealed class PullList { public string Etag; public List<Pr> Prs = new(); public double NextPoll; }
+    sealed class PullList { public string Etag; public List<Pr> Prs = new(); public double NextPoll; public bool NoAccess; }
     readonly Dictionary<string, Pr> prs = new();                // PR tasks being shown: "owner/repo#n" -> PR
-    readonly Dictionary<string, PullList> pullLists = new();    // repo -> its open PRs (Dependabot)
+    // repo -> its open PRs (Dependabot); GitHub's names and the typed ones may differ in case
+    readonly Dictionary<string, PullList> pullLists = new(StringComparer.OrdinalIgnoreCase);
     double prNext, prPausedUntil;
     bool prAdopted;
 
@@ -38,6 +40,17 @@ sealed partial class GitHubConnector
         "ghpr-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(p.Key)))[..12].ToLowerInvariant();
 
     int PrCount() { lock (gate) return prs.Count; }
+
+    /// <summary>Repositories whose PR list can't be read (for the window).</summary>
+    JsonObject PrStatus(Conf c)
+    {
+        var o = new JsonObject();
+        if (!c.PrDependabot) return o;
+        lock (gate)
+            foreach (var (repo, pl) in pullLists)
+                if (pl.NoAccess && c.Repos.Contains(repo, StringComparer.OrdinalIgnoreCase)) o[repo] = L.T("pr_no_access");
+        return o;
+    }
 
     /// <summary>After a restart: PR tasks still open are known again (no second notification; ended if they're gone).</summary>
     void AdoptPrs()
@@ -64,22 +77,32 @@ sealed partial class GitHubConnector
         foreach (var p in all) EndPr(p, L.T("pr_end_off"));
     }
 
-    async Task PollPrs(string token, Conf c, CancellationToken ct)
+    /// <summary>Every round, also without a working token: a kind turned off ends its tasks (a review request that is also
+    /// an open Dependabot PR stays, as that); a Dependabot PR of a repository no longer listed ends too.</summary>
+    void PrsCleanup(Conf c)
     {
-        var now = J.Now();
         if (!prAdopted) AdoptPrs();
-        // a kind turned off: its tasks end now - a review request that is also an open Dependabot PR stays, as that
-        List<Pr> off, toDependabot = new();
+        List<Pr> off, toDependabot = new(), unwatched;
         lock (gate)
         {
+            if (prs.Count == 0) return;
             off = prs.Values.Where(p => p.Kind == "review" ? !c.PrReviews : !c.PrDependabot).ToList();
             if (c.PrDependabot)
                 foreach (var p in off.ToList())
-                    if (p.Kind == "review" && pullLists.TryGetValue(p.Repo, out var pl) && pl.Prs.Any(x => x.Key == p.Key))
+                    if (p.Kind == "review" && c.Repos.Contains(p.Repo, StringComparer.OrdinalIgnoreCase)
+                        && pullLists.TryGetValue(p.Repo, out var pl) && pl.Prs.Any(x => x.Key == p.Key))
                     { off.Remove(p); toDependabot.Add(p); }
+            unwatched = prs.Values.Where(p => p.Kind == "dependabot" && c.PrDependabot
+                && !c.Repos.Contains(p.Repo, StringComparer.OrdinalIgnoreCase)).ToList();
         }
         foreach (var p in off) EndPr(p, L.T("pr_end_off"));
+        foreach (var p in unwatched) EndPr(p, L.T("pr_end_unwatched"));
         foreach (var p in toDependabot) { p.Kind = "dependabot"; RegisterPr(p); }
+    }
+
+    async Task PollPrs(string token, Conf c, CancellationToken ct)
+    {
+        var now = J.Now();
         if (!c.PrReviews && !c.PrDependabot) return;
         if (now < prNext || now < prPausedUntil || now < pausedUntil || string.IsNullOrEmpty(login)) return;
         prNext = now + PrEvery(c);
@@ -93,7 +116,7 @@ sealed partial class GitHubConnector
             {
                 var list = await DependabotPrs(repo, token, c, ct);
                 if (list == null) { all = false; continue; }
-                foreach (var p in list) found[p.Key] = p;
+                foreach (var p in list) found[p.Key] = p.Copy();
             }
             lock (gate) foreach (var k in pullLists.Keys.Where(k => !c.Repos.Contains(k, StringComparer.OrdinalIgnoreCase)).ToList()) pullLists.Remove(k);
             if (all) asked.Add("dependabot");
@@ -104,28 +127,32 @@ sealed partial class GitHubConnector
             if (items != null)
             {
                 asked.Add("review");
-                foreach (var p in items) found[p.Key] = p;   // a Dependabot PR that asks for your review: a review request
+                foreach (var p in items) found[p.Key] = p.Copy();   // a Dependabot PR that asks for your review: a review request
             }
             else if (found.Count > 0)   // the search didn't answer: review tasks stay as they are (not shown as Dependabot)
                 lock (gate) foreach (var k in found.Keys.Where(k => prs.TryGetValue(k, out var o) && o.Kind == "review").ToList()) found.Remove(k);
         }
 
-        List<Pr> fresh, gone;
+        List<Pr> fresh, gone, noAccess;
         lock (gate)
         {
             fresh = found.Values.Where(p => !prs.ContainsKey(p.Key)).ToList();
             gone = prs.Values.Where(p => !found.ContainsKey(p.Key) && asked.Contains(p.Kind)).ToList();
+            noAccess = gone.Where(p => p.Kind == "dependabot" && pullLists.TryGetValue(p.Repo, out var pl) && pl.NoAccess).ToList();
+            gone = gone.Except(noAccess).ToList();
         }
         foreach (var p in found.Values)
         {
             Pr old;
             lock (gate) prs.TryGetValue(p.Key, out old);
             if (old == null || (old.Title == p.Title && old.Kind == p.Kind && old.Draft == p.Draft)) continue;
-            // renamed, became a review request (or no longer is one, still open as Dependabot's), out of draft
+            // renamed, became a review request (notified, as a new one) or no longer is one (still open as Dependabot's), out of draft
+            bool nowReview = old.Kind != "review" && p.Kind == "review";
             old.Title = p.Title; old.Kind = p.Kind; old.Draft = p.Draft; old.Url = p.Url.Length > 0 ? p.Url : old.Url; old.Author = p.Author;
-            RegisterPr(old);
+            RegisterPr(old, nowReview ? L.T("pr_new_review", old.Repo + " #" + old.Number) : null);
         }
         foreach (var p in fresh) ShowPr(p);
+        foreach (var p in noAccess) EndPr(p, L.T("pr_end_noaccess"));
         foreach (var p in gone) await GonePr(p, token, ct);
     }
 
@@ -139,11 +166,27 @@ sealed partial class GitHubConnector
         if (r.Code == 304) { pl.NextPoll = J.Now() + DependabotEvery(c); return pl.Prs; }
         if (r.Limited) return null;
         if (r.Code == 401) { Rejected(c); return null; }
-        if (r.Code is 403 or 404) { pl.NextPoll = J.Now() + DependabotEvery(c); pl.Etag = null; pl.Prs = new(); return pl.Prs; }   // no access: nothing to show
+        if (r.Code is 403 or 404)   // no access (a fine-grained token without Pull requests: Read-only): said in the window
+        {
+            pl.NextPoll = J.Now() + DependabotEvery(c); pl.Etag = null; pl.Prs = new(); pl.NoAccess = true;
+            return pl.Prs;
+        }
         if (r.Code != 200) return null;
+        var items = (r.Body as JsonArray ?? new JsonArray()).OfType<JsonObject>().ToList();
+        // more than one page (over 100 open PRs): the next ones too, else the older PRs would look closed
+        var next = r.Next;
+        for (int page = 1; next != null && page < 10; page++)
+        {
+            var rn = await Send(HttpMethod.Get, next, null, token, ct);
+            if (rn.Code != 200) return null;
+            items.AddRange((rn.Body as JsonArray ?? new JsonArray()).OfType<JsonObject>());
+            next = rn.Next;
+        }
+        if (next != null) return null;   // too many to read: nothing is ended on a partial list
         pl.Etag = r.ETag;
+        pl.NoAccess = false;
         pl.NextPoll = J.Now() + DependabotEvery(c);
-        pl.Prs = (r.Body as JsonArray ?? new JsonArray()).OfType<JsonObject>()
+        pl.Prs = items
             .Where(j => J.Str(j["user"]?["login"]) == DependabotLogin)
             .Select(j => FromJson(j, J.Str(j["base"]?["repo"]?["full_name"]) is { Length: > 0 } fn ? fn : repo, "dependabot"))
             .Where(p => p != null).ToList();
@@ -159,8 +202,19 @@ sealed partial class GitHubConnector
         if (r.Code == 401) { Rejected(c); return null; }
         if (r.Code != 200) { Log.W($"github: review search HTTP {r.Code}"); return null; }
         if (J.Truthy(r.Body?["incomplete_results"])) return null;   // timed out on GitHub's side: not a reason to end tasks
+        var items = (r.Body?["items"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().ToList();
+        // more than 100 waiting for you: the next pages (each counts against the search limit), at most 3
+        var next = r.Next;
+        for (int page = 1; next != null && page < 3; page++)
+        {
+            var rn = await Send(HttpMethod.Get, next, null, token, ct);
+            if (rn.Code != 200 || J.Truthy(rn.Body?["incomplete_results"])) return null;
+            items.AddRange((rn.Body?["items"] as JsonArray ?? new JsonArray()).OfType<JsonObject>());
+            next = rn.Next;
+        }
+        if (next != null) return null;   // more than 300: nothing is ended on a partial list
         var list = new List<Pr>();
-        foreach (var it in (r.Body?["items"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
+        foreach (var it in items)
         {
             if (it["pull_request"] is null) continue;
             var repoUrl = J.Str(it["repository_url"]);
@@ -223,6 +277,7 @@ sealed partial class GitHubConnector
 
     void ShowPr(Pr p)
     {
+        p = p.Copy();
         lock (gate) prs[p.Key] = p;
         var where = p.Repo + " #" + p.Number;
         RegisterPr(p, p.Kind == "review" ? L.T("pr_new_review", where) : L.T("pr_new_dependabot", where));

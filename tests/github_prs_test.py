@@ -30,7 +30,7 @@ def pr(repo, n, title, author, draft=False):
 
 state = {
     "reviews": [pr("o/x", 5, "Add retry to the uploader", "bob")],
-    "pulls": {"o/r": [pr("o/r", 12, "Bump requests from 2.31.0 to 2.32.3", "dependabot[bot]"),
+    "pulls": {"o/q": [], "o/r": [pr("o/r", 12, "Bump requests from 2.31.0 to 2.32.3", "dependabot[bot]"),
                       pr("o/r", 13, "Refactor the parser", "carol")]},
     "closed": {},          # "repo#n" -> {"state": "closed", "merged_at": ...}
     "search_limited": 0,   # next N searches: 403 rate limit of the search bucket
@@ -104,10 +104,12 @@ class Api(BaseHTTPRequestHandler):
             return self.reply(200, {"total_count": 0, "workflow_runs": []})
         parts = p.strip("/").split("/")
         if len(parts) == 4 and parts[0] == "repos" and parts[3] == "pulls":
+            if parts[2] == "secret":
+                return self.reply(403, {"message": "Resource not accessible by personal access token"})
             with lock:
-                return self.reply(200, list(state["pulls"].get(parts[1] + "/" + parts[2], [])))
+                return self.reply(200, list(state["pulls"].get((parts[1] + "/" + parts[2]).lower(), [])))   # GitHub ignores case
         if len(parts) == 5 and parts[0] == "repos" and parts[3] == "pulls":
-            key = parts[1] + "/" + parts[2] + "#" + parts[4]
+            key = (parts[1] + "/" + parts[2]).lower() + "#" + parts[4]
             with lock:
                 st = state["closed"].get(key, {"state": "open", "merged_at": None})
             return self.reply(200, {"number": int(parts[4]), **st})
@@ -157,7 +159,7 @@ threading.Thread(target=srv.serve_forever, daemon=True).start()
 call("POST", "/api/settings", {"language": "en"})
 
 REV, DEP, HUMAN = tid("o/x", 5), tid("o/r", 12), tid("o/r", 13)
-for t in (REV, DEP, HUMAN, tid("o/r", 14), tid("o/x", 6)):
+for t in (REV, DEP, HUMAN, tid("o/r", 14), tid("o/x", 6), tid("o/r", 15)):
     call("DELETE", f"/api/tasks/{t}?force=1")
 
 # ---- off by default: Actions only, no searches, no PR lists
@@ -237,13 +239,52 @@ s, r = call("POST", "/api/connectors/github", {"enabled": False})
 d = wait(lambda: (task(tid("o/r", 14)) or {}).get("state") == "done" and task(tid("o/r", 14)))
 check("connector off -> PR tasks end", d and d.get("message") == "Pull requests turned off in TaskHub", d)
 
+# ---- review fixes: a Dependabot PR already shown that now asks for my review -> notified as a review request
+call("POST", "/api/connectors/github", {"enabled": True, "pr_reviews": True, "pr_dependabot": True, "repos": ["O/R"]})
+with lock:
+    state["reviews"] = []
+    dep15 = pr("o/r", 15, "Bump idna from 3.6 to 3.7", "dependabot[bot]")
+    state["pulls"]["o/r"].append(dep15)
+T15 = tid("o/r", 15)
+check("repo typed 'O/R' (GitHub: o/r): Dependabot PR -> task", wait(lambda: (task(T15) or {}).get("state") == "running") is not None, task(T15))
+with lock:
+    state["reviews"].append(dep15)
+t15 = wait(lambda: (task(T15) or {}).get("name", "").startswith("Review · ") and task(T15))
+check("…it now asks for my review -> 'Review · …', logged 'Review requested: o/r #15'", t15
+      and any("Review requested: o/r #15" in x.get("msg", "") for x in t15.get("log") or []), t15 and t15.get("log"))
+# reviews off: stays open as Dependabot's (case of the typed repo name doesn't matter), no 'turned off', no 2nd notice
+call("POST", "/api/connectors/github", {"pr_reviews": False})
+time.sleep(5)
+t15 = task(T15) or {}
+check("'O/R': reviews off -> stays running as 'Dependabot · …', not ended, no second 'New Dependabot' notice",
+      t15.get("state") == "running" and t15.get("name", "").startswith("Dependabot · ")
+      and not any("turned off" in x.get("msg", "") for x in t15.get("log") or [])
+      and sum("New Dependabot pull request: o/r #15" in x.get("msg", "") for x in t15.get("log") or []) == 1, t15.get("log"))
+# the repository taken off the list -> 'The repository is no longer watched' (not 'No longer open')
+call("POST", "/api/connectors/github", {"repos": ["o/q"]})
+t15 = wait(lambda: (task(T15) or {}).get("state") == "done" and task(T15))
+check("repo taken off the list -> 'The repository is no longer watched'", t15 and t15.get("message") == "The repository is no longer watched", t15)
+# a repository whose PR list answers 403: said in the state, its tasks end with 'No access'
+s, r = call("POST", "/api/connectors/github", {"repos": ["o/q", "o/secret"]})
+st = wait(lambda: (call("GET", "/api/connectors/github")[1].get("pr_status") or {}).get("o/secret"))
+check("PR list 403 -> pr_status says 'no access to pull requests'", st and "no access to pull requests" in st, st)
+# no token any more, then both switches off: the PR tasks still end
+call("POST", "/api/connectors/github", {"repos": ["o/r"], "pr_reviews": True})
+check("review again -> task", wait(lambda: (task(T15) or {}).get("state") == "running") is not None, task(T15))
+call("POST", "/api/connectors/github", {"forget_token": True})
+call("POST", "/api/connectors/github", {"pr_reviews": False, "pr_dependabot": False})
+t15 = wait(lambda: (task(T15) or {}).get("state") == "done" and task(T15), 10)
+check("no token, switches off -> PR task ends 'Pull requests turned off in TaskHub'", t15
+      and t15.get("message") == "Pull requests turned off in TaskHub", t15)
+call("POST", "/api/connectors/github", {"enabled": False})
+
 # ---- read-only: nothing but GET ever reached GitHub
 with lock:
     writes = [c for c in calls if c[0] != "GET"]
 check("read-only: only GET requests", writes == [], writes[:5])
 
 call("POST", "/api/connectors/github", {"forget_token": True, "pr_reviews": False, "pr_dependabot": False, "repos": []})
-for t in (REV, DEP, HUMAN, tid("o/r", 14), tid("o/x", 6)):
+for t in (REV, DEP, HUMAN, tid("o/r", 14), tid("o/x", 6), tid("o/r", 15)):
     call("DELETE", f"/api/tasks/{t}?force=1")
 srv.shutdown()
 srv.server_close()
