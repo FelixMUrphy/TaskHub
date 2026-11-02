@@ -54,6 +54,8 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
 - **Vast.ai** *(from 2.9)*: your instances as tasks — the same as Runpod (GPU, location, image, $/h, spent, uptime, SSH, load
   charts with disk, *GPU idle*, balance / credit and runway, stop / start / reboot, delete only in the panel) — see
   [Vast.ai](#vastai).
+- **AWS** *(from 3.1; off until you turn it on; built from AWS's documentation, not yet checked on a real account)*: EC2 instances as tasks with a *Forgotten?*
+  reminder; SageMaker training jobs, AWS Batch jobs, this month's cost and forecast, and AWS Budgets, each behind its own switch. Read-only. [AWS](#aws).
 - **Balance guard** *(from 2.9, off until you turn it on)*: for Runpod and Vast.ai — a warning at your own balance threshold
   (balance, $/h, time left), and at the stop threshold the running machines are **stopped** (never deleted) after a
   notification with *Stop now* / *Snooze* (Windows and Telegram) — see [Balance guard](#balance-guard).
@@ -204,6 +206,15 @@ for deletion. A start can wait in *Scheduling* when the host rented the GPU out 
 to `console.vast.ai`. Details: [API.md → Connectors](API.md#connectors-vastai).
 *How to get a key:* [docs/keys/vastai.md](docs/keys/vastai.md) (step by step, minimum permissions, revoking; [українською](docs/keys/vastai.uk.md)).
 
+
+### AWS
+*From version 3.1; off until you turn it on. Built from AWS's documentation and tested against a simulator, not yet on a real account.*
+Settings → *Connectors* → *AWS*: paste an access key of a dedicated IAM user with a read-only policy
+([how to get it](docs/keys/aws.md)). TaskHub starts, stops and changes nothing in your account.
+EC2 instances in the Regions you use become tasks with their state and how long they have run; one running longer than your limit gets a *Forgotten?* reminder.
+Each of these has its own switch and its own permissions: **SageMaker training jobs** (phase and time; SageMaker reports no percentage for ordinary
+training, so TaskHub shows none), **AWS Batch jobs** (real progress for array jobs), **this month's cost and forecast** from Cost Explorer (AWS charges
+$0.01 per request; TaskHub makes 2 at most every 8 hours, about $1.80 a month, and a restart doesn't pay again) and **AWS Budgets** (one notification when a budget goes over its limit).
 ### Balance guard
 *From version 2.9; off until you turn it on.* Settings → *Connectors* → *Runpod* / *Vast.ai* → *Auto-stop at low balance*.
 Each provider has its own two thresholds in $: **warn** (default $10) and **stop** (default $2; warn must be above stop).

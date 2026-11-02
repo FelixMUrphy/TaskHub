@@ -49,11 +49,12 @@ sealed class Connectors
     public static JsonObject Config(Settings s, string id) =>
         (s.Get("connectors") as JsonObject)?[id] as JsonObject ?? new JsonObject();
 
-    public static void SetConfig(Settings s, string id, JsonObject cfg)
+    /// <summary>False: it couldn't be written to disk.</summary>
+    public static bool SetConfig(Settings s, string id, JsonObject cfg)
     {
         var all = s.Get("connectors") as JsonObject ?? new JsonObject();
         all[id] = cfg.DeepClone();
-        s.Set(("connectors", all));
+        return s.Set(("connectors", all));
     }
 }
 

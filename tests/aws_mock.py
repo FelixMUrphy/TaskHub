@@ -98,6 +98,7 @@ class Mock:
 
             do_GET = do_POST = handle_any
 
+        ThreadingHTTPServer.allow_reuse_address = False   # Windows: otherwise two servers share the port silently and a request can hang on the dead one
         self.server = ThreadingHTTPServer(("127.0.0.1", port), H)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 

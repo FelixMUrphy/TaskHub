@@ -35,6 +35,9 @@ sm_queues = set()             # Batch queues of type SAGEMAKER_TRAINING: ListJob
 sm_page = {"n": 1}            # ListTrainingJobs reads a page, then filters by status (as the docs warn), so pages can be empty
 batch_page = {"n": 100}
 regions_delay = {"s": 0}
+money = {"month": "12.3456", "forecast": "30.1", "budgets": []}
+ACCOUNT = "123456789012"
+ce_delay = {"s": 0}
 
 
 def check(name, cond, extra=""):
@@ -65,13 +68,32 @@ def jr(code, obj):
 
 def job_handler(rec):
     region, svc = rec["region"], rec["service"]
-    body = json.loads(rec["body"] or "{}")
+    if svc == "ce" and ce_delay["s"]:
+        time.sleep(ce_delay["s"])
+    body = json.loads(rec["body"] or "{}") if svc != "sts" else {}   # STS is a form
     with lock:
         f = job_faults.get((region, svc)) or job_faults.get(svc)
+        target = rec["headers"].get("x-amz-target", [""])[0]
+        if svc == "ce" and target.endswith("Forecast") and job_faults.get("forecast"):
+            f = job_faults["forecast"]
+        if f == "drop":   # the connection breaks: nothing reached AWS
+            raise ConnectionAbortedError("mock: dropped")
+        if f and svc == "sts":   # the Query protocol answers in XML
+            return f[0], "text/xml", f'<ErrorResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><Error><Type>Sender</Type><Code>{f[1]}</Code><Message>secret detail</Message></Error><RequestId>r</RequestId></ErrorResponse>'.encode()
         if f and f[1].startswith("header:"):
             return f[0], "application/json", b'{"message": "secret detail"}', {"X-Amzn-Errortype": f[1][7:]}
         if f:
             return jr(f[0], {"__type": f"com.amazon#{f[1]}", "message": f[2] if len(f) > 2 else "secret detail"})
+        if svc == "sts":
+            return 200, "text/xml", f'<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><GetCallerIdentityResult><Arn>arn:aws:iam::{ACCOUNT}:user/t</Arn><UserId>U</UserId><Account>{ACCOUNT}</Account></GetCallerIdentityResult></GetCallerIdentityResponse>'.encode()
+        if svc == "ce" and target == "AWSInsightsIndexService.GetCostAndUsage":
+            return jr(200, {"ResultsByTime": [{"TimePeriod": body["TimePeriod"], "Total": {"UnblendedCost": {"Amount": money["month"], "Unit": "USD"}}, "Estimated": True}]})
+        if svc == "ce" and target == "AWSInsightsIndexService.GetCostForecast":
+            return jr(200, {"Total": {"Amount": money["forecast"], "Unit": "USD"}, "ForecastResultsByTime": []})
+        if svc == "budgets" and target == "AWSBudgetServiceGateway.DescribeBudgets":
+            if body.get("AccountId") != ACCOUNT:
+                return jr(400, {"__type": "InvalidParameterException"})
+            return jr(200, {"Budgets": money["budgets"]})
         if svc == "sagemaker":
             action = rec["headers"].get("x-amz-target", [""])[0].replace("SageMaker.", "")
             if action == "DescribeTrainingJob":
@@ -438,7 +460,7 @@ with mock:
         time.sleep(0.8)
         check("job services off by default: never asked", not [q for q in mock.requests if q["service"] != "ec2"], {q["service"] for q in mock.requests})
         rw = row()
-        check("settings row: two switches, off", [s["key"] for s in rw["switches"]] == ["sagemaker", "batch"] and not any(s["value"] for s in rw["switches"]), rw["switches"])
+        check("settings row: four switches, off", [s["key"] for s in rw["switches"]] == ["sagemaker", "batch", "cost", "budgets"] and not any(s["value"] for s in rw["switches"]), rw["switches"])
         now = time.time()
         with lock:
             training["us-east-1"] = [sm_job("classifier-train"), sm_job("old-finished", "Completed", "Completed", 90000, now - 86000) | {"LastModifiedTime": now - 86000}]
@@ -648,6 +670,215 @@ with mock:
             sm_queues.clear()
             sm_page["n"], batch_page["n"] = 1, 100
 
+        # ------------------------------------------------------------ money: Cost Explorer (paid per request), Budgets
+        cost_calls = lambda: [q for q in mock.requests if q["service"] == "ce"]
+        cost_state = lambda: state()["cost_read"]
+        s, r = call("POST", "/api/connectors/aws", {"cost_interval": "abc"})
+        check("cost_interval must be a number", s == 400, (s, r))
+        rw = row()
+        check("settings row: the cost switch says the price beside it, off", any(x["key"] == "cost" and x["value"] is False and "$0.01" in x["text"] for x in rw["switches"]) and any("$1.80" in (x.get("hint") or "") for x in rw["switches"]), rw["switches"])
+        mock.requests.clear()
+        call("POST", "/api/connectors/aws", {"cost": True})
+        wait(lambda: cost_state().get("read_at"))
+        time.sleep(1.2)
+        calls = cost_calls()
+        today = time.strftime("%Y-%m-%d", time.gmtime())
+        first = today[:8] + "01"
+        check("two paid requests, then none: at most one read per 8 hours", len(calls) == (2 if today != first else 1), [q["headers"].get("x-amz-target") for q in calls])
+        check("signed for ce in us-east-1, target signed", calls and all(q.get("verified") and q["region"] == "us-east-1" and "x-amz-target" in q.get("signed", []) for q in calls), calls[:1])
+        fc = json.loads(calls[-1]["body"])
+        check("forecast from today to the next month, the right metric name", fc["TimePeriod"]["Start"] == today and fc["TimePeriod"]["End"] > today and fc["TimePeriod"]["End"].endswith("-01") and fc["Metric"] == "UNBLENDED_COST", fc)
+        if today != first:
+            mt = json.loads(calls[0]["body"])
+            check("month so far: 1st to today (End is exclusive), the right metric name", mt["TimePeriod"] == {"Start": first, "End": today} and mt["Metrics"] == ["UnblendedCost"], mt)
+            check("settings: the amount, and a forecast including what's spent", any("$12.35" in n and "$42.45" in n for n in row()["notes"]), row()["notes"])
+        n1 = row()["notes"]
+        time.sleep(2)
+        check("the line says when it was read and doesn't tick (a redraw loses the focus)", n1 == row()["notes"] and any("read at" in n for n in n1), n1)
+        before = len(cost_calls())
+        call("POST", "/api/connectors/aws", {"cost": False})
+        call("POST", "/api/connectors/aws", {"cost": True})
+        time.sleep(0.8)
+        check("off and on again pays nothing more", len(cost_calls()) == before, len(cost_calls()))
+        # the promised price holds when something fails
+        with lock:
+            job_faults["forecast"] = (500, "InternalServerError")
+        s, _ = call("POST", "/api/connectors/aws", {"cost_interval": 28800})
+        before = len(cost_calls())
+        wait(lambda: cost_state().get("state") == "error")
+        time.sleep(1.5)
+        cs = cost_state()
+        check("forecast fails: no retry before the 8 hours (the month's read is paid)", len(cost_calls()) - before <= 2 and cs.get("next_at", 0) - time.time() > 7 * 3600, (len(cost_calls()) - before, cs))
+        if today != first:
+            check("...and the month's figure is kept", cs.get("month") == 12.3456, cs)
+        with lock:
+            job_faults.clear()
+            job_faults["ce"] = "drop"
+        s, _ = call("POST", "/api/connectors/aws", {"cost_interval": 28800})
+        check("the network breaks, nothing paid: a sooner retry", wait(lambda: 0 < cost_state().get("next_at", 0) - time.time() < 3700), cost_state())
+        with lock:
+            job_faults.clear()
+        call("POST", "/api/connectors/aws", {"cost": False})
+        check("switched off: no amounts in the settings", not any("$12.35" in n for n in row()["notes"]), row()["notes"])
+        # what isn't known is never $0
+        with lock:
+            job_faults["ce"] = (400, "DataUnavailableException")
+        s, _ = call("POST", "/api/connectors/aws", {"cost": True, "cost_interval": 0.3})
+        check("mock: interval changed", s == 200)
+        check("no data yet: says so", wait(lambda: cost_state().get("state") == "not_ready"), cost_state())
+        check("...with what to do, never $0", any("no data yet" in n for n in row()["notes"]) and not any("$0.00" in n for n in row()["notes"]), row()["notes"])
+        with lock:
+            job_faults["ce"] = (403, "AccessDeniedException")
+        check("refused: no_access", wait(lambda: cost_state().get("state") == "no_access"), cost_state())
+        rw = row()
+        check("...says what to do, links the how-to", any("no access" in n for n in rw["notes"]) and rw.get("help_needed") is True, rw["notes"])
+        # the permission added, off and on again: asked at once, the warning doesn't outlive the fix
+        call("POST", "/api/connectors/aws", {"cost_interval": 28800})
+        wait(lambda: cost_state().get("state") == "no_access" and cost_state().get("next_at", 0) - time.time() > 7 * 3600)
+        time.sleep(0.5)
+        with lock:
+            job_faults.clear()
+        call("POST", "/api/connectors/aws", {"cost": False})
+        before = len(cost_calls())
+        call("POST", "/api/connectors/aws", {"cost": True})
+        check("permission fixed: turning it off and on asks again", wait(lambda: cost_state().get("state") == "ok" and len(cost_calls()) > before), (cost_state(), "requests that arrived:", len(cost_calls()) - before, state()["status"]))
+        call("POST", "/api/connectors/aws", {"cost_interval": 0.3})
+        with lock:
+            job_faults.clear()
+            job_faults["forecast"] = (400, "DataUnavailableException")
+            money["month"] = "7"
+        got = wait(lambda: cost_state().get("state") == "ok" and cost_state().get("month") == 7 and cost_state().get("forecast") is None) if today != first else True
+        check("too little history for a forecast: the month without one", got, cost_state())
+        with lock:
+            job_faults.clear()
+            money["month"] = "not a number"
+        if today != first:
+            check("an unreadable amount: an error, not $0", wait(lambda: cost_state().get("state") == "error"), cost_state())
+        with lock:
+            money["month"] = "12.3456"
+        # a setting changed while a read is on its way restarts the loop: the read, maybe paid for, isn't lost
+        with lock:
+            ce_delay["s"] = 1
+        call("POST", "/api/connectors/aws", {"cost_interval": 28800})
+        wait(lambda: cost_state().get("next_at", 0) - time.time() > 7 * 3600)
+        call("POST", "/api/connectors/aws", {"forgotten_hours": 72})
+        with lock:
+            ce_delay["s"] = 0
+        got = wait(lambda: cost_state().get("state") == "ok", 5)
+        check("a setting changed during a paid read doesn't lose it", got and cost_state().get("month") == 12.3456, cost_state())
+        call("POST", "/api/connectors/aws", {"cost": False})
+        # budgets
+        bud = lambda name, actual, limit: {"BudgetName": name, "BudgetType": "COST", "TimeUnit": "MONTHLY", "BudgetLimit": {"Amount": limit, "Unit": "USD"}, "CalculatedSpend": {"ActualSpend": {"Amount": actual, "Unit": "USD"}}}
+        with lock:
+            money["budgets"] = [bud("build farm", "60", "50"), bud("render", "10", "100")]
+        mock.requests.clear()
+        before = len(toasts())
+        call("POST", "/api/connectors/aws", {"budgets": True, "budget_interval": 0.3})
+        wait(lambda: state()["budgets_read"]["state"] == "ok")
+        time.sleep(1.5)
+        st = state()
+        check("budgets read", [b["name"] for b in st["budgets_read"]["items"]] == ["build farm", "render"] and st["budgets_read"]["items"][0]["actual"] == 60, st["budgets_read"])
+        calls = [q for q in mock.requests if q["service"] == "budgets"]
+        check("budgets signed for us-east-1, with the account id from STS", calls and calls[0].get("verified") and calls[0]["region"] == "us-east-1" and ACCOUNT in calls[0]["body"], calls[:1])
+        check("the account is asked once", len([q for q in mock.requests if q["service"] == "sts"]) == 1, len([q for q in mock.requests if q["service"] == "sts"]))
+        rw = row()
+        check("settings: over the limit stands out", any("⚠" in n and "build farm" in n and "$60.00" in n and "$50.00" in n for n in rw["notes"]) and any("render" in n and "⚠" not in n for n in rw["notes"]), rw["notes"])
+        new = [l for l in toasts()[before:] if "budget" in l.lower()]
+        check("over the limit: one notification, not repeated", len(new) == 1 and "build farm" in new[0], new)
+        with lock:
+            money["budgets"].append(bud("backup", "9", "5"))
+            money["budgets"].append(bud("video", "9", "5"))
+        wait(lambda: len(state()["budgets_read"]["items"]) == 4)
+        time.sleep(0.8)
+        new = [l for l in toasts()[before:] if "budget" in l.lower()]
+        check("two more at once: one summary with the count", len(new) == 2 and "2 budgets" in new[1] and "build farm" not in new[1], new)
+        dump = json.dumps(state()) + json.dumps(row()) + open(os.path.join(DATA, LOG), encoding="utf-8", errors="replace").read()
+        check("the account id stays out of the state, the settings and the log", ACCOUNT not in dump)
+        # one a month, also when others come and go
+        with lock:
+            money["budgets"] = [bud("alpha", "9", "5"), bud("beta", "1", "5")]
+        wait(lambda: [b["name"] for b in state()["budgets_read"]["items"]] == ["alpha", "beta"])
+        time.sleep(0.6)
+        with lock:
+            money["budgets"] = [bud("alpha", "1", "5"), bud("beta", "9", "5")]
+        wait(lambda: state()["budgets_read"]["items"][1]["actual"] == 9)
+        time.sleep(0.6)
+        with lock:
+            money["budgets"] = [bud("alpha", "9", "5"), bud("beta", "9", "5")]
+        wait(lambda: state()["budgets_read"]["items"][0]["actual"] == 9)
+        time.sleep(0.8)
+        new = [l for l in toasts() if "over" in l and "alpha" in l]
+        check("over, under, over again in one month: one notification", len(new) == 1, new)
+        # what isn't a plain limit isn't read as one
+        ri = bud("ri cover", "85", "100") | {"BudgetType": "RI_UTILIZATION"}
+        with lock:
+            money["budgets"] = [ri]
+        wait(lambda: state()["budgets_read"]["items"] == [])
+        rw = row()
+        check("a utilisation budget isn't called over or under, nor 'no budgets'", not any("ri cover" in n or "has no budgets" in n for n in rw["notes"]), rw["notes"])
+        with lock:
+            money["budgets"] = [bud(f"b{i}", "1", "9") for i in range(7)]
+            money["budgets"][0]["BudgetLimit"]["Unit"] = "GB-Mo"
+            money["budgets"][0]["BudgetType"] = "USAGE"
+            money["budgets"][0]["CalculatedSpend"]["ActualSpend"]["Unit"] = "GB-Mo"
+            money["budgets"][0]["CalculatedSpend"]["ActualSpend"]["Amount"] = "8"
+        wait(lambda: len(state()["budgets_read"]["items"]) == 7)
+        rw = row()
+        check("usage budgets keep their unit; a long list says how many more", any("8.00 GB-Mo of 9.00 GB-Mo" in n for n in rw["notes"]) and any("and 2 more" in n for n in rw["notes"]), rw["notes"])
+        with lock:
+            job_faults["budgets"] = (400, "AccessDeniedException")
+        check("Budgets refused: says so, links the how-to", wait(lambda: state()["budgets_read"]["state"] == "no_access") and row().get("help_needed") is True and any("AWS Budgets" in n and "no access" in n for n in row()["notes"]), row()["notes"])
+        call("POST", "/api/connectors/aws", {"budget_interval": 28800})
+        time.sleep(0.8)   # the read due now sets the long wait, and still fails
+        with lock:
+            job_faults.clear()
+        time.sleep(0.8)
+        check("...stays refused without being asked", state()["budgets_read"]["state"] == "no_access", state()["budgets_read"])
+        call("POST", "/api/connectors/aws", {"budgets": False})
+        call("POST", "/api/connectors/aws", {"budgets": True})
+        check("permission fixed: Budgets asked again at once", wait(lambda: state()["budgets_read"]["state"] == "ok"), state()["budgets_read"])
+        call("POST", "/api/connectors/aws", {"budget_interval": 0.3})
+        # another key: another account's figures go
+        call("POST", "/api/connectors/aws", {"cost": True})
+        wait(lambda: cost_state().get("state") == "ok")
+        call("POST", "/api/connectors/aws", {"cost_interval": 28800})
+        wait(lambda: cost_state().get("next_at", 0) - time.time() > 7 * 3600)
+        time.sleep(1)   # the read just begun has finished: only what the swaps cause is counted
+        sts_before =len([q for q in mock.requests if q["service"] == "sts"])
+        cost_before = len(cost_calls())
+        other = lambda: f"{KID}:{SECRET}" if vault.read(TARGET) == f"{KID2}:{SECRET2}" else f"{KID2}:{SECRET2}"
+        call("POST", "/api/connectors/aws", {"key": other()})
+        check("another key: its own account number is asked", wait(lambda: len([q for q in mock.requests if q["service"] == "sts"]) > sts_before), sts_before)
+        cs = cost_state()
+        check("another key: the old account's figures are gone", cs.get("month") is None and cs.get("forecast") is None, cs)
+        check("...the settings say when the next read is", any("next read" in n for n in row()["notes"]), row()["notes"])
+        call("POST", "/api/connectors/aws", {"key": other()})
+        call("POST", "/api/connectors/aws", {"key": other()})
+        time.sleep(1)
+        check("swapping keys pays nothing: the 8 hours are kept", len(cost_calls()) == cost_before, (cost_before, len(cost_calls())))
+        # a read still on its way when the key changes doesn't land on the new key
+        with lock:
+            ce_delay["s"] = 1
+        t0 = time.time()
+        s, _ = call("POST", "/api/connectors/aws", {"cost_interval": 28800})
+        wait(lambda: cost_state().get("next_at", 0) > t0 + 7 * 3600)   # it has begun
+        call("POST", "/api/connectors/aws", {"key": other()})
+        with lock:
+            ce_delay["s"] = 0
+        time.sleep(2.5)
+        cs = cost_state()
+        check("the old key's read arriving late isn't kept", cs.get("month") is None and cs.get("forecast") is None, cs)
+        # STS answers errors in XML
+        with lock:
+            job_faults["sts"] = (403, "InvalidClientTokenId")
+        call("POST", "/api/connectors/aws", {"key": other()})
+        check("an STS error is read: no access, not a general error", wait(lambda: state()["budgets_read"]["state"] == "no_access"), state()["budgets_read"])
+        with lock:
+            job_faults.clear()
+        call("POST", "/api/connectors/aws", {"cost": False, "budgets": False})
+        with lock:
+            money["budgets"] = []
+
         # ------------------------------------------------------------ long jobs across a real restart (a hub of its own)
         data2 = tempfile.mkdtemp(prefix="taskhub-aws2-")
         url2 = "http://127.0.0.1:47893"
@@ -722,6 +953,33 @@ with mock:
             b2 = named("born-while-off")
             check("restart: a job that started and ended while off shows, without a toast", b2 and (task2(b2) or {}).get("state") == "done" and not any("born-while-off" in l for l in toasts2()[before:]), toasts2()[before:])
             check("restart: a finished job the user cleared doesn't come back", task2(cleared_t) is None, task2(cleared_t))
+            # a paid read survives a restart: no second payment
+            call2("POST", "/api/connectors/aws", {"cost": True})
+            wait(lambda: call2("GET", "/api/connectors/aws")["cost_read"].get("read_at"))
+            time.sleep(0.5)
+            paid = len([q for q in mock.requests if q["service"] == "ce"])
+            hub2.kill(); hub2.wait(10)
+            hub2 = start2()
+            time.sleep(2.5)
+            now_paid = len([q for q in mock.requests if q["service"] == "ce"])
+            check("restart: Cost Explorer isn't asked again, and its figures are still there", paid > 0 and now_paid == paid and call2("GET", "/api/connectors/aws")["cost_read"].get("read_at"), (paid, now_paid))
+            # the limit can't be saved: no paid read
+            hub2.kill(); hub2.wait(10)
+            with open(os.path.join(data2, "config.json"), encoding="utf-8") as f:
+                cfg2 = json.load(f)
+            cfg2["connectors"]["aws"]["cost_cache"]["next"] = 0
+            with open(os.path.join(data2, "config.json"), "w", encoding="utf-8") as f:
+                json.dump(cfg2, f)
+            blocked = os.path.join(data2, "config.json.tmp")
+            os.mkdir(blocked)
+            try:
+                hub2 = start2()
+                time.sleep(2.5)
+                check("the limit can't be saved: nothing is paid", len([q for q in mock.requests if q["service"] == "ce"]) == now_paid, (now_paid, len([q for q in mock.requests if q["service"] == "ce"])))
+            finally:
+                hub2.kill(); hub2.wait(10)
+                os.rmdir(blocked)
+            hub2 = start2()
             call2("POST", "/api/connectors/aws", {"forget_key": True, "enabled": False})
         finally:
             if hub2:

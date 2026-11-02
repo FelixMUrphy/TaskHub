@@ -13,4 +13,4 @@ const tgl=(k,on,extra)=>`<button class="tgl${on?" on":""}" role="switch" aria-ch
 const srow=(title,desc,ctl,cls)=>(ctl=(ctl||"").replace('<button class="tgl',`<button aria-label="${esc(title)}" class="tgl`),   // a switch is named by its row
   `<div class="srow${cls?" "+cls:""}"><div class="sl"><div>${esc(title)}</div>${desc?`<div class="sd">${esc(desc)}</div>`:""}</div>${ctl}</div>`);
 const sbtn=(what,txt,cls)=>`<button class="btn${cls?" "+cls:""}" data-do="${what}">${esc(txt)}</button>`;
-const ckey=e=>[e.dataset.tgtok,e.dataset.ladd,e.dataset.lrm,e.dataset.lplus,e.dataset.csel,e.dataset.cbool,e.dataset.do,e.dataset.k,e.dataset.agent,e.dataset.kind,e.dataset.conn,e.dataset.ck,e.dataset.ckey,e.dataset.kp,e.dataset.cset,e.dataset.open,e.dataset.mid,e.dataset.gact].join("|");
+const ckey=e=>[e.dataset.open,e.dataset.tgtok,e.dataset.ladd,e.dataset.lrm,e.dataset.lplus,e.dataset.csel,e.dataset.cbool,e.dataset.do,e.dataset.k,e.dataset.agent,e.dataset.kind,e.dataset.conn,e.dataset.ck,e.dataset.ckey,e.dataset.kp,e.dataset.cset,e.dataset.open,e.dataset.mid,e.dataset.gact].join("|");

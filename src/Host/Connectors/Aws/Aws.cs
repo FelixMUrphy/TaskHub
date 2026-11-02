@@ -86,6 +86,12 @@ sealed partial class AwsConnector : ISettingsConnector
             if (JobsOn("sagemaker")) yield return $"api.sagemaker.{r}.amazonaws.com";
             if (JobsOn("batch")) yield return $"batch.{r}.amazonaws.com";
         }
+        if (JobsOn("cost")) yield return "ce.us-east-1.amazonaws.com";
+        if (JobsOn("budgets"))
+        {
+            yield return "budgets.amazonaws.com";
+            yield return "sts.amazonaws.com";
+        }
     }
 
     // ------------------------------------------------------------ settings
@@ -99,7 +105,7 @@ sealed partial class AwsConnector : ISettingsConnector
     List<string> ChosenRegions => (Cfg["regions"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x)).Where(x => RegionRx.IsMatch(x)).ToList();
 
     public JsonObject SettingsChange(JsonObject page) =>
-        SettingsRows.Change(page, "key", "forget_key", new[] { "regions", "forgotten_hours", "sagemaker", "batch" });
+        SettingsRows.Change(page, "key", "forget_key", new[] { "regions", "forgotten_hours", "sagemaker", "batch", "cost", "budgets" });
 
     /// <summary>Changes the settings (settings page / API); bad values or a rejected key: nothing is changed. One at a time: a
     /// key check takes seconds, and a change made meanwhile mustn't be overwritten.</summary>
@@ -138,6 +144,7 @@ sealed partial class AwsConnector : ISettingsConnector
             c["regions"] = J.StrArray(chosen);
         }
         ConfigureJobs(b, c);
+        ConfigureMoney(b, c);
         if (b.ContainsKey("enabled")) c["enabled"] = J.Truthy(b["enabled"]);
         // on again: like turning a switch on, what finished meanwhile isn't news
         if (!wasOn && J.Truthy(c["enabled"]))
@@ -145,6 +152,7 @@ sealed partial class AwsConnector : ISettingsConnector
                 if (J.Truthy(c[svc])) c[svc + "_since"] = J.Now();
         bool keyGiven = J.IsStr(b["key"]);
         if (keyGiven) SetKey(J.Str(b["key"]));   // a rejected key: nothing is changed
+        if (moneyStale || J.Truthy(b["forget_key"])) ResetMoney(c);
         Connectors.SetConfig(S, Id, c);
         if (J.Truthy(b["forget_key"]))
         {
@@ -199,7 +207,11 @@ sealed partial class AwsConnector : ISettingsConnector
         try { Secrets.Write(S, Id, creds.AccessKey + ":" + creds.Secret); }
         catch (Exception e) { throw new ApiError(500, "the key was not saved: " + e.Message); }
         // another key may be another account: what was followed so far can't be told about any more
-        if (old != null && old.Split(':')[0] != creds.AccessKey) Release(_ => true);
+        if (old != null && old.Split(':')[0] != creds.AccessKey)
+        {
+            Release(_ => true);
+            moneyStale = true;
+        }
         SetCheck(offline ? "network" : VerdictCheck(r.V), r?.Http ?? 0);
     }
 
@@ -252,7 +264,9 @@ sealed partial class AwsConnector : ISettingsConnector
         forgotten["text"] = L.T("aws_forgotten_field");
         var notes = new JsonArray();
         var denied = JobNotes();
+        var (money, moneyDenied) = MoneyNotes();
         foreach (var n in denied) notes.Add((JsonNode)n);
+        foreach (var n in money) notes.Add((JsonNode)n);
         notes.Add((JsonNode)L.T("aws_note_readonly"));
         notes.Add((JsonNode)L.T("aws_note_unverified"));
         return new JsonObject
@@ -264,7 +278,7 @@ sealed partial class AwsConnector : ISettingsConnector
                 new JsonObject { ["ph"] = L.T("aws_key_secret") }),
             ["summary"] = !on ? "" : SettingsRows.Line(Summary(), SettingsRows.Normal(st) ? "" : st),
             ["help_url"] = SettingsRows.KeyHelpUrl(Id, "uk"),
-            ["help_needed"] = denied.Count > 0,   // the key works but lacks what a switch needs: the page lists it
+            ["help_needed"] = denied.Count > 0 || moneyDenied,   // the key works but lacks what a switch needs: the page lists it
             ["list"] = new JsonObject
             {
                 ["key"] = "regions", ["label"] = L.T("aws_regions"), ["items"] = items, ["placeholder"] = HomeRegion,
@@ -273,7 +287,9 @@ sealed partial class AwsConnector : ISettingsConnector
             ["fields"] = new JsonArray(forgotten),
             ["switches"] = new JsonArray(
                 new JsonObject { ["key"] = "sagemaker", ["text"] = L.T("aws_sw_sagemaker"), ["value"] = JobsOn("sagemaker"), ["head"] = L.T("aws_jobs_head"), ["hint"] = L.T("aws_jobs_hint") },
-                new JsonObject { ["key"] = "batch", ["text"] = L.T("aws_sw_batch"), ["value"] = JobsOn("batch") }),
+                new JsonObject { ["key"] = "batch", ["text"] = L.T("aws_sw_batch"), ["value"] = JobsOn("batch") },
+                new JsonObject { ["key"] = "cost", ["text"] = L.T("aws_sw_cost"), ["value"] = JobsOn("cost"), ["head"] = L.T("aws_money_head"), ["hint"] = L.T("aws_cost_hint") },
+                new JsonObject { ["key"] = "budgets", ["text"] = L.T("aws_sw_budgets"), ["value"] = JobsOn("budgets") }),
             ["notes"] = notes,
         };
     }
@@ -315,7 +331,7 @@ sealed partial class AwsConnector : ISettingsConnector
             foreach (var (k, p) in jobPolls.OrderBy(x => x.Key.Region + x.Key.Service, StringComparer.Ordinal))
                 polls[k.Region + "/" + k.Service] = new JsonObject { ["state"] = p.State, ["code"] = p.Code, ["active"] = p.Count };
         }
-        return new JsonObject
+        var st = new JsonObject
         {
             ["enabled"] = J.Truthy(Cfg["enabled"]), ["key_set"] = KeySet(), ["status"] = status,
             ["key_check"] = keyCheck, ["key_check_text"] = CheckText(),
@@ -324,6 +340,8 @@ sealed partial class AwsConnector : ISettingsConnector
             ["sagemaker"] = JobsOn("sagemaker"), ["batch"] = JobsOn("batch"), ["job_interval"] = JobInterval, ["jobs"] = jl, ["job_polls"] = polls,
             ["summary"] = Summary(),
         };
+        AddMoneyState(st);
+        return st;
     }
 
     // ------------------------------------------------------------ lifecycle
@@ -406,6 +424,7 @@ sealed partial class AwsConnector : ISettingsConnector
         // one read per tick, whichever has waited longest: neither kind can starve the other
         if (job.Value != null && (due.Key == null || job.Value.NextAt < due.Value.NextAt)) await PollJobs(job.Key.Region, job.Value, creds, ct);
         else if (due.Key != null) await Poll(due.Key, due.Value, creds, ct);
+        await ReadMoney(creds);
         RemindAll();
     }
 

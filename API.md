@@ -102,6 +102,8 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/connectors/runpod` | `{enabled?, key?, forget_key?, idle_minutes?: 1-1440, idle_util?: 1-50, low_runway_hours?: 0-720, low_balance?: $\|null, list_interval?: 30-3600, detail_interval?: 15-3600, billing_interval?: 300-86400, graphql_balance?}` | Runpod connector (2.9, below) |
 | GET | `/api/connectors/vastai` | | the same as Runpod without `graphql_balance`; `balance.label` says what `amount` is ("Balance $x · Credit"), `balance.raw = {balance, credit, ...}` (2.9; the key is never returned) |
 | POST | `/api/connectors/vastai` | `{enabled?, key?, forget_key?, idle_minutes?, idle_util?, low_runway_hours?, low_balance?, list_interval?, detail_interval?, billing_interval?}` (ranges as Runpod) | Vast.ai connector (2.9, below) |
+| GET | `/api/connectors/aws` | | `{enabled, key_set, key_check, key_check_text, status, regions: {<region>: {state, code, count, read_at}}, regions_chosen, machines: [{id, name, region, state, task}], running, forgotten_hours, forgotten_exempt, list_interval, sagemaker, batch, job_interval, jobs: [{kind, id, name, region, state, task}], job_polls, cost, budgets, cost_read: {state, code, period, month, forecast, unit, read_at, next_at}, budgets_read: {state, code, read_at, items: [{name, actual, limit, forecast, unit}]}, summary}`; never a key (3.1) |
+| POST | `/api/connectors/aws` | `{enabled?, key?: "id:secret", forget_key?, regions?: [..], forgotten_hours?: 0-8760, list_interval?: 300-3600, sagemaker?: bool, batch?: bool, job_interval?: 120-3600, cost?: bool, budgets?: bool}` | changes the settings; a key AWS rejects -> 400, nothing saved (3.1) |
 | POST | `/api/connectors/runpod`, `/api/connectors/vastai` | `{guard?: bool, guard_warn?: $\|null, guard_stop?: $\|null, guard_grace_min?: 1-120, guard_snooze_min?: 5-240, guard_exempt?: [machine id], idle_stop_minutes?: 0\|5-1440}` | balance guard (2.9, [below](#balance-guard)); `guard_warn` must be above `guard_stop` (>= 0), else 400 and nothing changes; a threshold you don't send is compared as saved. These fields can go in one request with the connector's own: any invalid value → 400 and nothing is saved; `idle_stop_minutes` (2.9.3): auto-stop on GPU idle, 0 = off |
 | GET | `/api/guard/log` | `?provider=runpod\|vastai&limit=1-200` (50) | what the balance guard stopped, newest first (2.9): `{entries: [{t, provider, machine_id, name, trigger: "auto"\|"stop_now"\|"idle", balance, threshold, idle_minutes, burn_per_hr, spent, spent_estimated, result: "stopped"\|"failed", error, storage_per_day, storage_note, storage_approx}]}` |
 | POST | `/api/clear` | | remove finished tasks |
@@ -294,6 +296,20 @@ plus a disk series in `load` (CPU, RAM, Disk); load values Vast.ai leaves null a
 answers count as errors (its `msg` is shown). Spent = `/api/v0/charges` of the last 30 days (≈); balance and credit from
 `/api/v0/users/current` (credit, when present, is `amount`). Polling as Runpod (list paged 25 at a time); a 429 (Vast.ai sends
 no Retry-After) pauses everything 60 s, doubling while 429s follow each other (up to 30 min).
+
+## Connectors: AWS
+*3.1. Built from AWS's documentation and tested against a simulator, not yet on a real account.* Panel → ⚙ Settings → Connectors → AWS. The key is two parts (`id:secret`), checked with
+AWS, kept in the Windows Credential Manager and never returned; temporary `ASIA` keys are refused. Read-only: no controls change anything in AWS.
+
+Tasks: `aws-<instance id>`, source `aws`, project `AWS`, `meta.aws = {id, region, state, ...}`. Long jobs behind switches: `aws-sm-<name>-<hash>` (SageMaker training job; no
+percent, `status` is the phase) and `aws-b-<job id>` (Batch; `progress` only for array jobs, from the children's counts). Completed / SUCCEEDED → `done`; Failed / FAILED,
+or stopped by a time limit → `failed`; Stopped, or a cancelled Batch job → `cancelled`. `meta.aws.kind` = `sm` / `batch`. Jobs finished before the switch (or the connector) was
+turned on aren't shown; a job finished while TaskHub was closed shows without a notification. A read that fails or is refused declares nothing finished; a job AWS says no longer
+exists is let go (`done`, "No longer watched"). A mass let-go (another key, connector off, a switch off) sends one summary.
+
+`cost_read.state`: `ok` | `not_ready` (no data yet) | `no_access` | `error`; `month` / `forecast` are `null` when not known, never 0 for an error. `forecast` includes what is
+already spent. Cost Explorer is billed by AWS ($0.01 per request): at most 2 requests every 8 hours, remembered across restarts and key changes; if that can't be saved, it isn't read. Sooner only if the network broke and nothing reached AWS, or after the switch is turned on again following a refusal. Only `COST` and `USAGE` budgets are read. `budgets_read` is read every 6 hours; a budget over its limit
+sends one notification a month. Fields not listed here may change.
 
 ## Balance guard
 *2.9, off by default.* Per machine connector (`connectors.runpod`, `connectors.vastai` in `config.json`): `guard` (false),

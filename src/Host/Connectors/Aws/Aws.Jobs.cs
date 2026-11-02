@@ -372,7 +372,14 @@ sealed partial class AwsConnector
     Uri ServiceUri(string region, string service, string path)
     {
         if (!RegionRx.IsMatch(region)) throw new InvalidOperationException("not a Region name");
-        var host = service == "sagemaker" ? $"api.sagemaker.{region}.amazonaws.com" : $"{service}.{region}.amazonaws.com";
+        var host = service switch
+        {
+            "sagemaker" => $"api.sagemaker.{region}.amazonaws.com",
+            "ce" => "ce.us-east-1.amazonaws.com",
+            "budgets" => "budgets.amazonaws.com",
+            "sts" => "sts.amazonaws.com",
+            _ => $"{service}.{region}.amazonaws.com",
+        };
         return new Uri((Mock ? Api.GetLeftPart(UriPartial.Authority) : "https://" + host) + path);
     }
 
@@ -496,7 +503,6 @@ sealed partial class AwsConnector
         void Kv(string k, string v) { if (!string.IsNullOrEmpty(v)) info[k] = v; }
         Kv(L.T("m_region"), j.Region);
         Kv(L.T("aws_queue"), j.Queue);
-        Kv(L.T("aws_state"), j.Phase);
         if (j.MaxRuntime is double mr && mr > 0) Kv(L.T("aws_time_limit"), Hub.FmtDur(mr));
         var links = new JsonArray(new JsonObject
         {

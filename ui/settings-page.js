@@ -31,7 +31,7 @@ function renderSet(){
   const typed={}; for (const e of box.querySelectorAll(IN)) if (e.dataset.ckey||e.dataset.tgtok!=null||e.dataset.ladd!=null? e.value : e===f) typed[ckey(e)]=e.value;
   box.innerHTML=h; box.__h=h;
   for (const e of box.querySelectorAll(IN)) if (ckey(e) in typed) e.value=typed[ckey(e)];
-  if (fk) for (const e of box.querySelectorAll("button,input,select")) if (ckey(e)===fk){ e.focus({preventScroll:true}); break; }
+  if (fk) for (const e of box.querySelectorAll("button,input,select,a[data-open]")) if (ckey(e)===fk){ e.focus({preventScroll:true}); break; }
 }
 // "Settings" next to the transparency hint: Windows Settings, the page that turned the blur off
 { const l=$("#transphl"), go=()=>{ if (l.dataset.do) host({settings:"do",what:l.dataset.do}); };

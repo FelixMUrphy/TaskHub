@@ -50,6 +50,16 @@ it.
   press the button and confirm. The key is kept in the Windows Credential Manager of your user account, not in TaskHub's
   files. Vast.ai's own privacy policy applies to these requests. Turning the connector off stops them (the key stays saved);
   *Remove* deletes the key.
+- **AWS connector** (TaskHub 3.1 and later; off by default, earlier versions don't have it). If you paste an AWS access key and
+  turn it on, TaskHub signs requests with it (the secret itself is never sent) and asks `ec2.<region>.amazonaws.com` for your instances in
+  the Regions you watch. Each further switch, off by default, adds its hosts: SageMaker training jobs (`api.sagemaker.<region>.amazonaws.com`),
+  AWS Batch jobs (`batch.<region>.amazonaws.com`), this month's cost and forecast (`ce.us-east-1.amazonaws.com`, which AWS charges for) and
+  AWS Budgets (`budgets.amazonaws.com`, plus `sts.amazonaws.com` for the account number, kept in memory only). Instance and job names, states and
+  times, failure reasons (with ARNs and account numbers removed) become tasks: kept in TaskHub's data folder, written to its local log, and shown
+  in notifications, including Telegram when that is on. Budget names and amounts are shown in the settings; the name of a budget over its limit also appears in a
+  notification (including Telegram when that is on) and in the local log. The last cost figures and the names of budgets over their limit stay in `config.json`.
+  The key is kept in the Windows Credential Manager, not in TaskHub's files. Nothing is changed in your AWS account. AWS's own privacy policy applies to these
+  requests. Turning the connector off stops them (the key stays saved); *Remove* deletes the key.
 - **Balance guard** (TaskHub 2.9 and later; off by default). If you turn it on for Runpod or Vast.ai, TaskHub uses the
   balance it already reads from that service; at your stop threshold it sends that service the same *stop* request as the
   Stop button (never delete), for the running machines you did not mark *Never auto-stop*. Auto-stop on GPU idle
