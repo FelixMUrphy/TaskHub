@@ -52,6 +52,7 @@ sealed partial class Hub
                 ["version"] = Version, ["now"] = J.Now(), ["muted"] = Muted,
                 ["lang"] = L.Lang, ["language"] = L.Setting,
                 ["panel"] = PanelSettings(),
+                ["limits"] = LimitsView(),
                 ["focus"] = focus.DeepClone(),
                 ["server"] = new JsonObject { ["version"] = Settings.Version, ["pid"] = Environment.ProcessId, ["impl"] = "dotnet" },
                 ["tasks"] = new JsonArray(list),

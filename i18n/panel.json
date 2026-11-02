@@ -59,6 +59,11 @@
     "grp_none": {"en": "No groups", "uk": "Без груп", "es": "Sin grupos", "de": "Keine Gruppen", "fr": "Sans groupes", "it": "Nessun gruppo", "pt": "Sem grupos", "pl": "Bez grup", "zh": "不分组", "ja": "グループなし"},
     "grp_other": {"en": "Other", "uk": "Інше", "es": "Otros", "de": "Sonstige", "fr": "Autres", "it": "Altro", "pt": "Outros", "pl": "Inne", "zh": "其他", "ja": "その他"},
     "src_other": {"en": "other", "uk": "інше", "es": "otro", "de": "sonstige", "fr": "autre", "it": "altro", "pt": "outro", "pl": "inne", "zh": "其他", "ja": "その他"},
-    "sup_title": {"en": "Support TaskHub", "uk": "Підтримати TaskHub", "es": "Apoyar TaskHub", "de": "TaskHub unterstützen", "fr": "Soutenir TaskHub", "it": "Sostieni TaskHub", "pt": "Apoiar o TaskHub", "pl": "Wesprzyj TaskHub", "zh": "支持 TaskHub", "ja": "TaskHub を支援"}
+    "sup_title": {"en": "Support TaskHub", "uk": "Підтримати TaskHub", "es": "Apoyar TaskHub", "de": "TaskHub unterstützen", "fr": "Soutenir TaskHub", "it": "Sostieni TaskHub", "pt": "Apoiar o TaskHub", "pl": "Wesprzyj TaskHub", "zh": "支持 TaskHub", "ja": "TaskHub を支援"},
+    "limit_5h": {"en": "5 h", "uk": "5 год", "es": "5 h", "de": "5 Std.", "fr": "5 h", "it": "5 h", "pt": "5 h", "pl": "5 godz.", "zh": "5 小时", "ja": "5 時間"},
+    "limit_7d": {"en": "week", "uk": "тиждень", "es": "semana", "de": "Woche", "fr": "semaine", "it": "settimana", "pt": "semana", "pl": "tydzień", "zh": "一周", "ja": "1 週間"},
+    "limit_resets": {"en": "resets {0}", "uk": "скидання {0}", "es": "se reinicia {0}", "de": "Reset {0}", "fr": "réinitialisation {0}", "it": "azzeramento {0}", "pt": "reinicia {0}", "pl": "reset {0}", "zh": "{0} 重置", "ja": "{0} にリセット"},
+    "limit_reset_done": {"en": "reset, waiting for a new reading", "uk": "скинуто, чекаю на нові дані", "es": "reiniciado, esperando datos nuevos", "de": "zurückgesetzt, warte auf neue Daten", "fr": "réinitialisé, en attente de nouvelles données", "it": "azzerato, in attesa di nuovi dati", "pt": "reiniciado, aguardando novos dados", "pl": "zresetowano, czekam na nowe dane", "zh": "已重置，等待新数据", "ja": "リセット済み、新しいデータを待機中"},
+    "limit_updated": {"en": "updated {0}", "uk": "оновлено {0}", "es": "actualizado {0}", "de": "aktualisiert {0}", "fr": "mis à jour {0}", "it": "aggiornato {0}", "pt": "atualizado {0}", "pl": "zaktualizowano {0}", "zh": "更新于{0}", "ja": "{0}に更新"}
   }
 }

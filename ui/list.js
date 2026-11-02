@@ -129,6 +129,22 @@ function layout(){
   for (const el of out) if (/^[rt]-/.test(el.id)) seenIO.observe(el);
   return out;
 }
+// plan limits as last reported: past the reset the old percentage says nothing any more, an old reading says how old it is
+function renderLimits(){
+  const box=$("#limits"), names={claude:"Claude Code"}, rows=[], t=now();
+  const when=r=>{ const d=new Date(r*1000), today=d.toDateString()===new Date().toDateString();
+    return d.toLocaleString(LANG, today? {hour:"2-digit",minute:"2-digit"} : {weekday:"short",hour:"2-digit",minute:"2-digit"}); };
+  for (const [agent,ws] of Object.entries(data.limits||{}))
+    for (const [w,k] of [["five_hour","limit_5h"],["seven_day","limit_7d"]]){
+      const x=ws[w]; if (!x || x.used_percentage==null) continue;
+      const done=x.resets_at && t>=x.resets_at, p=Math.floor(x.used_percentage), old=t-x.at>900, lvl=done?"":p>=95?"bad":p>=80?"warn":"";
+      const val=done? T("limit_reset_done")
+        : [p+"%", x.resets_at? T("limit_resets",when(x.resets_at)) : "", old? T("limit_updated",ago(t-x.at)) : ""].filter(Boolean).join(" · ");
+      rows.push(`<div class="lim${old||done?" old":""}"${lvl?` data-l="${lvl}"`:""}><div class="lt"><span>${esc((names[agent]||agent)+" · "+T(k))}</span><span class="lv">${esc(val)}</span></div><div class="lb" aria-hidden="true"><i style="width:${done?0:p}%"></i></div></div>`);
+    }
+  const h=rows.join("");
+  if (box.__h!==h){ box.innerHTML=h; box.__h=h; box.classList.toggle("on",rows.length>0); }
+}
 function render(){
   if (!data) return;
   if ((data.lang && data.lang!==LANG) || (data.language && data.language!==LANG_SETTING)){ LANG=data.lang||LANG; LANG_SETTING=data.language||"auto"; applyLang(); }
@@ -140,6 +156,7 @@ function render(){
   $("#mute i").textContent = data.muted ? "\uE7ED" : "\uEA8F";   // bell crossed out = muted
   $("#mute").title = data.muted ? T("notif_off") : T("notif_on");
   renderSet();
+  renderLimits();
   place(list, layout());
   requestAnimationFrame(sbUpd);
   // focus request (tray/toast click)

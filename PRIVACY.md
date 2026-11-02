@@ -14,6 +14,12 @@ it.
   off before you uninstall: tray menu → *AI agents* (from TaskHub 2.9: Settings in the panel → *AI agents*).
 
 ## What leaves your PC, and only if you turn it on
+- **Plan limits of Claude Code** (TaskHub 3.1 and later, off by default). If you turn this on in Settings → AI agents, TaskHub adds a
+  status line command to `~/.claude/settings.json`. Your own status line, if you have one, keeps running unchanged, and a copy of its entry is kept in
+  `~/.claude/statusline.taskhub.json` until you turn this off. TaskHub's command hands everything Claude Code gives a status line to your own status line, in memory, and passes only the used percentages and reset times of the 5-hour and
+  weekly limits to the TaskHub app, over the local connection. They are stored in `plan_limits.json` in TaskHub's data folder with the time of each reading and which warnings were
+  given, and deleted when you turn this off. A warning contains the percentage and the reset time and is shown like other notifications, including Telegram when that is on.
+  TaskHub doesn't read Claude Code's account tokens for this.
 - **Telegram** (off by default). If you connect a Telegram bot, TaskHub sends your notifications, task progress and
   charts from your PC straight to Telegram's Bot API, to the chat you linked, and receives your button presses and
   replies from it. The chat ID is stored in `%APPDATA%\TaskHub\config.json`; the bot token is kept in the Windows Credential

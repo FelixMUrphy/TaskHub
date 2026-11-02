@@ -106,6 +106,8 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/connectors/aws` | `{enabled?, key?: "id:secret", forget_key?, regions?: [..], forgotten_hours?: 0-8760, list_interval?: 300-3600, sagemaker?: bool, batch?: bool, job_interval?: 120-3600, cost?: bool, budgets?: bool}` | changes the settings; a key AWS rejects -> 400, nothing saved (3.1) |
 | POST | `/api/connectors/runpod`, `/api/connectors/vastai` | `{guard?: bool, guard_warn?: $\|null, guard_stop?: $\|null, guard_grace_min?: 1-120, guard_snooze_min?: 5-240, guard_exempt?: [machine id], idle_stop_minutes?: 0\|5-1440}` | balance guard (2.9, [below](#balance-guard)); `guard_warn` must be above `guard_stop` (>= 0), else 400 and nothing changes; a threshold you don't send is compared as saved. These fields can go in one request with the connector's own: any invalid value → 400 and nothing is saved; `idle_stop_minutes` (2.9.3): auto-stop on GPU idle, 0 = off |
 | GET | `/api/guard/log` | `?provider=runpod\|vastai&limit=1-200` (50) | what the balance guard stopped, newest first (2.9): `{entries: [{t, provider, machine_id, name, trigger: "auto"\|"stop_now"\|"idle", balance, threshold, idle_minutes, burn_per_hr, spent, spent_estimated, result: "stopped"\|"failed", error, storage_per_day, storage_note, storage_approx}]}` |
+| GET | `/api/limits` | | plan limits as last reported (3.1): `{claude: {five_hour: {used_percentage, resets_at, at}, seven_day: {...}}}`; also `limits` in `GET /api/tasks`; empty while the switch is off |
+| POST | `/api/limits/claude` | `{five_hour?: {used_percentage, resets_at?}, seven_day?: {...}}` | a reading, from `taskhub statusline`; only these numbers are kept; ignored while the switch is off |
 | POST | `/api/clear` | | remove finished tasks |
 | POST | `/api/settings` | `{muted?: bool, seen?: true \| [task ids], language?, theme?: "system"\|"light"\|"dark", accent?: "system"\|"taskhub", panel_transparency?: 0-100, card_transparency?: 0-100, panel_group?: "project"\|"source"\|"none", panel_pinned?: bool}` | mute toasts; panel look (also in `GET /api/tasks` → `panel`, which also shows `panel_push_windows`: read-only, it changes only on the panel's settings page) |
 | POST | `/api/ui/open` | `{task?}` | open panel (focus a task) |
@@ -357,7 +359,7 @@ command to resume on stderr; Blender's `Error:` lines (except the leak detector'
 unless `--progress-regex` / `--status-regex` / `--auto-progress` is given; the command may print `::progress 5/20`, `::percent 40`, `::status s`, `::stage s`, `::warn s`,
 `::error s`, `::toast s`, `::metric k=v`, `::widget id=value` lines). Also `notify`, `list`, `show`, `register`, `update`,
 `log`, `finish`, `control`, `commands`, `ack`, `wait ID` (blocks until finished), `panel`, `delete`,
-`mcp` ([MCP server](#mcp-server)), `hook claude|codex` (agent hooks). `taskhub --help`.
+`mcp` ([MCP server](#mcp-server)), `hook claude|codex` (agent hooks), `statusline` ([plan limits](#plan-limits-claude-code)). `taskhub --help`.
 
 ## Claude Code hooks
 Easiest: setup dialog checkbox or Settings → *AI agents* (before 2.9: tray → *AI agents*) (or `TaskHubHost.exe --integrations claude=on codex=on`)
@@ -376,6 +378,20 @@ or waits for a permission / your answer (`Notification`). Add to `~/.claude/sett
 ```
 The endpoint never returns a decision, so it cannot block or change Claude Code; if TaskHub is not running the hook just fails
 silently (non-blocking). Toasts follow the usual rules (mute, no pop-ups while the panel is open); clicking one only closes it.
+
+## Plan limits (Claude Code)
+
+From 3.1, off by default: Settings → AI agents → Claude Code → *plan limits in the panel*, or `TaskHubHost.exe --integrations claude-limits=on`. It sets Claude Code's
+`statusLine` in `~/.claude/settings.json` to `taskhub statusline`, keeping the entry's other fields. Your own entry is kept in `~/.claude/statusline.taskhub.json` and put back as it
+was when you turn this off; if the command there is no longer TaskHub's, it stays. The switch is what the file says at that moment, also when it changes while the hub runs.
+
+`taskhub statusline` runs your command in the same shell with the same input and returns its output and exit code unchanged (a command still running after 15 s is ended). It
+sends the hub only `rate_limits.five_hour` and `seven_day`: `used_percentage` and `resets_at`. It never starts the hub. Warnings: `limits_warn` in `config.json`, default `[80, 95]`,
+once per limit window. Several sessions may report different numbers: `resets_at` moving on by more than 5 minutes is a new window, an earlier or past `resets_at` is ignored,
+and within a window the highest percentage stands. Only readings without `resets_at` take a fall of more than 1 point as a reset.
+
+Claude Code gives these numbers only on Pro, Max and Ultra plans and after the first API response, so nothing is known while no session runs, and any limit a model has of its own isn't included.
+A project's own `statusLine`, `disableAllHooks` or `allowManagedHooksOnly` can keep this command from running.
 
 ## Codex hooks
 Same notifications for [Codex](https://developers.openai.com/codex/hooks): Codex runs command hooks, so use the CLI, which

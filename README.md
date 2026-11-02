@@ -125,6 +125,7 @@ The setup dialog (and later Settings → *AI agents*) has two independent option
 | Option | What you get | Where TaskHub writes |
 |---|---|---|
 | **Notifications (hooks)** | a toast when the agent finishes a response or needs your permission | Claude Code: `~/.claude/settings.json` · Codex: `~/.codex/hooks.json` |
+| **Plan limits** (from 3.1, off until you turn it on in Settings → AI agents; Claude Code only so far) | how much of the 5-hour and weekly limits is used, in the panel, with a warning at 80% and 95% | Claude Code: `~/.claude/settings.json` (`statusLine`) |
 | **TaskHub tools (MCP)** | the agent gets tools `notify`, `task_start/update/finish`, `task_commands`, `task_wait` (from 2.9.2), `task_list` and shows its long jobs in the panel by itself | Claude Code: `~/.claude.json` · Codex: `~/.codex/config.toml` |
 
 TaskHub adds — and on uninstall removes (Store edition: see below) — only its own entries and keeps everything else (backup of the original:
@@ -132,6 +133,8 @@ TaskHub adds — and on uninstall removes (Store edition: see below) — only it
 
 - **Claude Code** — start a new *local* session (desktop app → Code tab → environment *Local*, the CLI or VS Code).
   `/mcp` should list `taskhub` as connected. Cloud sessions run on Anthropic's servers and can't reach TaskHub on your PC.
+- **Plan limits** — needs a Pro, Max or Ultra plan; the numbers appear after Claude Code's next reply and update only while a session runs, so an old reading says how old it is.
+  Your own status line keeps working unchanged. If you have none, Claude Code shows an empty one and hides hints such as `esc to interrupt`. Details: [API.md](API.md#plan-limits-claude-code).
 - **Codex** — restart Codex. Hooks: Codex → Settings → Hooks → *Trust all* (Codex asks once for new hooks).
   MCP: the `taskhub` server should appear among Codex's MCP servers.
 

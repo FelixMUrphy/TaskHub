@@ -27,19 +27,27 @@ sealed class SettingsBridge
     {
         var agents = new JsonArray();
         foreach (var a in Integrations.All)
-            agents.Add(new JsonObject
+        {
+            var row = new JsonObject
             {
                 ["agent"] = a == Integrations.Agent.Claude ? "claude" : "codex", ["name"] = Integrations.Name(a),
                 ["hooks"] = Integrations.Enabled(a, Integrations.Kind.Hooks), ["mcp"] = Integrations.Enabled(a, Integrations.Kind.Mcp),
                 ["detected"] = Integrations.Detected(a),
-            });
+            };
+            if (a == Integrations.Agent.Claude)
+            {
+                row["limits"] = Integrations.Enabled(a, Integrations.Kind.Limits);
+                row["limits_wraps"] = Integrations.HasOwnStatusLine();
+            }
+            agents.Add(row);
+        }
         var t = tg?.State();
         var rows = ConnectorRows(conns);
         var up = updater();
         up?.RecheckIfStale();   // open page: a remembered "Update to X" may be days old (the hub runs on while the panel is hidden)
         // the host's own translations of what used to be the tray's items (one source of the words in 10 languages)
         var labels = new JsonObject();
-        foreach (var k in new[] { "mute", "test_toast", "connectors", "integrations", "menu_hooks", "menu_mcp", "autostart",
+        foreach (var k in new[] { "mute", "test_toast", "connectors", "integrations", "menu_hooks", "menu_mcp", "menu_limits", "limits_d_new", "limits_d_wrap", "autostart",
                      "updates", "update_check_now", "update_auto", "data_folder", "api_help", "support" })
             labels[k] = L.T(k).TrimStart('❤', ' ');
         if (up?.Available is { } av) labels["update_to"] = L.T("update_to", av.Version.ToString(3)).TrimStart('⬆', ' ').TrimEnd('…');
@@ -169,10 +177,11 @@ sealed class SettingsBridge
                     else if (J.IsStr(c["agent"]))
                     {
                         var a = J.Str(c["agent"]) == "codex" ? Integrations.Agent.Codex : Integrations.Agent.Claude;
-                        var k = J.Str(c["kind"]) == "mcp" ? Integrations.Kind.Mcp : Integrations.Kind.Hooks;
+                        var k = J.Str(c["kind"]) switch { "mcp" => Integrations.Kind.Mcp, "limits" => Integrations.Kind.Limits, _ => Integrations.Kind.Hooks };
                         bool on = J.Truthy(c["on"]);
                         err = await Task.Run(() => Integrations.Set(a, k, on, S));
                         if (err == null && on) note = Integrations.Hint(a, k);
+                        if (err == null && !on && k == Integrations.Kind.Limits) hub.ClearLimits("claude");
                     }
                     break;
                 case "do":

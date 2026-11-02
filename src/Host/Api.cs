@@ -99,6 +99,8 @@ sealed class Api
         R("POST", "/api/clear", async (c, q, g) => { await Body(c); return hub.ClearFinished(); });
         R("POST", "/api/notify", async (c, q, g) => hub.Notify(await Body(c)));
         R("POST", "/api/hooks/(claude|codex)", async (c, q, g) => AgentHooks.Handle(hub, g[0], await Body(c)));
+        R("POST", "/api/limits/(claude)", async (c, q, g) => hub.ReportLimits(g[0], await Body(c)));
+        R("GET", "/api/limits", (c, q, g) => V(hub.LimitsView()));
         R("GET", "/api/telegram", (c, q, g) => V(Telegram?.State() ?? new JsonObject { ["status"] = "off" }));
         R("POST", "/api/telegram", async (c, q, g) =>
         {

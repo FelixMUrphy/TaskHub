@@ -65,14 +65,14 @@ static class Program
             int rc = 0;
             var outp = new List<string>();
             foreach (var a in Integrations.All)
-                foreach (var k in Integrations.Kinds)
+                foreach (var k in a == Integrations.Agent.Claude ? Integrations.Kinds.Append(Integrations.Kind.Limits) : Integrations.Kinds)
                 {
                     var key = Integrations.ArgName(a, k);
                     var v = args.FirstOrDefault(x => x.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase))?[(key.Length + 1)..];
                     if (v is "on" or "off")
                     {
                         bool changed = false;
-                        try { changed = Integrations.Apply(a, k, v == "on", S); S.Set((Integrations.CfgKey(a, k), v == "on")); }
+                        try { changed = Integrations.Apply(a, k, v == "on", S); if (Integrations.Remembered(k)) S.Set((Integrations.CfgKey(a, k), v == "on")); }
                         catch (Exception e) { rc = 1; outp.Add($"{key}: error {e.Message}"); continue; }
                         outp.Add($"{key}: {v}{(changed ? " (changed)" : " (unchanged)")}");
                     }
