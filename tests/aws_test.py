@@ -10,6 +10,7 @@ from aws_mock import Mock
 URL = os.environ.get("TASKHUB_URL", "http://127.0.0.1:47899")
 DATA = os.environ.get("TASKHUB_DATA", os.path.join(os.environ.get("TEMP", "."), "taskhub-tests"))
 PORT = 47889
+LOG = "taskhub.log"
 KID, SECRET = "AKIAMOCKMOCKMOCK0001", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYMOCKKEY01"
 KID2, SECRET2 = "AKIAMOCKMOCKMOCK0002", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYMOCKKEY02"
 NS = 'xmlns="http://ec2.amazonaws.com/doc/2016-11-15/"'
@@ -126,6 +127,21 @@ def clean():
             call("DELETE", f"/api/tasks/{t['id']}?force=1")
 
 
+def toasts():
+    """What the hub has sent as notifications so far (its log has a line per toast, also with toasts off in config)."""
+    time.sleep(0.6)   # they pass a queue
+    try:
+        return [l for l in open(os.path.join(DATA, LOG), encoding="utf-8", errors="replace") if "TOAST [" in l]
+    except OSError:
+        return []
+
+
+def released(n, before):
+    """Exactly one summary for n machines, and no toast per machine, since `before`."""
+    new = toasts()[before:]
+    return len(new) == 1 and f"{n} machine" in new[0], new
+
+
 NO_VAULT = vault.probe()
 TARGET = vault.target(DATA, "aws")
 mock = Mock(PORT, {KID: SECRET, KID2: SECRET2}, handler)
@@ -173,6 +189,7 @@ with mock:
         t1 = when("aws-i-0a1", lambda t: t["state"] == "running")
         check("running instance -> active task named from its Name tag", t1 and t1["name"] == "video render" and t1["source"] == "aws" and t1["project"] == "AWS", t1)
         check("task card: Region and type", t1 and "us-east-1" in t1.get("description", "") and "t3.micro" in t1.get("description", ""), t1)
+        check("console link: the Region's console, not an unverified link to the machine", t1 and [l["url"] for l in t1.get("links", [])] == ["https://us-east-1.console.aws.amazon.com/ec2/home?region=us-east-1"], t1 and t1.get("links"))
         t3 = when("aws-i-0a3", lambda t: t["state"] == "running")
         check("paged past an empty page, and no Name tag -> the instance id", t3 and t3["name"] == "i-0a3", t3)
         check("started from launchTime, not from now", t1 and time.time() - t1["started"] > 500, t1 and t1["started"])
@@ -252,10 +269,15 @@ with mock:
         call("POST", "/api/connectors/aws", {"forgotten_hours": 72})
 
         # ------------------------------------------------------------ the user's own Regions
+        with lock:
+            active_us = sum(i["state"] == "running" for i in world["us-east-1"])
+        before = len(toasts())
         s, r = call("POST", "/api/connectors/aws", {"regions": ["EU-WEST-1", "eu-west-1"]})
         check("own Regions: normalized, deduplicated", s == 200 and r["regions_chosen"] == ["eu-west-1"], (s, r))
         t = when("aws-i-0a1", lambda t: t["state"] == "done")
         check("a Region no longer watched: let go, not called stopped", t and "No longer watched" in (t.get("message") or ""), t)
+        ok, new = released(active_us, before)
+        check("many machines let go: one summary, not a toast each", ok, new)
         mock.requests.clear()   # what the loop asked before the change took effect doesn't count
         time.sleep(0.8)
         n = list(mock.requests)
@@ -338,15 +360,23 @@ with mock:
         check("a rejected replacement keeps the old key and tasks", s == 400 and vault.read(TARGET) == f"{KID}:{SECRET}" and task("aws-i-0a1")["state"] == "running", (s, r))
         with lock:
             faults["us-east-1"] = (500, "InternalError")   # the new key's first read can't bring the task back before it is looked at
+            faults["eu-west-1"] = (500, "InternalError")
+        before = len(toasts())
         s, r = call("POST", "/api/connectors/aws", {"key": f"{KID2}:{SECRET2}"})
         t = task("aws-i-0a1")
+        new = toasts()[before:]
         with lock:
             faults.clear()
+        check("another key: one summary", len(new) == 1 and "machine" in new[0], new)
         check("another key (maybe another account): what was followed is let go first", s == 200 and t["state"] == "done" and "No longer watched" in (t.get("message") or ""), t)
         check("...then the same instances are followed under the new key", when("aws-i-0a1", lambda t: t["state"] == "running") is not None, task("aws-i-0a1"))
 
         # ------------------------------------------------------------ off, forget
+        time.sleep(0.6)
+        before = len(toasts())
         s, r = call("POST", "/api/connectors/aws", {"enabled": False})
+        new = toasts()[before:]
+        check("turning it off: one summary", len(new) == 1 and "machine" in new[0], new)
         t = task("aws-i-0a1")
         check("off keeps the key, lets the tasks go", s == 200 and r["key_set"] is True and vault.exists(TARGET) and t["state"] == "done" and "No longer watched" in (t.get("message") or ""), (r, t and t.get("message")))
         time.sleep(0.4)
@@ -355,6 +385,9 @@ with mock:
         check("nothing polled when off", not mock.requests, mock.requests[:1])
         s, r = call("POST", "/api/connectors/aws", {"forget_key": True})
         check("forget deletes the key", s == 200 and r["key_set"] is False and not vault.exists(TARGET), r)
+        before = len(toasts())
+        call("POST", "/api/connectors/aws", {"enabled": False})
+        check("nothing let go: no notification", len(toasts()) == before, toasts()[before:])
         clean()
         call("POST", "/api/connectors/aws", {"list_interval": 600, "forgotten_hours": 72})
 

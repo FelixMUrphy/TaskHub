@@ -258,6 +258,15 @@ sealed partial class Hub
 
     public JsonObject Finish(string tid, JsonObject b) => Finish(tid, b, null);
 
+    /// <summary>Finishes without its own notification, for a mass action whose caller sends one summary instead.
+    /// Internal only: the HTTP API has no way to ask for it.</summary>
+    public JsonObject FinishQuietly(string tid, JsonObject b)
+    {
+        lock (Lock)
+            if (Get(tid)["notify"] is JsonObject n) { n["finish"] = false; n["fail"] = false; }
+        return Finish(tid, b, null);
+    }
+
     /// <param name="onlyGen">watchdog: finish only if the task is still active and still the same registration
     /// (its Internal) - not one finished or re-registered with the same id meanwhile. Returns null if skipped.</param>
     JsonObject Finish(string tid, JsonObject b, Internal onlyGen)

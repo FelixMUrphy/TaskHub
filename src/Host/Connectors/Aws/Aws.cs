@@ -732,7 +732,8 @@ sealed class AwsConnector : ISettingsConnector
             links.Add(new JsonObject
             {
                 ["label"] = L.T("aws_console"),
-                ["url"] = $"https://{i.Region}.console.aws.amazon.com/ec2/home?region={i.Region}#InstanceDetails:instanceId={i.Id}",
+                // the Region's console: a link to one instance has no documented format, and must not lead nowhere
+                ["url"] = $"https://{i.Region}.console.aws.amazon.com/ec2/home?region={i.Region}",
             });
         var u = new JsonObject
         {
@@ -771,7 +772,7 @@ sealed class AwsConnector : ISettingsConnector
     }
 
     /// <summary>What can't be told about any more (another key, connector off, a Region no longer watched) stops being
-    /// followed. It isn't called stopped or terminated: nobody knows.</summary>
+    /// followed. It isn't called stopped or terminated: nobody knows. A mass action: one summary, not a toast per machine.</summary>
     void Release(Func<Track, bool> which)
     {
         List<Track> gone;
@@ -780,12 +781,20 @@ sealed class AwsConnector : ISettingsConnector
             gone = machines.Values.Where(which).ToList();
             foreach (var t in gone) machines.Remove(t.I.Id);
         }
+        var released = new List<string>();
         foreach (var t in gone)
         {
             var tid = Tid(t.I.Id);
-            if (TryTask(tid) is { } task && Hub.IsActive(J.Str(task["state"])))
-                Try(() => hub.Finish(tid, new JsonObject { ["state"] = "done", ["message"] = L.T("aws_unwatched") }));
+            if (TryTask(tid) is not { } task || !Hub.IsActive(J.Str(task["state"]))) continue;
+            Try(() =>
+            {
+                hub.FinishQuietly(tid, new JsonObject { ["state"] = "done", ["message"] = L.T("aws_unwatched") });
+                released.Add(tid);
+            });
         }
+        if (released.Count == 0) return;
+        hub.MarkSeen(released);
+        hub.Notify(new JsonObject { ["title"] = "TaskHub · " + Title, ["level"] = "info", ["message"] = L.N("aws_unwatched_n", released.Count), ["click"] = "dismiss" });
     }
 
     // ------------------------------------------------------------ buttons

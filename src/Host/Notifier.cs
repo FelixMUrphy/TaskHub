@@ -250,9 +250,9 @@ sealed class Notifier : INotifier
 
     void Deliver(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly, bool controls)
     {
+        Log.W($"TOAST [{level}] {title}: {msg}");   // also with Windows toasts off: Telegram still gets it
         try { Telegram?.Notify(title, msg, level, taskId, task, controls); } catch (Exception e) { Log.W("telegram: " + e.Message); }
         if (!S.Bool("toasts", true)) return;   // Windows toasts disabled (config.json "toasts": false)
-        Log.W($"TOAST [{level}] {title}: {msg}");
         queue.Add(() => ShowToast(J.Cut(string.IsNullOrEmpty(title) ? Settings.AppId : title, 150), J.Cut(msg ?? "", 500), level, taskId, task, dismissOnly, controls));
     }
 
