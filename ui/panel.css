@@ -32,12 +32,13 @@ html.acc-neutral{--live:var(--blue)}
 html,body{margin:0;height:100%;color:var(--fg);font:13px/1.4 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif}
 body{background:color-mix(in srgb,var(--bg) var(--alpha),transparent);display:flex;flex-direction:column;overflow:hidden}
 /* docked panel: no hard line on the left edge - the tint fades in over the first pixels; an invisible grip there resizes it */
-html.native body{background:linear-gradient(to right,transparent,color-mix(in srgb,var(--bg) var(--alpha),transparent) 14px)}
+html.native body{padding-left:var(--pad,0px);background:linear-gradient(to right,transparent var(--pad,0px),color-mix(in srgb,var(--bg) var(--alpha),transparent) calc(var(--pad,0px) + 14px))}
+html.native body.setwide{background:linear-gradient(to right,transparent,color-mix(in srgb,var(--bg) var(--alpha),transparent) 14px)}
 /* see-through settings: a soft halo in the background colour keeps text readable over any window */
 html.halo #list{text-shadow:0 0 3px color-mix(in srgb,var(--bg) var(--halo),transparent),0 0 1px color-mix(in srgb,var(--bg) var(--halo),transparent)}
 html.halo header{text-shadow:0 0 3px color-mix(in srgb,var(--bg) var(--hhalo),transparent),0 0 1px color-mix(in srgb,var(--bg) var(--hhalo),transparent)}
 #grip{display:none;position:fixed;left:0;top:0;bottom:0;width:6px;cursor:ew-resize;z-index:31}
-html.native #grip{display:block}
+html.native #grip{display:block;left:var(--pad,0px)}
 header{user-select:none;flex:none;position:relative;z-index:5;display:flex;align-items:center;gap:8px;padding:10px 12px 8px;border-bottom:1px solid var(--ln)}
 header h1{font-size:14px;margin:0;font-weight:650;letter-spacing:.2px}
 header .cnt{color:var(--mut);font-size:12px}
@@ -199,7 +200,9 @@ pre .warn{color:var(--amber)} pre .error{color:var(--red)} pre .cmd{color:var(--
 html:not(.native) body.setmode>header,html:not(.native) body.setmode #srcf,html:not(.native) body.setmode #list,html:not(.native) body.setmode #sb{display:none}
 #set{display:none;flex:1;min-height:0;flex-direction:row}
 html:not(.native) body.setmode #set{display:flex}
-html.native body.setwide{padding-left:calc(100vw - var(--pw,100vw))}
+/* the app's page is wider than the window by the room for settings (--pad, from PanelForm): everything of the panel keeps right of it */
+html.native #snack{left:calc(var(--pad,0px) + (100vw - var(--pad,0px)) / 2);max-width:calc((100vw - var(--pad,0px)) * .9)}
+html.native body:not(.setwide) .dlg{left:var(--pad,0px)}
 html.native body.setwide #grip{display:none}
 html.native body.setwide #set{display:flex;position:fixed;left:0;top:0;bottom:0;width:var(--setw,560px);z-index:7;border-right:1px solid var(--ln)}
 html.native.setover body.setwide #set{background:var(--bg)}

@@ -21,7 +21,7 @@ $("#setclose").onclick=()=>closeSet(NATIVE);
 document.addEventListener("click",e=>{ if (!NATIVE || !setOpen() || modal || pinnedSet() || e.target.closest("#set,#dlg,#cfg")) return; closeSet(); },true);
 function settingsSize(z){ settingsSize.last=z=z||settingsSize.last; if (!z) return;
   const r=document.documentElement, k=devicePixelRatio||1;   // physical px -> this page's px (zoom included)
-  r.style.setProperty("--setw",(z.set/k)+"px"); r.style.setProperty("--pw",(z.panel/k)+"px"); r.classList.toggle("setover",!!z.over); }
+  r.style.setProperty("--setw",(z.set/k)+"px"); r.style.setProperty("--pad",(z.room/k)+"px"); r.classList.toggle("setover",!!z.over); }
 // the host is making room (it may be sliding the panel in first): only now is the settings part drawn
 function settingsRoom(z){ settingsSize(z); const b=document.body; if (setOpen() && !b.classList.contains("setwide")){ b.classList.add("setwide"); tabFocus(); } }
 window.addEventListener("resize",()=>settingsSize());

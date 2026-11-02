@@ -215,7 +215,7 @@ try:
     check("close button: the window back to the panel's", until(lambda: window() == w0), (window(), w0))
     check("...the settings part is gone, the focus on the gear", until(lambda: not wide()) and ws.eval('document.activeElement.id==="cfg"'))
     time.sleep(.2)
-    check("...the panel's content where it was", abs(x_panel()) <= 1, x_panel())
+    check("...the panel's content where it was", abs(x_panel() * k - expect) <= 2, x_panel())
 
     ws.click("#cfg")
     until(lambda: window() != w0)

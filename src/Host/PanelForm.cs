@@ -11,7 +11,9 @@ namespace TaskHub;
 /// tray / cursor, full height, like the Windows 11 notification center. Slides in from the right; width is changed by
 /// dragging its left edge (config panel_width); hides on focus loss (unless pinned), Esc, or tray click.
 /// While settings are open the same window (one page, one WebView2) reaches further left: the panel keeps its place and width,
-/// the settings part lies over whatever is there and reserves nothing (the AppBar strip stays the panel's own width).
+/// the settings part lies over whatever is there and reserves nothing (the AppBar strip stays the panel's own width). The WebView2 is
+/// always as wide as both, its left part cut off by the window while settings are closed: resizing it would show its last frame,
+/// cut in the wrong place, until it had drawn a new one (measured: the whole panel in the settings' colours for a frame).
 /// Acrylic blur of the windows behind a transparent WebView2; the page sets its background alpha (panel_transparency). Light / dark theme and accent colour follow Windows unless set in the panel.
 /// </summary>
 sealed class PanelForm : Form
@@ -30,6 +32,7 @@ sealed class PanelForm : Form
     bool settingsSliding;                // the window's left edge moves, the panel stays where it is
     int settingsExtra;                   // px the window reaches left of the panel's strip (0 = settings closed)
     int settingsW;                       // px of the settings part: more than settingsExtra if it has to overlap the panel
+    int webExtra;                        // px the WebView2 reaches left of the panel's strip, settings open or not
     bool ready;
     string pendingTask;
     bool allowClose;
@@ -242,7 +245,7 @@ sealed class PanelForm : Form
             target = WithSettings(r);
             shownPx = target.Width;
             if (Bounds != target) Native.SetWindowPos(Handle, IntPtr.Zero, target.X, target.Y, target.Width, target.Height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
-            web.Dock = DockStyle.Fill;
+            FitWeb();
         }
         catch (Exception e) { Log.W("appbar: " + e.Message); }
     }
@@ -362,7 +365,20 @@ sealed class PanelForm : Form
 
     const int WM_ACTIVATE = 0x06, WM_WINDOWPOSCHANGED = 0x47, WM_DISPLAYCHANGE = 0x7E;
 
-    WebView2 NewWeb() => new() { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };   // undocked (fixed size) while sliding
+    WebView2 NewWeb() => new() { DefaultBackgroundColor = BackColor };   // placed by FitWeb, by hand: wider than the window
+
+    /// <summary>The WebView2 for the window as it is: the panel's part flush right, the settings' part left of it, inside the window or not.</summary>
+    void FitWeb()
+    {
+        var c = ClientSize;
+        web.SetBounds(settingsExtra - webExtra, 0, c.Width - settingsExtra + webExtra, c.Height);
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        if (!sliding) FitWeb();   // also while the panel's edge is dragged
+    }
 
     /// <summary>The installed WebView2 Runtime's version, null if there is none (Windows 10 doesn't always have it).</summary>
     public static string RuntimeVersion()
@@ -427,7 +443,11 @@ sealed class PanelForm : Form
             if (!e.IsSuccess) { Log.W("panel navigation failed: " + e.WebErrorStatus); ReloadSoon(); return; }
             ApplyLook();
             if (PanelVisible) PostShown(true);
-            if (settingsExtra > 0) PostSettingsSize(target.Width - settingsExtra);   // asked for before the page could be told
+            // a new page knows nothing yet about the room left for settings
+            if (Visible) WithSettings(new Rectangle(target.X + settingsExtra, target.Y, target.Width - settingsExtra, target.Height));
+            else ComputeTarget();
+            if (!sliding) FitWeb();
+            PostSettingsSize();
             _ = SyncSettings();
             if (pendingTask != null) { hub.SetFocus(pendingTask); pendingTask = null; }
         };
@@ -468,7 +488,7 @@ sealed class PanelForm : Form
                 painted?.TrySetResult(false);
                 var old = web;
                 web = NewWeb();
-                if (old.Dock == DockStyle.None) { web.Dock = DockStyle.None; web.Bounds = old.Bounds; }   // mid-slide
+                web.Bounds = old.Bounds;
                 Controls.Add(web);
                 Controls.Remove(old);
                 try { old.Dispose(); } catch (Exception e) { Log.W("old webview: " + e.Message); }
@@ -659,14 +679,15 @@ sealed class PanelForm : Form
     }
 
     // ------------------------------------------------------------ settings: the same window, reaching further left
-    /// <summary>The window for the panel's strip: the strip itself, or with settings open also the room left of it (recounted,
-    /// the monitor or its DPI may have changed). Less than the settings' width free: as much as there is, and below the
-    /// minimum the settings part overlaps the panel. The page is told when that changes.</summary>
+    /// <summary>The window for the panel's strip: the strip itself, or with settings open also the room left of it. The room is
+    /// recounted (the monitor or its DPI may have changed), and the page told when it changes. Less than the settings' width free:
+    /// as much as there is, and below the minimum the settings part overlaps the panel.</summary>
     Rectangle WithSettings(Rectangle strip)
     {
-        if (settingsExtra == 0) return strip;
         var (extra, w) = SettingsSize(strip);
-        if (extra != settingsExtra || w != settingsW) { settingsExtra = extra; settingsW = w; PostSettingsSize(strip.Width); }
+        if (extra != webExtra || w != settingsW) { webExtra = extra; settingsW = w; PostSettingsSize(); }
+        if (settingsExtra == 0) return strip;
+        settingsExtra = extra;
         return new Rectangle(strip.X - extra, strip.Y, strip.Width + extra, strip.Height);
     }
 
@@ -677,10 +698,10 @@ sealed class PanelForm : Form
         return (extra, Math.Max(extra, Math.Min(Px(SettingsMinDip), extra + strip.Width)));
     }
 
-    void PostSettingsSize(int panelPx)
+    void PostSettingsSize()
     {
         if (!ready) return;
-        try { web.CoreWebView2?.PostWebMessageAsJson(new JsonObject { ["settings_size"] = new JsonObject { ["set"] = settingsW, ["panel"] = panelPx, ["over"] = settingsW > settingsExtra } }.ToJsonString()); } catch { }
+        try { web.CoreWebView2?.PostWebMessageAsJson(new JsonObject { ["settings_size"] = new JsonObject { ["set"] = settingsW, ["room"] = webExtra, ["over"] = settingsW > webExtra } }.ToJsonString()); } catch { }
     }
 
     void PostSettingsGone()
@@ -690,8 +711,8 @@ sealed class PanelForm : Form
     }
 
     /// <summary>Brings the window to what the page asked for (UI thread). Waits for a running slide: each slide calls it again at
-    /// its end. The window's left edge moves one step per frame while the WebView2 keeps the wide size, anchored right, so
-    /// neither the panel's content nor the settings' lays out again.</summary>
+    /// its end. The window's left edge moves one step per frame while the WebView2 stays where it is on the screen, so nothing
+    /// on the page lays out again.</summary>
     async Task SyncSettings()
     {
         try
@@ -699,7 +720,7 @@ sealed class PanelForm : Form
             if (!Visible || hiding || sliding || animating) return;
             if (settingsWanted == (settingsExtra > 0))
             {
-                if (settingsWanted) PostSettingsSize(target.Width - settingsExtra); else PostSettingsGone();   // said again: closed and reopened mid-slide, the page ignored the first
+                if (settingsWanted) PostSettingsSize(); else PostSettingsGone();   // said again: closed and reopened mid-slide, the page ignored the first
                 return;
             }
             if (settingsExtra == 0 && bar?.Registered != true) target = Bounds;   // where it really is: the work area may have changed since it was placed
@@ -707,15 +728,15 @@ sealed class PanelForm : Form
             bool anim = AnimationsOn();
             if (settingsWanted)
             {
-                (settingsExtra, settingsW) = SettingsSize(strip);
-                PostSettingsSize(strip.Width);
+                WithSettings(strip);
+                FitWeb();
+                PostSettingsSize();
+                settingsExtra = webExtra;
                 target = new Rectangle(strip.X - settingsExtra, strip.Y, strip.Width + settingsExtra, strip.Height);
                 if (anim)
                 {
                     sliding = settingsSliding = true;
                     shownPx = slideW = strip.Width;
-                    web.Dock = DockStyle.None;
-                    web.SetBounds(-settingsExtra, 0, target.Width, target.Height);
                     await WaitPainted();
                     if (!settingsSliding) return;   // the panel is being hidden
                     if (!await Slide(true)) return;
@@ -725,8 +746,6 @@ sealed class PanelForm : Form
             {
                 sliding = settingsSliding = true;
                 shownPx = slideW = target.Width;
-                web.Dock = DockStyle.None;
-                web.SetBounds(0, 0, target.Width, target.Height);
                 if (!await Slide(false, strip.Width)) return;
             }
             settingsSliding = false;
@@ -756,7 +775,8 @@ sealed class PanelForm : Form
         }
         var wa = Screen.FromControl(this).WorkingArea;
         int dip = Math.Clamp((int)Math.Round(Width * 96.0 / DeviceDpi), MinWidth, MaxWidth);
-        target = new Rectangle(wa.Right - Width, wa.Top, Width, wa.Height);
+        target = WithSettings(new Rectangle(wa.Right - Width, wa.Top, Width, wa.Height));
+        FitWeb();
         shownPx = Width;
         if (S.Int("panel_width", 480) != dip) S.Set(("panel_width", dip));
         if (Bounds != target) Native.SetWindowPos(Handle, IntPtr.Zero, target.X, target.Y, target.Width, target.Height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
@@ -801,8 +821,12 @@ sealed class PanelForm : Form
     {
         shownPx = Math.Clamp(px, 0, target.Width);
         int w = slideW = Math.Max(1, shownPx);
+        // settings: anchored right, the panel stays still and the edge uncovers them. Two calls, and a frame can come between them: in
+        // the order that shifts the page left in that frame, as the other way the settings' text would land on the panel.
+        bool closing = settingsSliding && w < Width;
+        if (closing) web.Left = w - web.Width;
         Native.SetWindowPos(Handle, IntPtr.Zero, target.Right - w, target.Y, w, target.Height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
-        if (settingsSliding) web.Left = w - target.Width;   // anchored right: the panel stays still, the edge uncovers the settings
+        if (settingsSliding && !closing) web.Left = w - web.Width;
     }
 
     /// <summary>Fully shown at the target; the WebView2 follows the window size again.</summary>
@@ -811,15 +835,11 @@ sealed class PanelForm : Form
         sliding = false;
         shownPx = target.Width;
         Native.SetWindowPos(Handle, IntPtr.Zero, target.X, target.Y, target.Width, target.Height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
-        web.Dock = DockStyle.Fill;
+        FitWeb();
     }
 
-    /// <summary>The WebView2 keeps the full panel width while the window is narrower (slide).</summary>
-    void PinWebSize()
-    {
-        web.Dock = DockStyle.None;
-        web.SetBounds(0, 0, target.Width, target.Height);
-    }
+    /// <summary>The WebView2 keeps its full size while the window is narrower (slide).</summary>
+    void PinWebSize() => web.SetBounds(settingsExtra - webExtra, 0, target.Width - settingsExtra + webExtra, target.Height);
 
     /// <summary>Until the page has drawn a frame (or 150 ms): the slide then shows content, not an empty window.</summary>
     async Task WaitPainted()
@@ -891,7 +911,7 @@ sealed class PanelForm : Form
     async Task SlideOut()
     {
         hiding = true;
-        if (settingsSliding) { settingsSliding = false; web.SetBounds(0, 0, target.Width, target.Height); }   // from here all of it moves together
+        settingsSliding = false;   // from here all of it moves together
         if (!sliding)
         {
             target = Bounds;
