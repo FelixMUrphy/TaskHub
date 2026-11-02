@@ -120,7 +120,7 @@ agents (ChatGPT, scripts, any tool with a shell) — add one line to `AGENTS.md`
 > `taskhub run --name ... -- <cmd>`).
 
 ### Claude Code and Codex: one click
-The setup dialog (and later Settings → *AI agents*) has two independent options per agent:
+The setup dialog (and later Settings → *AI agents*) has independent options per agent. From 3.1, if an agent is used on your PC and you haven't chosen yet, the panel offers its notifications once, and nothing is written until you press *Connect*:
 
 | Option | What you get | Where TaskHub writes |
 |---|---|---|

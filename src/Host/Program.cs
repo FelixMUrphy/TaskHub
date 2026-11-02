@@ -33,6 +33,9 @@ static class Program
         // tests only: the AWS signer against AWS's test suite and a loopback mock (SigV4.SelfTest)
         if (Arg("--selftest-sigv4") is { } sigIn && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
             return SigV4.SelfTest(sigIn, args[Array.IndexOf(args, "--selftest-sigv4") + 2]);
+        // tests only: what the setup window's switches become (Integrations.SetupArgs)
+        if (Has("--selftest-setup-args") && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+            return Integrations.SelfTestSetupArgs(S, args[(Array.IndexOf(args, "--selftest-setup-args") + 1)..]);
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
@@ -166,7 +169,7 @@ static class Program
             else
                 f.ShowOptions(Install.IsInstalled, Install.InstalledVersion,
                     () => storeTask.Result is { } sp ? L.T("setup_store_found", sp.Version.ToString(3), Settings.Version) : null,
-                    () => Go(f.Folder, f.Autostart, f.AddPath, string.Concat(f.Agents.Select(x => (x.on ? " --" : " --no-") + Integrations.ArgName(x.agent, x.kind)))));
+                    () => Go(f.Folder, f.Autostart, f.AddPath, Integrations.SetupArgs(f.Agents, S)));
             Application.Run(f);
             if (f.Result != SetupForm.Choice.Run) return rc;
         }

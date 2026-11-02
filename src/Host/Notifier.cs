@@ -266,6 +266,13 @@ sealed class Notifier : INotifier
         queue.Add(() => ShowToast(title, msg, "info", null, null, action: "update"));
     }
 
+    public void LocalToast(string title, string msg)
+    {
+        Log.W($"TOAST [local] {title}: {msg}");
+        if (!S.Bool("toasts", true)) return;
+        queue.Add(() => ShowToast(title, msg, "info", null, null));
+    }
+
     /// <summary>Toasts currently shown (banner or notification center), so they can be re-rendered when values change.</summary>
     sealed record Shown(string Title, string Msg, string Level, string Tid, JsonObject Snap, bool DismissOnly = false, bool Controls = true,
         string Action = null);

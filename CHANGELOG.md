@@ -10,6 +10,8 @@ from here), followed by the list of commits.
 - Plan limits for Claude Code, off until you turn them on: how much of the 5-hour and weekly limits is used, in the panel, yellow with a warning from 75%, red with a warning from 90%. Your own status line keeps working unchanged.
 - A task's percentage now shares a row with its status, and the task counter is short (1 / 3), so the header no longer wraps.
 - GitHub Actions: the bar follows the same time estimate as the ETA instead of standing still during a long step. A run past its usual duration says so.
+- Notifications from Claude Code and Codex are offered in the panel when an agent is found and you haven't chosen yet. Nothing changes in the agent's settings until you press Connect.
+- No more two notifications for one thing: "response ready" is left out when the agent has just sent its own notification or finished a task from the same project.
 
 ## 3.0.0 — 2026-11-02
 

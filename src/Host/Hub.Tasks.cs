@@ -315,6 +315,9 @@ sealed partial class Hub
             if (state == "done") ToastFor(t, "✅ " + name, (msg.Length > 0 ? msg : L.T("done")) + "  ·  " + dur, "info", "finish");
             else if (state == "cancelled") ToastFor(t, "⏹ " + name, (msg.Length > 0 ? msg : L.T("cancelled")) + "  ·  " + dur, "warn", "finish");
             else ToastFor(t, "❌ " + name, (msg.Length > 0 ? msg : state) + "  ·  " + dur, "error", "fail");
+            // a task that says nothing when it ends has told the user nothing: the agent's Stop still counts
+            var said = state is "done" or "cancelled" ? "finish" : "fail";
+            if (t["notify"] is not JsonObject told || !told.ContainsKey(said) || J.Truthy(told[said])) AgentHooks.AgentSpoke(b);
         }
         Log.W($"finish {tid} {state}");
         return new JsonObject { ["ok"] = true };

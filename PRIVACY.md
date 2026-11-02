@@ -12,6 +12,11 @@ it.
   agents at a small copy of its `taskhub` command in `%LOCALAPPDATA%\TaskHub\bin`; the next time an agent starts that
   copy after TaskHub was removed, the copy removes TaskHub's entries. To remove them right away, turn the connections
   off before you uninstall: tray menu → *AI agents* (from TaskHub 2.9: Settings in the panel → *AI agents*).
+- From TaskHub 3.1, to offer those notifications, TaskHub looks on your PC for signs that Claude Code or Codex is used (their settings
+  folders and files, the programs on your `PATH`) and remembers your answer and which agents it told you about in its own `config.json`. It adds nothing
+  to their settings until you press *Connect*. With the connection on, a notification shows the project folder and the start of the agent's reply. Like
+  every notification it is written to TaskHub's local log, and it goes to Telegram if you have connected Telegram.
+- TaskHub's MCP server tells TaskHub which folder it runs in, on your PC only and not stored, to avoid a second notification for the same thing.
 
 ## What leaves your PC, and only if you turn it on
 - **Plan limits of Claude Code** (TaskHub 3.1 and later, off by default). If you turn this on in Settings → AI agents, TaskHub adds a

@@ -115,6 +115,7 @@ function settingsReply(d){
   if (d.error || d.note || d.info){ CHECKING.clear(); clearTimeout(checkTimer); clearTimeout(TGBUSY); TGBUSY=0; }   // the answer to a key just saved
   listReply(d);
   SET=d.settings_state; renderSet();
+  $("#hookoffer").__h=null; renderHookOffer();   // the answer to the card (its buttons wait for it)
   if (d.error || d.note) ask(d.error || d.note, true);
   else if (d.info) snack(d.info);
 }

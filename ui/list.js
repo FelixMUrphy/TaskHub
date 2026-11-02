@@ -145,6 +145,23 @@ function renderLimits(){
   const h=rows.join("");
   if (box.__h!==h){ box.innerHTML=h; box.__h=h; box.classList.toggle("on",rows.length>0); }
 }
+// an agent's hooks, offered once: nothing is written before a click, and a click needs the native panel (never HTTP)
+function renderHookOffer(){
+  if (!data) return;
+  const box=$("#hookoffer"), rows=NATIVE? data.hooks_offer||[] : [], title=T("hooks_offer_t",rows.map(r=>r.name).join(", "));
+  const h=!rows.length? "" : `<div class="ht">${esc(title)}</div><div class="hd">${esc(T("hooks_offer_d"))}</div>`
+    +(data.hooks_offer_tg? `<div class="hd">${esc(T("hooks_offer_tg"))}</div>` : "")
+    +`<div class="ctl"><button class="btn primary" data-connect="1">${esc(T("hooks_offer_yes"))}</button><button class="btn" data-connect="">${esc(T("hooks_offer_no"))}</button></div>`;
+  if (box.__h===h) return;
+  const had=box.__clicked||box.contains(document.activeElement);
+  box.__clicked=false; box.innerHTML=h; box.__h=h; box.classList.toggle("on",rows.length>0);
+  box.setAttribute("role","group"); box.setAttribute("aria-label",title);
+  box.__agents=rows.map(r=>r.agent);
+  if (had) (rows.length? box.querySelector("button") : $("#list")).focus({preventScroll:true});   // the keyboard stays where it was
+}
+$("#hookoffer").addEventListener("click",e=>{ const b=e.target.closest("button"), box=$("#hookoffer"); if (!b || b.disabled) return;
+  box.__clicked=true; box.querySelectorAll("button").forEach(x=>{ x.disabled=true; });   // one answer: two writes of one file would collide
+  host({settings:"do",what:"hooks_offer",connect:!!b.dataset.connect,agents:box.__agents}); });
 function render(){
   if (!data) return;
   if ((data.lang && data.lang!==LANG) || (data.language && data.language!==LANG_SETTING)){ LANG=data.lang||LANG; LANG_SETTING=data.language||"auto"; applyLang(); }
@@ -157,6 +174,7 @@ function render(){
   $("#mute i").textContent = data.muted ? "\uE7ED" : "\uEA8F";   // bell crossed out = muted
   $("#mute").title = data.muted ? T("notif_off") : T("notif_on");
   renderSet();
+  renderHookOffer();
   renderLimits();
   place(list, layout());
   requestAnimationFrame(sbUpd);

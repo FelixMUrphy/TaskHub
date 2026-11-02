@@ -27,6 +27,26 @@ static class Mcp
         "To wait for a task to end (e.g. a command started with `taskhub run`), call task_wait instead of polling with sleep. " +
         "If TaskHub is unavailable, continue the user's work without it.";
 
+    /// <summary>Only with TaskHub's hooks on for this agent: otherwise the agent's own notify is the only one the user gets.</summary>
+    const string HooksInstruction =
+        " TaskHub already notifies the user by itself when you finish a response or need a permission: do not call notify just to say that you are done.";
+
+    /// <summary>The agent's own file, so that the hub needs no starting for this; a new session reads it again. Any doubt: not on.</summary>
+    static bool HooksOn(string source)
+    {
+        try
+        {
+            var home = Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 } h ? h : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            return source switch
+            {
+                "claude" => File.ReadAllText(Path.Combine(home, ".claude", "settings.json")).Contains("/api/hooks/claude"),
+                "codex" => File.ReadAllText(Path.Combine(home, ".codex", "hooks.json")).Contains(" hook codex"),
+                _ => false,
+            };
+        }
+        catch { return false; }
+    }
+
     static readonly JsonSerializerOptions Compact = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     public static int Run(Client c, List<string> args, Action ensureHub)
@@ -87,7 +107,7 @@ static class Mcp
                         ["protocolVersion"] = Program.S(req["params"]?["protocolVersion"]) is { Length: > 0 } pv ? pv : Proto,
                         ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
                         ["serverInfo"] = new JsonObject { ["name"] = "taskhub", ["title"] = "TaskHub", ["version"] = Program.Version },
-                        ["instructions"] = Instructions,
+                        ["instructions"] = Instructions + (HooksOn(source) ? HooksInstruction : ""),
                     },
                     "ping" => new JsonObject(),
                     "tools/list" => new JsonObject { ["tools"] = Tools() },
@@ -219,6 +239,7 @@ static class Mcp
                     c.Call("POST", "/api/notify", new JsonObject
                     {
                         ["title"] = a["title"]?.DeepClone(), ["message"] = a["message"]?.DeepClone() ?? "", ["level"] = a["level"]?.DeepClone() ?? "info",
+                        ["source"] = source, ["agent_cwd"] = Directory.GetCurrentDirectory(),
                     });
                     return Text("shown");
                 case "task_start":
@@ -246,6 +267,7 @@ static class Mcp
                     c.Call("POST", $"/api/tasks/{Id()}/finish", new JsonObject
                     {
                         ["state"] = a["state"]?.DeepClone() ?? "done", ["message"] = a["message"]?.DeepClone() ?? "",
+                        ["source"] = source, ["agent_cwd"] = Directory.GetCurrentDirectory(),
                     });
                     return Text("finished");
                 case "task_commands":

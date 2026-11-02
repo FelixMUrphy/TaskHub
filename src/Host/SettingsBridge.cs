@@ -182,11 +182,34 @@ sealed class SettingsBridge
                         err = await Task.Run(() => Integrations.Set(a, k, on, S));
                         if (err == null && on) note = Integrations.Hint(a, k);
                         if (err == null && !on && k == Integrations.Kind.Limits) hub.ClearLimits("claude");
+                        if (k == Integrations.Kind.Hooks) await Task.Run(hub.RefreshHookOffer);
                     }
                     break;
                 case "do":
                     switch (J.Str(c["what"]))
                     {
+                        // the card that offers an agent's hooks: the first write to the agent's files after the user's click;
+                        // "not now" is remembered as that choice and writes nothing but TaskHub's own config
+                        case "hooks_offer":
+                        {
+                            // only the agents the card named: one found since then is not part of this answer
+                            bool connect = J.Truthy(c["connect"]);
+                            var named = (c["agents"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x)).ToHashSet();
+                            var errors = new List<string>();
+                            var hints = new List<string>();
+                            foreach (var a in await Task.Run(() => Integrations.HookOffer(S)))
+                            {
+                                if (!named.Contains(Integrations.ArgName(a, Integrations.Kind.Hooks))) continue;
+                                if (!connect) { S.Set((Integrations.CfgKey(a), false)); continue; }
+                                var e = await Task.Run(() => Integrations.Set(a, Integrations.Kind.Hooks, true, S));
+                                if (e != null) errors.Add(e); else hints.Add(Integrations.Hint(a, Integrations.Kind.Hooks));
+                            }
+                            // one agent failing must not hide the step the other one still needs
+                            if (errors.Count > 0) err = string.Join("\n\n", errors.Concat(hints));
+                            else if (hints.Count > 0) note = string.Join("\n", hints);
+                            await Task.Run(hub.RefreshHookOffer);
+                            break;
+                        }
                         // Telegram, set up on the page: the link is not opened by itself (the Telegram account may be on the phone)
                         case "tg_pair":
                         case "tg_relink":

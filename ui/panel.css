@@ -35,7 +35,7 @@ body{background:color-mix(in srgb,var(--bg) var(--alpha),transparent);display:fl
 html.native body{padding-left:var(--pad,0px);background:linear-gradient(to right,transparent var(--pad,0px),color-mix(in srgb,var(--bg) var(--alpha),transparent) calc(var(--pad,0px) + 14px))}
 html.native body.setwide{background:linear-gradient(to right,transparent,color-mix(in srgb,var(--bg) var(--alpha),transparent) 14px)}
 /* see-through settings: a soft halo in the background colour keeps text readable over any window */
-html.halo #list,html.halo #limits{text-shadow:0 0 3px color-mix(in srgb,var(--bg) var(--halo),transparent),0 0 1px color-mix(in srgb,var(--bg) var(--halo),transparent)}
+html.halo #list,html.halo #hookoffer,html.halo #limits{text-shadow:0 0 3px color-mix(in srgb,var(--bg) var(--halo),transparent),0 0 1px color-mix(in srgb,var(--bg) var(--halo),transparent)}
 html.halo header{text-shadow:0 0 3px color-mix(in srgb,var(--bg) var(--hhalo),transparent),0 0 1px color-mix(in srgb,var(--bg) var(--hhalo),transparent)}
 #grip{display:none;position:fixed;left:0;top:0;bottom:0;width:6px;cursor:ew-resize;z-index:31}
 html.native #grip{display:block;left:var(--pad,0px)}
@@ -72,6 +72,10 @@ main{padding:10px;display:flex;flex-direction:column;gap:9px}
 #sb.none{display:none}
 .empty{color:var(--mut);text-align:center;padding:50px 10px}
 /* many tasks: structure only when needed - quiet text and shades, no lines or frames */
+#hookoffer{display:none;flex:none;margin:6px 12px 8px;padding:10px 12px;border:1px solid var(--ln);border-radius:8px;background:var(--o1);font-size:12px}
+#hookoffer.on{display:block}
+#hookoffer .ht{font-weight:600}
+#hookoffer .hd{color:var(--mut);margin-top:4px}
 #limits{display:none;flex:none;padding:0 12px 6px;font-size:12px}
 #limits.on{display:block}
 .lim+.lim{margin-top:5px}

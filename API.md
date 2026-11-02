@@ -363,7 +363,10 @@ unless `--progress-regex` / `--status-regex` / `--auto-progress` is given; the c
 
 ## Claude Code hooks
 Easiest: setup dialog checkbox or Settings → *AI agents* (before 2.9: tray → *AI agents*) (or `TaskHubHost.exe --integrations claude=on codex=on`)
-writes exactly these entries for you and removes them on uninstall. Manual setup:
+writes exactly these entries for you and removes them on uninstall. From 3.1, when an agent is used on the PC, its hooks are off and no choice was made,
+the panel shows a card with *Connect* / *Not now* and one notification says so; nothing is written before *Connect* (`hooks_offer`, `hooks_offer_tg` in
+`GET /api/tasks`; the choice can't be made over HTTP; `integration_claude` / `integration_codex` in `config.json` hold it, `hooks_offer_told` the agents already told about).
+From 3.1 `Stop` shows no toast if the same agent has just (30 s, once) sent a notification or finished a task through TaskHub's MCP server from the same project folder; other events are never held back. Manual setup:
 Notifications when Claude Code finishes a response (`Stop`, toast shows the first line of the answer and the project folder)
 or waits for a permission / your answer (`Notification`). Add to `~/.claude/settings.json` (or install the
 [taskhub-claude-code](https://github.com/FelixMUrphy/taskhub-claude-code) plugin, which contains the same hooks):
@@ -409,7 +412,7 @@ trusted once in Codex (`/hooks`). Do **not** replace an existing `notify = [...]
 `taskhub hook codex` also accepts the legacy `notify` payload as its last argument if you need it.
 
 ## MCP server
-`taskhub mcp [--source NAME]` is a stdio [MCP](https://modelcontextprotocol.io) server for AI agents with the tools
+`taskhub mcp [--source NAME]` (`notify` and `task_finish` also send `source` and `agent_cwd`, its working folder, for the `Stop` rule in [Claude Code hooks](#claude-code-hooks); from 3.1 its instructions ask the agent not to notify just to say it is done while TaskHub's hooks are on) is a stdio [MCP](https://modelcontextprotocol.io) server for AI agents with the tools
 `notify`, `task_start`, `task_update`, `task_finish`, `task_commands` (button presses / input values, acknowledged on read),
 `task_wait` (from 2.9.2: blocks up to 50 s until a task finishes - instead of polling with sleep; call again while it runs)
 and `task_list`. It starts the hub on the first tool call. From 2.9.6 calls run side by side (a waiting `task_wait` does

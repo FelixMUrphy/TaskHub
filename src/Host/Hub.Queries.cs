@@ -54,6 +54,8 @@ sealed partial class Hub
                 ["panel"] = PanelSettings(),
                 ["limits"] = LimitsView(),
                 ["limits_warn"] = new JsonArray(LimitThresholds().Select(x => (JsonNode)JsonValue.Create(x)).ToArray()),
+                ["hooks_offer"] = hookOffer.DeepClone(),
+                ["hooks_offer_tg"] = hookOfferTg,
                 ["focus"] = focus.DeepClone(),
                 ["server"] = new JsonObject { ["version"] = Settings.Version, ["pid"] = Environment.ProcessId, ["impl"] = "dotnet" },
                 ["tasks"] = new JsonArray(list),

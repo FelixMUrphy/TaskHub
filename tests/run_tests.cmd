@@ -36,6 +36,7 @@ for %%D in ("%EXE%") do "%PYTHON%" blender_test.py "%%~dpDtaskhub.exe" || set RC
 "%PYTHON%" aws_sigv4_test.py "%EXE%" || set RC=1
 "%PYTHON%" aws_test.py || set RC=1
 "%PYTHON%" limits_test.py "%EXE%" || set RC=1
+"%PYTHON%" hooks_offer_test.py "%EXE%" || set RC=1
 "%PYTHON%" i18n_test.py || set RC=1
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='TaskHubHost.exe'\" | Where-Object { $_.CommandLine -like '*47899*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
 if %RC%==0 (echo ALL TESTS PASSED) else (echo TESTS FAILED)

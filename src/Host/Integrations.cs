@@ -126,6 +126,29 @@ static class Integrations
     /// <summary>Plan limits have no remembered choice: the agent's file is the only record of it, so the two can't disagree.</summary>
     public static bool Remembered(Kind k) => k != Kind.Limits;
 
+    /// <summary>Agents to offer hooks to: used on this PC, hooks off, and no choice made (any earlier choice, also "not now", is a remembered value).</summary>
+    public static List<Agent> HookOffer(Settings s) =>
+        All.Where(a => s.Get(CfgKey(a)) == null && Detected(a) && !Enabled(a)).ToList();
+
+    /// <summary>The setup window's switches as arguments of the install step. A switch that simply stayed off for an agent that isn't here
+    /// is no answer: stored as "no", the panel would never offer that agent once it is installed.</summary>
+    public static string SetupArgs(IEnumerable<(Agent agent, Kind kind, bool on)> choices, Settings s) =>
+        string.Concat(choices
+            .Where(x => x.on || Detected(x.agent) || Enabled(x.agent, x.kind) || s.Get(CfgKey(x.agent, x.kind)) != null)
+            .Select(x => (x.on ? " --" : " --no-") + ArgName(x.agent, x.kind)));
+
+    /// <summary>Tests only: `--selftest-setup-args OUT claude=on codex=off ...` writes what SetupArgs makes of those switches.</summary>
+    public static int SelfTestSetupArgs(Settings s, string[] a)
+    {
+        var choices = new List<(Agent, Kind, bool)>();
+        foreach (var x in a.Skip(1))
+            foreach (var ag in All)
+                foreach (var k in Kinds)
+                    if (x.StartsWith(ArgName(ag, k) + "=")) choices.Add((ag, k, x.EndsWith("=on")));
+        File.WriteAllText(a[0], SetupArgs(choices, s));
+        return 0;
+    }
+
     /// <summary>Installed hub on start: keep enabled integrations correct (port or install folder may have changed).</summary>
     public static void Ensure(Settings s)
     {
