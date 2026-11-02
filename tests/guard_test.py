@@ -414,6 +414,14 @@ with lock:
     balance["clientBalance"], balance["currentSpendPerHr"] = 50.0, 1.0
 check("top-up above stop -> pending stop cancelled, said so", wait_sent(lambda m: "auto-stop cancelled" in m["text"], n2) is not None
       and wait(lambda: guard().get("pending") is None), guard())
+
+def log_lines():
+    with open(os.path.join(DATA, "taskhub.log"), encoding="utf-8", errors="replace") as f:
+        return f.read().splitlines()
+
+
+check("cancelled: the log says so at the default level", any(" INF " in l and "pending stop #" in l and "cancelled" in l for l in log_lines()))
+check("cancelled: the balance only at debug", not any("above the auto-stop" in l and " DBG " not in l for l in log_lines()), [l for l in log_lines() if "above the auto-stop" in l][:2])
 check("cancelled: the guard task finished, no buttons", wait(lambda: (task("rp--guard") or {}).get("state") == "done"
       and not task("rp--guard")["controls"]), task("rp--guard"))
 check("stale button -> 'Already handled', nothing stopped", "Already handled" in (press(b1.get("Stop now"), "stale1") or "")

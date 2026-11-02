@@ -5,18 +5,18 @@ from here), followed by the list of commits.
 
 ## Unreleased
 
-- New connector: AWS. EC2 instances, SageMaker training jobs and AWS Batch jobs as tasks, this month's cost and forecast, AWS Budgets, each behind its own switch.
+- New connector: AWS. EC2 instances, SageMaker training jobs and AWS Batch jobs as tasks, this month's cost and forecast, AWS Budgets, each behind its own switch. Off until you turn it on, and read-only. Built from AWS's documentation and tested against a simulator, not yet on a real account. Cost Explorer is billed by AWS ($0.01 per request; about $1.80 a month).
 - Settings open beside the panel, with icon tabs. While the panel is pinned they close only with their own button.
-- Plan limits for Claude Code, off until you turn them on: how much of the 5-hour and weekly limits is used, in the panel, yellow with a warning from 75%, red with a warning from 90%. Your own status line keeps working unchanged.
+- Plan limits for Claude Code, off until you turn them on: how much of the 5-hour and weekly limits is used, in the panel, yellow with a warning from 75%, red with a warning from 90%. Your own status line keeps working unchanged. Also by script: `TaskHubHost.exe --integrations claude-limits=on` (Codex: with TaskHub closed).
 - Plan limits for Codex too, off until you turn them on: TaskHub asks Codex every 10 minutes while it is running, with no model requests. In the panel each agent's limits sit under its own name, and the bars take the Windows accent colour.
 - The About page says in a few words what TaskHub does.
 - A task's percentage now shares a row with its status, and the task counter is short (1 / 3), so the header no longer wraps.
 - GitHub Actions: the bar follows the same time estimate as the ETA instead of standing still during a long step. A run past its usual duration says so.
-- Notifications from Claude Code and Codex are offered in the panel when an agent is found and you haven't chosen yet. Nothing changes in the agent's settings until you press Connect.
-- No more two notifications for one thing: "response ready" is left out when the agent has just sent its own notification or finished a task from the same project.
+- Notifications from Claude Code and Codex are offered in the panel when an agent is found and you haven't chosen yet. Nothing changes in the agent's settings until you press Connect. A switch left off in setup for an agent that isn't on the PC no longer counts as a no.
+- No more two notifications for one thing: "response ready" is left out when the agent has just sent its own notification or finished a task from the same project. With the hooks on, TaskHub's MCP server also asks the agent not to notify just to say it is done.
 - Safer Claude Code notifications: TaskHub's hook is now a command rather than a local web address, and no token stays in Claude Code's settings. With TaskHub closed, another program listening on its port could read the agent's last message and steer it. Existing entries are replaced on start; this needs a recent Claude Code.
 - Codex notifications now work when TaskHub is installed in a folder with a space in its path on a drive without short names.
-- A clearer local log: date and level on every line and what a problem report needs at the top. Notification text and task names are no longer written unless you set `"log_level": "debug"` in `config.json`, and anything that looks like a token or key is removed.
+- A clearer local log: date and level on every line and what a problem report needs at the top. Notification text and task names are no longer written unless you set `"log_level": "debug"` in `config.json`, and anything that looks like a token or key is removed. At that level the command-line tool writes its own failures to `cli.log`. Script errors in the panel now go to the log.
 - GitHub Actions: a repository the token can't reach now gets one clear line in your language that says what to check, instead of two English and mixed messages.
 
 ## 3.0.0 — 2026-11-02

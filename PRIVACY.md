@@ -5,8 +5,8 @@ it.
 
 ## What stays on your PC
 - Tasks, their progress, logs and charts, and your settings are kept in `%APPDATA%\TaskHub`.
-- TaskHub keeps a diagnostic log there, `taskhub.log`, at most about 8 MB, with no automatic sending. It holds the version, Windows and .NET versions, monitors, the
-  data and program folders, task states and ids (a hash if the id comes from a job's or instance's name), and errors, whose text can contain a file path, a repository name or what a service replied. From TaskHub 3.1 notification text, task
+- TaskHub keeps a diagnostic log there, `taskhub.log`, at most about 8 MB, with no automatic sending. It holds the version, Windows, .NET and WebView2 versions, the language, monitors, the port, the
+  data and program folders, task states and ids (a hash if the id comes from a job's or instance's name), machine ids, and errors, whose text can contain a file path, a repository name or what a service replied. From TaskHub 3.1 notification text, task
   names and account balances are written only if you set `"log_level": "debug"` in `config.json` (a beta build does this by itself, keeps up to 80 MB, and the command-line tool adds `cli.log`, at most about 2 MB,
   also written at that level). Before writing, TaskHub removes what looks like a token or key. Look through a log before you share it with anyone.
 - Programs on the same PC talk to TaskHub over a local HTTP API on `127.0.0.1`, which other computers cannot reach.
@@ -69,12 +69,12 @@ it.
   *Remove* deletes the key.
 - **AWS connector** (TaskHub 3.1 and later; off by default, earlier versions don't have it). If you paste an AWS access key and
   turn it on, TaskHub signs requests with it (the secret itself is never sent) and asks `ec2.<region>.amazonaws.com` for your instances in
-  the Regions you watch. Each further switch, off by default, adds its hosts: SageMaker training jobs (`api.sagemaker.<region>.amazonaws.com`),
+  the Regions you watch, and `ec2.us-east-1.amazonaws.com` for the list of Regions, also when you don't watch that one. Each further switch, off by default, adds its hosts: SageMaker training jobs (`api.sagemaker.<region>.amazonaws.com`),
   AWS Batch jobs (`batch.<region>.amazonaws.com`), this month's cost and forecast (`ce.us-east-1.amazonaws.com`, which AWS charges for) and
-  AWS Budgets (`budgets.amazonaws.com`, plus `sts.amazonaws.com` for the account number, kept in memory only). Instance and job names, states and
+  AWS Budgets (`budgets.amazonaws.com`, plus `sts.amazonaws.com` for the account number, kept in memory only). Instance and job names and ids, instance types, Regions, Batch queue names, states and
   times, failure reasons (with ARNs and account numbers removed) become tasks: kept in TaskHub's data folder and shown
   in notifications, including Telegram when that is on. Budget names and amounts are shown in the settings; the name of a budget over its limit also appears in a
-  notification (including Telegram when that is on). The last cost figures and the names of budgets over their limit stay in `config.json`.
+  notification (including Telegram when that is on). The last cost figures and the names of budgets over their limit stay in `config.json`, with the ids of the instances you marked as needed.
   The key is kept in the Windows Credential Manager, not in TaskHub's files. Nothing is changed in your AWS account. AWS's own privacy policy applies to these
   requests. Turning the connector off stops them (the key stays saved); *Remove* deletes the key.
 - **Balance guard** (TaskHub 2.9 and later; off by default). If you turn it on for Runpod or Vast.ai, TaskHub uses the
@@ -100,10 +100,10 @@ nothing there.
 ## Removing your data
 Uninstalling TaskHub removes the program; your tasks and settings stay in `%APPDATA%\TaskHub`. To delete them as well,
 delete that folder (or uninstall the GitHub version with *Also delete my data* / `TaskHubHost.exe --uninstall --purge`).
-The Telegram bot token and the GitHub token (TaskHub 2.9 and later) stay in the Windows Credential Manager after a plain
+The Telegram bot token and the GitHub, Runpod, Vast.ai and AWS keys stay in the Windows Credential Manager after a plain
 uninstall, so a reinstall finds them; *Also delete my data* / `--purge` deletes them too (TaskHub 2.9 and later), or
-remove the `TaskHub/...` entries in Control Panel → Credential Manager → Windows Credentials, or disconnect Telegram /
-GitHub in TaskHub's settings before uninstalling. Uninstalling the Microsoft Store version doesn't delete them either.
+remove the `TaskHub/...` entries in Control Panel → Credential Manager → Windows Credentials, or disconnect Telegram or press
+*Remove* on the connector in TaskHub's settings before uninstalling. Uninstalling the Microsoft Store version doesn't delete them either.
 The Microsoft Store version also leaves its `taskhub` copy in `%LOCALAPPDATA%\TaskHub`, which you can delete.
 
 ## Contact

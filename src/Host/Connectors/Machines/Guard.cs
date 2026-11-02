@@ -373,7 +373,7 @@ abstract partial class MachineConnector
         Try(() => hub.Update(GuardTid, new JsonObject { ["controls"] = new JsonArray(), ["log"] = J.Cut(why, 1900) }, trusted: true));
         Try(() => hub.Finish(GuardTid, new JsonObject { ["state"] = "done", ["message"] = J.Cut(why, 300) }));
         GuardNotify(why, "info");
-        Log.I(Id, $"guard: pending stop #{p.Seq} cancelled ({why})");
+        Log.I(Id, $"guard: pending stop #{p.Seq} cancelled"); Log.D(Id, $"guard: cancelled: {why}");   // the text names the balance or a machine
     }
 
     /// <summary>Each loop round: a pending stop whose time has come. The balance is read again first - unreadable (any
