@@ -131,13 +131,13 @@ function layout(){
 }
 // plan limits as last reported: past the reset the old percentage says nothing any more, an old reading says how old it is
 function renderLimits(){
-  const box=$("#limits"), names={claude:"Claude Code"}, rows=[], t=now();
+  const box=$("#limits"), names={claude:"Claude Code"}, rows=[], t=now(), th=data.limits_warn||[];
   const when=r=>{ const d=new Date(r*1000), today=d.toDateString()===new Date().toDateString();
     return d.toLocaleString(LANG, today? {hour:"2-digit",minute:"2-digit"} : {weekday:"short",hour:"2-digit",minute:"2-digit"}); };
   for (const [agent,ws] of Object.entries(data.limits||{}))
     for (const [w,k] of [["five_hour","limit_5h"],["seven_day","limit_7d"]]){
       const x=ws[w]; if (!x || x.used_percentage==null) continue;
-      const done=x.resets_at && t>=x.resets_at, p=Math.floor(x.used_percentage), old=t-x.at>900, lvl=done?"":p>=95?"bad":p>=80?"warn":"";
+      const done=x.resets_at && t>=x.resets_at, p=Math.floor(x.used_percentage), old=t-x.at>900, up=x.used_percentage, lvl=done||!th.length?"":up>=th[th.length-1]?"bad":up>=th[0]?"warn":"";
       const val=done? T("limit_reset_done")
         : [p+"%", x.resets_at? T("limit_resets",when(x.resets_at)) : "", old? T("limit_updated",ago(t-x.at)) : ""].filter(Boolean).join(" · ");
       rows.push(`<div class="lim${old||done?" old":""}"${lvl?` data-l="${lvl}"`:""}><div class="lt"><span>${esc((names[agent]||agent)+" · "+T(k))}</span><span class="lv">${esc(val)}</span></div><div class="lb" aria-hidden="true"><i style="width:${done?0:p}%"></i></div></div>`);
@@ -152,7 +152,8 @@ function render(){
     if (document.activeElement===$("#ctransp")) data.panel.card_transparency=PANEL.card_transparency; PANEL=data.panel; applyLook(); }
   const list=$("#list");
   const nAct=data.tasks.filter(t=>ACTIVE.has(t.state)).length;
-  $("#cnt").textContent = T("counts",nAct,data.tasks.length);
+  const cnt=$("#cnt"), cntFull=T("counts",nAct,data.tasks.length);
+  cnt.textContent = nAct+" / "+data.tasks.length; cnt.title=cntFull; cnt.setAttribute("aria-label",cntFull);
   $("#mute i").textContent = data.muted ? "\uE7ED" : "\uEA8F";   // bell crossed out = muted
   $("#mute").title = data.muted ? T("notif_off") : T("notif_on");
   renderSet();

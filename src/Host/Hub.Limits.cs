@@ -6,7 +6,7 @@ namespace TaskHub;
 
 /// <summary>
 /// Plan limits of the AI agents (opt-in): the last reading of each limit window as the agent reported it, for the panel, and a
-/// warning when a threshold is crossed (config limits_warn, default 80 and 95), once per limit window. On or off is what the agent's
+/// warning when a threshold is crossed (config limits_warn, default 75 and 90; the panel's colours use the same), once per limit window. On or off is what the agent's
 /// settings file says right now (the user or a script may change it while the hub runs), not a copy of it. Several sessions report at
 /// once and an idle one repeats what it was told long ago, so resets_at decides: later is a new window, earlier or already past is old
 /// news, the same is this window, where the highest percentage stands. Only without resets_at does a falling percentage mean a reset.
@@ -19,7 +19,7 @@ partial class Hub
     const double SameAgainSec = 60;                     // the same numbers again: no write, no redraw (several sessions, refreshInterval)
     const double MaxEpoch = 253402300799;               // the last second DateTimeOffset can show
     static readonly string[] LimitWindows = { "five_hour", "seven_day" };
-    static readonly double[] LimitWarnDefault = { 80, 95 };
+    static readonly double[] LimitWarnDefault = { 75, 90 };
     readonly object limitsSave = new();
     JsonObject limits;
     DateTime limitsStamp;
@@ -84,7 +84,7 @@ partial class Hub
         }
     }
 
-    double[] LimitThresholds() => S.Get("limits_warn") is JsonArray a
+    public double[] LimitThresholds() => S.Get("limits_warn") is JsonArray a
         ? a.Select(NumOnly).Where(x => x is > 0 and <= 100).Select(x => x.Value).Distinct().OrderBy(x => x).ToArray()
         : LimitWarnDefault;
 
@@ -125,7 +125,7 @@ partial class Hub
                 if (crossed.Count > 0)
                 {
                     warned.AddRange(crossed);
-                    notes.Add(LimitWarning(agent, w, pct, resets, crossed.Max()));
+                    notes.Add(LimitWarning(agent, w, pct, resets, crossed.Max() >= warnAt[^1]));
                 }
                 a[w] = new JsonObject
                 {
@@ -174,11 +174,11 @@ partial class Hub
         catch (Exception e) { Log.W("plan_limits.json: " + e.Message); }
     }
 
-    static JsonObject LimitWarning(string agent, string window, double pct, double? resets, double threshold) => new()
+    static JsonObject LimitWarning(string agent, string window, double pct, double? resets, bool top) => new()
     {
         ["title"] = L.T("limit_title", agent == "claude" ? "Claude Code" : "Codex"),
         ["message"] = L.T("limit_msg", L.T(window == "five_hour" ? "limit_5h" : "limit_7d"), Math.Floor(pct).ToString(CultureInfo.InvariantCulture), resets is double r ? ResetText(r) : "—"),
-        ["level"] = threshold >= 95 ? "error" : "warn",
+        ["level"] = top ? "error" : "warn",
     };
 
     /// <summary>A reset time in the UI language's format: the time if it is today, else the weekday too.</summary>

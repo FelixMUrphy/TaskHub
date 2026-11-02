@@ -125,7 +125,7 @@ The setup dialog (and later Settings → *AI agents*) has two independent option
 | Option | What you get | Where TaskHub writes |
 |---|---|---|
 | **Notifications (hooks)** | a toast when the agent finishes a response or needs your permission | Claude Code: `~/.claude/settings.json` · Codex: `~/.codex/hooks.json` |
-| **Plan limits** (from 3.1, off until you turn it on in Settings → AI agents; Claude Code only so far) | how much of the 5-hour and weekly limits is used, in the panel, with a warning at 80% and 95% | Claude Code: `~/.claude/settings.json` (`statusLine`) |
+| **Plan limits** (from 3.1, off until you turn it on in Settings → AI agents; Claude Code only so far) | how much of the 5-hour and weekly limits is used, in the panel, yellow with a warning from 75%, red with a warning from 90% | Claude Code: `~/.claude/settings.json` (`statusLine`) |
 | **TaskHub tools (MCP)** | the agent gets tools `notify`, `task_start/update/finish`, `task_commands`, `task_wait` (from 2.9.2), `task_list` and shows its long jobs in the panel by itself | Claude Code: `~/.claude.json` · Codex: `~/.codex/config.toml` |
 
 TaskHub adds — and on uninstall removes (Store edition: see below) — only its own entries and keeps everything else (backup of the original:

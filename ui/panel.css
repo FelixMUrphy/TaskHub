@@ -41,7 +41,7 @@ html.halo header{text-shadow:0 0 3px color-mix(in srgb,var(--bg) var(--hhalo),tr
 html.native #grip{display:block;left:var(--pad,0px)}
 header{user-select:none;flex:none;position:relative;z-index:5;display:flex;align-items:center;gap:8px;padding:10px 12px 8px;border-bottom:1px solid var(--ln)}
 header h1{font-size:14px;margin:0;font-weight:650;letter-spacing:.2px}
-header .cnt{color:var(--mut);font-size:12px}
+header .cnt{color:var(--mut);font-size:12px;white-space:nowrap}
 header .sp{flex:1}
 .tabs{display:flex;gap:2px;background:var(--o1);border-radius:7px;padding:2px}
 .tabs button{border:0;background:none;color:var(--mut);padding:3px 9px;border-radius:5px;font:inherit;font-size:12px;cursor:pointer}
@@ -136,7 +136,8 @@ main{padding:10px;display:flex;flex-direction:column;gap:9px}
 @keyframes ind{0%{transform:translateX(-100%)}100%{transform:translateX(340%)}}
 .l1{display:flex;gap:10px;color:var(--mut);font-size:11.5px;font-variant-numeric:tabular-nums}
 .l1 b{color:var(--fg);font-weight:600}
-.status{margin-top:4px;word-break:break-word}
+.lr{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.status{min-width:0;word-break:break-word}
 .stage{color:var(--mut);font-size:12px}
 .msg{margin-top:6px;font-size:12px;padding:5px 8px;border-radius:6px;background:var(--o1);word-break:break-word}
 .card[data-s=failed] .msg,.card[data-s=lost] .msg{color:var(--red)}

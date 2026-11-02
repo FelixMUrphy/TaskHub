@@ -3,7 +3,7 @@ function cardSkeleton(t){
   const el=document.createElement("div");
   el.className="card"; el.id="t-"+t.id;
   el.innerHTML=`<div class="hd"><span class="name"></span><span class="chip prj"></span><span class="chip src"></span><span class="st"></span><span class="sp"></span><span class="tm"></span><button class="x" title="${T("remove")}">×</button><span class="fold">›</span></div>
-   <div class="desc"></div><div class="attn"></div><div class="bar"><i></i></div><div class="l1"></div><div class="status"></div><div class="stage"></div>
+   <div class="desc"></div><div class="attn"></div><div class="bar"><i></i></div><div class="lr"><div class="l1"></div><div class="status"></div></div><div class="stage"></div>
    <div class="wg"></div><div class="msg"></div><div class="ctl"></div><div class="form"></div>
    <details class="lgx"><summary></summary><pre></pre></details><div class="meta"></div>`;
   $(".x",el).onclick=()=>api("DELETE",`/api/tasks/${t.id}`).catch(e=>snack(e.message));
