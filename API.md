@@ -92,7 +92,7 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/tasks/{id}/controls/{cid}` | `{value?}` | trigger a control (same as panel button) |
 | DELETE | `/api/tasks/{id}` | `?force=1` for active | remove (an active task without `force` → 409) |
 | POST | `/api/notify` | `{title, message, level: info/warn/error, task?}` | one-off toast |
-| POST | `/api/hooks/claude`, `/api/hooks/codex` | agent hook input (as sent) | `Stop` / `Notification` / `PermissionRequest` → toast; always `{}` (below) |
+| POST | `/api/hooks/claude`, `/api/hooks/codex` | agent hook input (as sent, from `taskhub hook`) | `Stop` / `Notification` / `PermissionRequest` → toast; always `{}` (below) |
 | GET | `/api/telegram` | | Telegram bridge state `{configured, linked, bot, status, away_only, progress, link, storage, warning}` — `storage` (2.9): where the bot token is kept, `vault` (Windows Credential Manager) \| `config` (`config.json`, only when the Credential Manager is unavailable) \| null; `warning`: text for Settings, or null |
 | POST | `/api/telegram` | `{token}` (start pairing, returns the t.me `link`) · `{test: true}` · `{relink: true}` (new code for another chat, same bot) · `{away_only: bool}` · `{progress: bool}` (live progress bar + charts at the end) · `{disconnect: true}` | Telegram setup |
 | GET | `/api/connectors`, `/api/connectors/github` | | connector state: `{enabled, repos, interval, notify_success, logs, auth, token_set, token_check, token_check_text, login, token_expires, status, repo_status, rate_remaining, active_runs, pr_reviews, pr_dependabot, prs}` (the token itself is never returned) |
@@ -375,18 +375,17 @@ the panel shows a card with *Connect* / *Not now* and one notification says so; 
 From 3.1 `Stop` shows no toast if the same agent has just (30 s, once) sent a notification or finished a task through TaskHub's MCP server from the same project folder; other events are never held back. Manual setup:
 Notifications when Claude Code finishes a response (`Stop`, toast shows the first line of the answer and the project folder)
 or waits for a permission / your answer (`Notification`). Add to `~/.claude/settings.json` (or install the
-[taskhub-claude-code](https://github.com/FelixMUrphy/taskhub-claude-code) plugin, which contains the same hooks):
+[taskhub-claude-code](https://github.com/FelixMUrphy/taskhub-claude-code) plugin, which sends the same events over HTTP):
 ```json
 {
   "hooks": {
-    "Stop": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:47800/api/hooks/claude", "headers": { "X-TaskHub": "1" }, "timeout": 5 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "C:\\path\\to\\taskhub.exe", "args": ["hook", "claude"], "timeout": 10 }] }],
     "Notification": [{ "matcher": "permission_prompt|elicitation_dialog",
-      "hooks": [{ "type": "http", "url": "http://127.0.0.1:47800/api/hooks/claude", "headers": { "X-TaskHub": "1" }, "timeout": 5 }] }]
+      "hooks": [{ "type": "command", "command": "C:\\path\\to\\taskhub.exe", "args": ["hook", "claude"], "timeout": 10 }] }]
   }
 }
 ```
-The endpoint never returns a decision, so it cannot block or change Claude Code; if TaskHub is not running the hook just fails
-silently (non-blocking). Toasts follow the usual rules (mute, no pop-ups while the panel is open); clicking one only closes it.
+`taskhub hook claude` forwards the event JSON from stdin to the hub: silent, exit 0, nothing back to Claude Code, whatever answers. From 3.1 TaskHub writes this form with no shell (`args`; a recent Claude Code) and replaces its HTTP entries from earlier versions, because an HTTP hook acts on whatever answers its URL. If TaskHub is not running nothing happens. Toasts follow the usual rules (mute, no pop-ups while the panel is open); clicking one only closes it.
 
 ## Plan limits (Claude Code)
 

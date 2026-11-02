@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using TaskHub;
 
 namespace TaskHubCli;
 
@@ -39,7 +40,7 @@ static class Mcp
             var home = Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 } h ? h : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             return source switch
             {
-                "claude" => File.ReadAllText(Path.Combine(home, ".claude", "settings.json")).Contains("/api/hooks/claude"),
+                "claude" => AgentFiles.HasHooks(AgentFiles.LoadJson(Path.Combine(home, ".claude", "settings.json")), true),
                 "codex" => File.ReadAllText(Path.Combine(home, ".codex", "hooks.json")).Contains(" hook codex"),
                 _ => false,
             };

@@ -273,6 +273,9 @@ try:
         os.makedirs(os.path.join(home, ".claude"), exist_ok=True)
         with open(os.path.join(home, ".claude", "settings.json"), "w", encoding="utf-8") as f:
             f.write('{"hooks":{"Stop":[{"hooks":[{"type":"http","url":"http://127.0.0.1:47800/api/hooks/claude"}]}]}}')
+        check("hooks on, an entry from before 3.1: it is", said in mcp(init)[0]["result"]["instructions"])
+        with open(os.path.join(home, ".claude", "settings.json"), "w", encoding="utf-8") as f:
+            json.dump({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": CLI, "args": ["hook", "claude"]}]}]}}, f)
         check("hooks on: it is", said in mcp(init)[0]["result"]["instructions"])
         check("...not another agent", said not in mcp(init, source="codex")[0]["result"]["instructions"])
         with open(os.path.join(home, ".claude", "settings.json"), "w", encoding="utf-8") as f:

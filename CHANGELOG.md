@@ -12,6 +12,8 @@ from here), followed by the list of commits.
 - GitHub Actions: the bar follows the same time estimate as the ETA instead of standing still during a long step. A run past its usual duration says so.
 - Notifications from Claude Code and Codex are offered in the panel when an agent is found and you haven't chosen yet. Nothing changes in the agent's settings until you press Connect.
 - No more two notifications for one thing: "response ready" is left out when the agent has just sent its own notification or finished a task from the same project.
+- Safer Claude Code notifications: TaskHub's hook is now a command rather than a local web address, and no token stays in Claude Code's settings. With TaskHub closed, another program listening on its port could read the agent's last message and steer it. Existing entries are replaced on start; this needs a recent Claude Code.
+- Codex notifications now work when TaskHub is installed in a folder with a space in its path on a drive without short names.
 - A clearer local log: date and level on every line and what a problem report needs at the top. Notification text and task names are no longer written unless you set `"log_level": "debug"` in `config.json`, and anything that looks like a token or key is removed.
 - GitHub Actions: a repository the token can't reach now gets one clear line in your language that says what to check, instead of two English and mixed messages.
 

@@ -36,6 +36,13 @@ static class Program
         // tests only: masking and rotation of the log (Log.SelfTest)
         if (Arg("--selftest-log") is { } logLines && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
             return Log.SelfTest(int.Parse(logLines));
+        // tests only: the Codex hook command for a path (Integrations.CodexCommand)
+        if (Has("--selftest-codex-command") && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+        {
+            int at = Array.IndexOf(args, "--selftest-codex-command");
+            File.WriteAllText(args[at + 1], Integrations.CodexCommand(args[at + 2]));
+            return 0;
+        }
         // tests only: what the setup window's switches become (Integrations.SetupArgs)
         if (Has("--selftest-setup-args") && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
             return Integrations.SelfTestSetupArgs(S, args[(Array.IndexOf(args, "--selftest-setup-args") + 1)..]);

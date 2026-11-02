@@ -29,8 +29,11 @@ static class AgentFiles
     // ------------------------------------------------------------ hooks (JSON)
     public static bool IsOurHook(bool claude, JsonObject h)
     {
-        if (claude) return Str(h["type"]) == "http" && Str(h["url"]).Contains("/api/hooks/claude");
         var c = Str(h["command"]);
+        if (claude)
+            return Str(h["type"]) == "http" ? Str(h["url"]).Contains("/api/hooks/claude")   // before 3.1
+                : Str(h["type"]) == "command" && c.Contains("taskhub", StringComparison.OrdinalIgnoreCase)
+                  && h["args"] is JsonArray a && a.Count == 2 && Str(a[0]) == "hook" && Str(a[1]) == "claude";
         return Str(h["type"]) == "command" && c.Contains("hook codex") && c.Contains("taskhub", StringComparison.OrdinalIgnoreCase);
     }
 

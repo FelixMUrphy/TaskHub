@@ -178,20 +178,20 @@ static class Integrations
     {
         if (a == Agent.Claude)
         {
-            var headers = new JsonObject { ["X-TaskHub"] = "1" };
-            if (!string.IsNullOrEmpty(s.Token)) headers["Authorization"] = "Bearer " + s.Token;
-            JsonObject H() => new()
-            {
-                ["type"] = "http", ["url"] = $"http://127.0.0.1:{s.Port}/api/hooks/claude",
-                ["headers"] = headers.DeepClone(), ["timeout"] = 5,
-            };
+            // a command, not a URL: whoever answers a URL with the hub down reads the agent's last message and can steer it; this CLI says
+            // nothing back. With args there is no shell, so neither Git Bash nor PowerShell has to read the path. No token in the agent's file.
+            var exe = CliPath();
+            JsonObject H() => new() { ["type"] = "command", ["command"] = exe, ["args"] = new JsonArray("hook", "claude"), ["timeout"] = 10 };
             return new() { ("Stop", null, H()), ("Notification", "permission_prompt|elicitation_dialog", H()) };
         }
-        var cli = CliPath();
-        var cmd = (cli.Contains(' ') ? "\"" + cli + "\"" : cli) + " hook codex";
+        var cmd = CodexCommand(CliPath());
         JsonObject C() => new() { ["type"] = "command", ["command"] = cmd, ["timeout"] = 10 };
         return new() { ("Stop", null, C()), ("PermissionRequest", null, C()) };
     }
+
+    /// <summary>Codex wraps a command in PowerShell (run 2026-11-02), which won't run a quoted first word without `&`. Without a space it stays
+    /// byte for byte what it was: a changed entry loses Codex's trust until /hooks.</summary>
+    public static string CodexCommand(string cli) => (cli.Contains(' ') ? "& \"" + cli + "\"" : cli) + " hook codex";
 
     static string Sig(string ev, string matcher, JsonObject h) => ev + "|" + (matcher ?? "") + "|" + h.ToJsonString();
 
