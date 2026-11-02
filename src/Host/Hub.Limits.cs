@@ -41,7 +41,7 @@ partial class Hub
             limitsStamp = stamp;
             limitsKnown = true;
         }
-        catch (Exception e) { Log.W("plan limits: " + p + ": " + e.Message); }
+        catch (Exception e) { Log.W("limits", p + ": " + e.Message); }
         return limitsOn;
     }
 
@@ -54,7 +54,7 @@ partial class Hub
             var p = S.File_(LimitsFile);
             if (File.Exists(p) && JsonNode.Parse(File.ReadAllText(p))?["claude"] is JsonObject c) limits["claude"] = c.DeepClone();
         }
-        catch (Exception e) { Log.W("plan_limits.json unreadable: " + e.Message); }
+        catch (Exception e) { Log.E("limits", "plan_limits.json unreadable: " + e.Message); }
         return limits;
     }
 
@@ -171,7 +171,7 @@ partial class Hub
                 File.Move(p + ".tmp", p, true);
             }
         }
-        catch (Exception e) { Log.W("plan_limits.json: " + e.Message); }
+        catch (Exception e) { Log.W("limits", "plan_limits.json: " + e.Message); }
     }
 
     static JsonObject LimitWarning(string agent, string window, double pct, double? resets, bool top) => new()

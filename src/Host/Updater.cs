@@ -57,7 +57,7 @@ sealed class Updater
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception e) { Log.W("update loop: " + e.Message); }
+        catch (Exception e) { Log.W("update", "update loop: " + e.Message); }
     }
 
     /// <summary>Checks GitHub. manual: waits for a check already running, and the answer (latest version / a newer one /
@@ -106,7 +106,7 @@ sealed class Updater
         }
         catch (Exception e)
         {
-            Log.W("update check failed: " + e.Message);
+            Log.W("update", "update check failed: " + e.Message);
             return (null, L.T("update_failed", e.GetBaseException().Message));
         }
         finally { busy.Release(); }

@@ -135,7 +135,7 @@ sealed partial class Hub
             _ = p.SafeHandle;
             if (ct is long want && Math.Abs(p.StartTime.ToFileTimeUtc() - want) > 10_000_000)
             {
-                Log.W($"kill {pid}: pid now belongs to another process, not killed");
+                Log.W("hub", $"kill {pid}: pid now belongs to another process, not killed");
                 return KillResult.Gone;
             }
             p.Kill(entireProcessTree: true);
@@ -147,7 +147,7 @@ sealed partial class Hub
         catch (Exception e)
         {
             why = (e is AggregateException ae ? ae.InnerExceptions.FirstOrDefault()?.Message ?? e.Message : e.Message).Trim();
-            Log.W($"kill {pid} failed: {e.Message}; trying taskkill");
+            Log.W("hub", $"kill {pid} failed: {e.Message}; trying taskkill");
         }
         if (!Native.PidAlive(pid, ct)) return KillResult.Killed;   // the process itself is gone (only some child resisted)
         try
@@ -156,7 +156,7 @@ sealed partial class Hub
             using var tk = Process.Start(psi);
             tk.WaitForExit(10000);
         }
-        catch (Exception e) { Log.W("taskkill: " + e.Message); }
+        catch (Exception e) { Log.W("hub", "taskkill: " + e.Message); }
         for (int i = 0; i < 10 && Native.PidAlive(pid, ct); i++) Thread.Sleep(100);
         return Native.PidAlive(pid, ct) ? KillResult.Failed : KillResult.Killed;
     }

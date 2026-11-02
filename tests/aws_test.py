@@ -884,7 +884,7 @@ with mock:
         url2 = "http://127.0.0.1:47893"
         exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "TaskHubHost.exe")
         with open(os.path.join(data2, "config.json"), "w", encoding="utf-8") as f:
-            json.dump({"toasts": False, "autostart": False, "language": "en", "toast_rate": 0, "toast_task_gap": 0, "connectors": {"aws": {"api": f"http://127.0.0.1:{PORT}"}}}, f)
+            json.dump({"log_level": "debug", "toasts": False, "autostart": False, "language": "en", "toast_rate": 0, "toast_task_gap": 0, "connectors": {"aws": {"api": f"http://127.0.0.1:{PORT}"}}}, f)
 
         def call2(method, path, body=None):
             rq = urllib.request.Request(url2 + path, method=method, data=json.dumps(body).encode() if body is not None else None, headers={"X-TaskHub": "1", "Content-Type": "application/json"})

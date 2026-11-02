@@ -54,7 +54,7 @@ sealed class SettingsBridge
         return new JsonObject
         {
             ["labels"] = labels,
-            ["version"] = Settings.Version, ["edition"] = Install.Edition,
+            ["version"] = Settings.VersionText, ["edition"] = Install.Edition,
             ["autostart"] = Install.AutostartEnabled(S),
             ["muted"] = hub.Muted,
             ["notifications"] = hub.Notifier?.SystemSetting,   // "disabled_*": turned off in Windows -> a warning row
@@ -82,7 +82,7 @@ sealed class SettingsBridge
                 using var data = gen.CreateQrCode(link, QRCoder.QRCodeGenerator.ECCLevel.M);
                 qrData = "data:image/png;base64," + Convert.ToBase64String(new QRCoder.PngByteQRCode(data).GetGraphic(8));
             }
-            catch (Exception e) { Log.W("qr: " + e.Message); }
+            catch (Exception e) { Log.W("settings", "qr: " + e.Message); }
         }
         string state = linked ? L.T("tg_state_ok", bot) + (st == "connected" ? "" : "  (" + TgStatus(st) + ")")
             : configured ? (link.Length > 0 ? L.T("tg_state_wait") : TgStatus(st)) : L.T("tg_state_off");
@@ -130,6 +130,7 @@ sealed class SettingsBridge
     public async Task<JsonObject> Handle(JsonObject c)
     {
         string err = null, note = null, info = null;
+        Log.D("settings", J.Str(c["settings"]) + " " + J.Str(c["what"]) + " [" + string.Join(",", c.Select(kv => kv.Key).Where(k => k is not ("settings" or "what"))) + "]");   // names, never values
         try
         {
             switch (J.Str(c["settings"]))
@@ -262,7 +263,7 @@ sealed class SettingsBridge
                     break;
             }
         }
-        catch (Exception e) { err = e.Message; Log.W("settings: " + e.Message); }
+        catch (Exception e) { err = e.Message; Log.W("settings", "settings: " + e.Message); }
         var r = new JsonObject { ["settings_state"] = State() };
         if (err != null) r["error"] = err;
         if (note != null) r["note"] = note;

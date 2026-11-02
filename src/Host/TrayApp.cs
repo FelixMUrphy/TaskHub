@@ -68,7 +68,7 @@ sealed class TrayApp : ApplicationContext
             }
             catch (Exception e)
             {
-                Log.W("panel unavailable: " + e);
+                Log.E("tray", "panel unavailable: " + e);
                 tray.ShowBalloonTip(8000, "TaskHub", "WebView2 panel failed: " + e.Message, ToolTipIcon.Warning);
             }
             if (openTask != null && !Panel.RuntimeMissing) Panel.ShowPanel(openTask == "" ? null : openTask);
@@ -135,7 +135,7 @@ sealed class TrayApp : ApplicationContext
             }
             tray.Text = Tooltip(s);
         }
-        catch (Exception e) { Log.W("tray update: " + e.Message); }
+        catch (Exception e) { Log.W("tray", "tray update: " + e.Message); }
     }
 
     string Tooltip(Hub.Summary s)

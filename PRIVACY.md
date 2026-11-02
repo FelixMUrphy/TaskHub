@@ -5,6 +5,10 @@ it.
 
 ## What stays on your PC
 - Tasks, their progress, logs and charts, and your settings are kept in `%APPDATA%\TaskHub`.
+- TaskHub keeps a diagnostic log there, `taskhub.log`, at most about 8 MB, with no automatic sending. It holds the version, Windows and .NET versions, monitors, the
+  data and program folders, task states and ids (a hash if the id comes from a job's or instance's name), and errors, whose text can contain a file path, a repository name or what a service replied. From TaskHub 3.1 notification text, task
+  names and account balances are written only if you set `"log_level": "debug"` in `config.json` (a beta build does this by itself, keeps up to 80 MB, and the command-line tool adds `cli.log`, at most about 2 MB,
+  also written at that level). Before writing, TaskHub removes what looks like a token or key. Look through a log before you share it with anyone.
 - Programs on the same PC talk to TaskHub over a local HTTP API on `127.0.0.1`, which other computers cannot reach.
 - If you turn on the Claude Code or Codex connection, TaskHub adds its entries to those programs' settings files in your
   user profile and removes them when you turn the connection off. The version installed from GitHub also removes them
@@ -15,7 +19,7 @@ it.
 - From TaskHub 3.1, to offer those notifications, TaskHub looks on your PC for signs that Claude Code or Codex is used (their settings
   folders and files, the programs on your `PATH`) and remembers your answer and which agents it told you about in its own `config.json`. It adds nothing
   to their settings until you press *Connect*. With the connection on, a notification shows the project folder and the start of the agent's reply. Like
-  every notification it is written to TaskHub's local log, and it goes to Telegram if you have connected Telegram.
+  every notification it goes to Telegram if you have connected Telegram.
 - TaskHub's MCP server tells TaskHub which folder it runs in, on your PC only and not stored, to avoid a second notification for the same thing.
 
 ## What leaves your PC, and only if you turn it on
@@ -66,9 +70,9 @@ it.
   the Regions you watch. Each further switch, off by default, adds its hosts: SageMaker training jobs (`api.sagemaker.<region>.amazonaws.com`),
   AWS Batch jobs (`batch.<region>.amazonaws.com`), this month's cost and forecast (`ce.us-east-1.amazonaws.com`, which AWS charges for) and
   AWS Budgets (`budgets.amazonaws.com`, plus `sts.amazonaws.com` for the account number, kept in memory only). Instance and job names, states and
-  times, failure reasons (with ARNs and account numbers removed) become tasks: kept in TaskHub's data folder, written to its local log, and shown
+  times, failure reasons (with ARNs and account numbers removed) become tasks: kept in TaskHub's data folder and shown
   in notifications, including Telegram when that is on. Budget names and amounts are shown in the settings; the name of a budget over its limit also appears in a
-  notification (including Telegram when that is on) and in the local log. The last cost figures and the names of budgets over their limit stay in `config.json`.
+  notification (including Telegram when that is on). The last cost figures and the names of budgets over their limit stay in `config.json`.
   The key is kept in the Windows Credential Manager, not in TaskHub's files. Nothing is changed in your AWS account. AWS's own privacy policy applies to these
   requests. Turning the connector off stops them (the key stays saved); *Remove* deletes the key.
 - **Balance guard** (TaskHub 2.9 and later; off by default). If you turn it on for Runpod or Vast.ai, TaskHub uses the

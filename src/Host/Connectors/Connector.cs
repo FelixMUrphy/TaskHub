@@ -39,7 +39,7 @@ sealed class Connectors
     public T Add<T>(T c) where T : IConnector { all.Add(c.Id, c); order.Add(c); return c; }
     public IConnector Get(string id) => all.TryGetValue(id, out var c) ? c : null;
     public IEnumerable<IConnector> All => order;
-    public void StartAll() { foreach (var c in order) try { c.Start(); } catch (Exception e) { Log.W($"connector {c.Id}: " + e.Message); } }
+    public void StartAll() { foreach (var c in order) try { c.Start(); } catch (Exception e) { Log.W("connector", $"connector {c.Id}: " + e.Message); } }
     public void StopAll() { foreach (var c in order) try { c.Stop(); } catch { } }
 
     JsonObject Route(string source, string tid, string cid, JsonNode value, string via) =>
@@ -154,7 +154,7 @@ static class Secrets
         if (CredDelete(Target(s, name), 1, 0)) return true;
         var err = Marshal.GetLastWin32Error();
         if (err == ErrorNotFound) return true;
-        Log.W($"credential {name}: not deleted (error {err})");
+        Log.W("connector", $"credential {name}: not deleted (error {err})");
         return false;
     }
 

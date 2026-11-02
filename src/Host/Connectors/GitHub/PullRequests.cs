@@ -202,7 +202,7 @@ sealed partial class GitHubConnector
         var r = await Call(HttpMethod.Get, "/search/issues?q=" + Uri.EscapeDataString(q) + "&sort=created&order=desc&per_page=100", null, token, ct);
         if (r.Limited) return null;
         if (r.Code == 401) { Rejected(c); return null; }
-        if (r.Code != 200) { Log.W($"github: review search HTTP {r.Code}"); return null; }
+        if (r.Code != 200) { Log.W("github", $"review search HTTP {r.Code}"); return null; }
         if (J.Truthy(r.Body?["incomplete_results"])) return null;   // timed out on GitHub's side: not a reason to end tasks
         var items = (r.Body?["items"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().ToList();
         // more than 100 waiting for you: the next pages (each counts against the search limit), at most 3
@@ -299,7 +299,7 @@ sealed partial class GitHubConnector
             }
         }
         catch (Exception e) when (e is HttpRequestException || e is TaskCanceledException && !ct.IsCancellationRequested)
-        { Log.W("github: PR state not read: " + e.GetBaseException().Message); }
+        { Log.W("github", "PR state not read: " + e.GetBaseException().Message); }
         EndPr(p, why);
     }
 

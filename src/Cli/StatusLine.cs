@@ -52,7 +52,7 @@ static class StatusLine
         var body = Reading(input);
         return body == null ? null : Task.Run(() =>
         {
-            try { client().Call("POST", "/api/limits/claude", body, 2); } catch { }
+            try { client().Call("POST", "/api/limits/claude", body, 2); } catch (Exception e) { CliLog.W("status", e.Message); }
         });
     }
 

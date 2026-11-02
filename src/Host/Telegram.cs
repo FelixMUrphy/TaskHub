@@ -63,13 +63,13 @@ sealed class TelegramBridge
                 Secrets.Write(S, Secret, old);
                 S.Set(("telegram_token", null));
                 inConfig = vaultFailed = false;
-                Log.W("telegram: token moved to the Credential Manager");
+                Log.I("telegram", "token moved to the Credential Manager");
             }
-            catch (Exception e) { inConfig = vaultFailed = true; Log.W("telegram: token kept in config.json: " + e.Message); }
+            catch (Exception e) { inConfig = vaultFailed = true; Log.W("telegram", "token kept in config.json: " + e.Message); }
             return old;
         }
         try { return Secrets.Read(S, Secret) ?? ""; }
-        catch (Exception e) { vaultFailed = true; Log.W("telegram: token not read: " + e.Message); return ""; }
+        catch (Exception e) { vaultFailed = true; Log.W("telegram", "token not read: " + e.Message); return ""; }
     }
 
     /// <summary>Keeps a new token: in the Credential Manager, or in config.json when it refuses (logged, warning shown).</summary>
@@ -85,7 +85,7 @@ sealed class TelegramBridge
         {
             S.Set(("telegram_token", value), ("telegram_chat", 0));
             inConfig = vaultFailed = true;
-            Log.W("telegram: token kept in config.json: " + e.Message);
+            Log.W("telegram", "token kept in config.json: " + e.Message);
         }
     }
     long Chat => J.Num(S.Get("telegram_chat")) is double d ? (long)d : 0;
@@ -130,8 +130,8 @@ sealed class TelegramBridge
 
     public void Disconnect()
     {
-        try { if (!Secrets.Delete(S, Secret)) Log.W("telegram: token not deleted from the Credential Manager"); }
-        catch (Exception e) { Log.W("telegram: token not deleted: " + e.Message); }
+        try { if (!Secrets.Delete(S, Secret)) Log.W("telegram", "token not deleted from the Credential Manager"); }
+        catch (Exception e) { Log.W("telegram", "token not deleted: " + e.Message); }
         token = "";
         inConfig = vaultFailed = false;
         S.Set(("telegram_token", null), ("telegram_chat", null));
@@ -177,7 +177,7 @@ sealed class TelegramBridge
             var png = ChartImage.Render(J.Str(task["name"]), charts);
             outbox.TryAdd(("sendPhoto", new JsonObject { ["chat_id"] = Chat, ["caption"] = "📈 " + J.Cut(J.Str(task["name"]), 200) }, png));
         }
-        catch (Exception e) { Log.W("telegram chart: " + e.Message); }
+        catch (Exception e) { Log.W("telegram", "chart: " + e.Message); }
     }
 
     JsonObject Keyboard(string tid, JsonObject task)
@@ -287,7 +287,7 @@ sealed class TelegramBridge
     {
         var ra = Math.Clamp(J.Num(r?["parameters"]?["retry_after"]) ?? 5, 1, 3600);
         lock (paceLock) blockedUntil = Math.Max(blockedUntil, J.Now() + ra);
-        Log.W($"telegram: too many requests, waiting {ra:0} s");
+        Log.W("telegram", $"too many requests, waiting {ra:0} s");
     }
 
     /// <summary>A paced call for messages to the chat (sends, edits, prompts).</summary>
@@ -312,22 +312,22 @@ sealed class TelegramBridge
                     Pace();
                     var (code, r) = (png != null ? CallPhoto(m, png) : Call(method, m, 20)).GetAwaiter().GetResult();
                     // too many requests: the same message again once Telegram allows (not dropped)
-                    if (code == 429) { Throttled(r); if (++limited < 20) continue; Log.W($"telegram {method}: still limited, dropped"); break; }
+                    if (code == 429) { Throttled(r); if (++limited < 20) continue; Log.W("telegram", $"{method}: still limited, dropped"); break; }
                     if (ParseError(code, r) && m["parse_mode"] != null)
                     {
                         // our HTML was not accepted after all: once more as plain text rather than losing it
-                        Log.W($"telegram {method}: {J.Str(r?["description"])}; sending as plain text");
+                        Log.W("telegram", $"{method}: {J.Str(r?["description"])}; sending as plain text");
                         m = (JsonObject)m.DeepClone();
                         m.Remove("parse_mode");
                         m["text"] = J.Cut(PlainText(J.Str(m["text"])), 4000);
                         continue;
                     }
-                    if (code != 200) Log.W($"telegram {method}: HTTP {code} {J.Str(r?["description"])}");
+                    if (code != 200) Log.W("telegram", $"{method}: HTTP {code} {J.Str(r?["description"])}");
                     break;
                 }
                 catch (Exception e)
                 {
-                    Log.W($"telegram {method}: " + e.Message);
+                    Log.W("telegram", $"{method}: " + e.Message);
                     if (++errors >= 3) break;
                     Thread.Sleep(2000);
                 }
@@ -347,7 +347,7 @@ sealed class TelegramBridge
         while (true)
         {
             Thread.Sleep(2000);
-            try { ProgressTick(); } catch (Exception e) { Log.W("telegram progress: " + e.Message); }
+            try { ProgressTick(); } catch (Exception e) { Log.W("telegram", "progress: " + e.Message); }
         }
     }
 
@@ -423,7 +423,7 @@ sealed class TelegramBridge
     void ProgressError(string what, int code, JsonObject r)
     {
         var e = $"telegram progress {what}: HTTP {code} {J.Str(r?["description"])}";
-        if (e != lastProgressError) Log.W(lastProgressError = e);
+        if (e != lastProgressError) Log.W("telegram", lastProgressError = e);
     }
 
     static string ProgressText(JsonObject t, double now)
@@ -473,7 +473,7 @@ sealed class TelegramBridge
                 if (BotName == null)
                 {
                     var (code, me) = await Call("getMe", null, 15);
-                    if (code is 401 or 404) { Status = "invalid token"; Log.W("telegram: token rejected"); return; }
+                    if (code is 401 or 404) { Status = "invalid token"; Log.W("telegram", "token rejected"); return; }
                     BotName = J.Str(me?["result"]?["username"]);
                     if (first)   // skip messages that arrived while TaskHub was not running
                     {
@@ -494,7 +494,7 @@ sealed class TelegramBridge
                 foreach (var u in (r?["result"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
                 {
                     offset = Math.Max(offset, (long)(J.Num(u["update_id"]) ?? 0) + 1);
-                    try { Handle(u); } catch (Exception e) { Log.W("telegram update: " + e.Message); }
+                    try { Handle(u); } catch (Exception e) { Log.W("telegram", "update: " + e.Message); }
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
@@ -558,7 +558,7 @@ sealed class TelegramBridge
             S.Set(("telegram_chat", from));
             PairCode = null;
             Status = "connected";
-            Log.W("telegram: linked");
+            Log.I("telegram", "linked");
             Enqueue(from, "✅ " + Esc(L.T("tg_linked", Environment.MachineName)), null);
             return;
         }

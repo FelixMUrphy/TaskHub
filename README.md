@@ -281,6 +281,9 @@ Updates: once a day the installed hub looks up the latest release on GitHub (one
 downloaded or installed; *from 2.9.5* also when the settings page opens and the last check is older than 15 minutes) and shows a notification when a newer version is out; Settings → *System* has *Check now* and the
 *Check daily* switch (`"update_check": false` in `config.json`). Run the new setup.exe to update.
 
+If something goes wrong, `taskhub.log` in the data folder says what happened. From 3.1, `"log_level": "debug"` in `config.json` adds more, including notification
+text and task names; nothing is sent anywhere, so look through the log before you share it.
+
 Toast timing: `toast_seconds` / `toast_seconds_interactive` (4 s / 8 s) in `config.json`; afterwards notifications stay
 in the notification center. Bursts (2.9): at most `toast_rate` notifications a minute (10; 0 = no limit) and one per task
 every `toast_task_gap` seconds (2); the rest fold into the latest one ("+N more notifications"), toasts and Telegram alike.

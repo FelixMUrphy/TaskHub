@@ -46,7 +46,7 @@ sealed partial class Hub
                     ToastFor(t, "⚠ " + J.Str(t["name"]), L.T("no_updates", FmtDur(J.Num(t["heartbeat_timeout"]) ?? 0)), "warn", "stale");
                 Save();
             }
-            catch (Exception e) { Log.W("watchdog error " + e); }
+            catch (Exception e) { Log.E("hub", "watchdog error " + e); }
         }
         Save();
     }

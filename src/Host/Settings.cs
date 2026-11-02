@@ -1,30 +1,87 @@
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace TaskHub;
 
+/// <summary>
+/// taskhub.log: `2026-11-02 18:21:05.123 INF panel    message`. D = what happened in detail, including the text of notifications and task names:
+/// written only in a beta build or with "log_level": "debug" in config.json. I = events, W = something went wrong and was handled, E = a failure
+/// the user can feel, with the stack. Never keys, tokens or request bodies; whatever slips in through an exception's text is masked here.
+/// </summary>
 static class Log
 {
+    public enum Level { Debug, Info, Warn, Error }
+
     static readonly object L = new();
     public static string Path;
+    public static Level Min = Settings.IsBeta ? Level.Debug : Level.Info;
+    public static long MaxBytes = Settings.IsBeta ? 20_000_000 : 4_000_000;
+    public static int Keep = Settings.IsBeta ? 3 : 1;
+    const int MaxLine = 16_000;
 
-    public static void W(string msg)
+    public static string Mask(string s) => LogMask.Apply(s);
+
+    /// <summary>A task id for the default level: a connector's id is built from a job's or instance's name, so it counts as that name.
+    /// The hub's own random ids stay readable; the DBG line at registration links the hash to the id.</summary>
+    public static string Id(string tid) =>
+        tid == null ? null
+        : tid.Length == 8 && tid.All(Uri.IsHexDigit) ? tid
+        : "#" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(tid)))[..8].ToLowerInvariant();
+
+    public static void D(string area, string msg) => Write(Level.Debug, "DBG", area, msg);
+    public static void I(string area, string msg) => Write(Level.Info, "INF", area, msg);
+    public static void W(string area, string msg) => Write(Level.Warn, "WRN", area, msg);
+    public static void E(string area, string msg) => Write(Level.Error, "ERR", area, msg);
+
+    /// <summary>"log_level" in config.json; anything else keeps the build's default.</summary>
+    public static void Configure(string level)
     {
-        var line = DateTime.Now.ToString("HH:mm:ss ") + msg;
-        if (Path == null) return;
-        lock (L)
+        if (string.Equals(level, "debug", StringComparison.OrdinalIgnoreCase)) Min = Level.Debug;
+        else if (string.Equals(level, "info", StringComparison.OrdinalIgnoreCase)) Min = Level.Info;
+    }
+
+    static void Write(Level level, string tag, string area, string msg)
+    {
+        if (level < Min || Path == null) return;
+        try
         {
-            try
+            var text = Mask(msg ?? "");
+            if (text.Length > MaxLine) text = text[..MaxLine] + "…";
+            // a stack trace stays readable, and text from outside can't pass for a line of its own
+            text = text.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", Environment.NewLine + "    ");
+            var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {tag} {area,-8} {text}";
+            lock (L)
             {
                 var fi = new FileInfo(Path);
-                if (fi.Exists && fi.Length > 4_000_000)
-                {
-                    File.Copy(Path, Path + ".1", true);
-                    File.WriteAllText(Path, "");
-                }
+                if (fi.Exists && fi.Length > MaxBytes) Rotate();
                 File.AppendAllText(Path, line + Environment.NewLine);
             }
-            catch { }
         }
+        catch { }
+    }
+
+    static void Rotate()
+    {
+        for (int i = Keep; i > 1; i--)
+            if (File.Exists(Path + "." + (i - 1))) File.Move(Path + "." + (i - 1), Path + "." + i, true);
+        File.Copy(Path, Path + ".1", true);
+        File.WriteAllText(Path, "");
+    }
+
+    /// <summary>Tests only: `--selftest-log N` writes N lines of 1 KB and one of each kind that must be masked.</summary>
+    public static int SelfTest(int lines)
+    {
+        foreach (var x in new[]
+        {
+            "https://api.telegram.org/bot123456789:" + new string('A', 35) + "/getMe failed", "token 123456789:" + new string('B', 35),
+            "ghp_" + new string('C', 36), "github_pat_" + new string('D', 60), "AKIA" + new string('E', 16), "rpa_" + new string('F', 40),
+            "Authorization: Bearer abcdefghijklmnop", "url?api_key=GGGGGGGG&x=1", "token=HHHHHHHH",
+            "AKIA" + new string('E', 16) + ":" + new string('I', 40), "aws_secret_access_key=JJJJJJJJJJJJ", "{\"token\": \"KKKKKKKKKKKK\"}", string.Concat(Enumerable.Repeat("ab", 32)),
+        })
+            W("selftest", x);
+        var pad = new string('x', 1024);
+        for (int i = 0; i < lines; i++) I("selftest", pad);
+        return 0;
     }
 }
 
@@ -37,6 +94,13 @@ sealed class Settings
 {
     public const string AppId = "TaskHub";
     public const string Version = "3.0.0";
+#if BETA
+    public const bool IsBeta = true;
+#else
+    public const bool IsBeta = false;
+#endif
+    /// <summary>What a person reads; Version stays the plain number that the updater and the API compare.</summary>
+    public static string VersionText => IsBeta ? Version + " beta" : Version;
     public const int DefaultPort = 47800;
 
     public int Port = DefaultPort;
@@ -97,7 +161,7 @@ sealed class Settings
                 File.Move(tmp, cfgPath, true);
                 return true;
             }
-            catch (Exception e) { Log.W("config save failed: " + e.Message); return false; }
+            catch (Exception e) { Log.E("config", "config save failed: " + e.Message); return false; }
         }
     }
 
@@ -143,13 +207,14 @@ sealed class Settings
                 if (J.Parse(File.ReadAllText(cfgPath)) is JsonObject user)
                     foreach (var kv in user) cfg[kv.Key] = J.C(kv.Value);
             }
-            catch (Exception e) { Log.W("config.json unreadable: " + e.Message); }
+            catch (Exception e) { Log.E("config", "config.json unreadable: " + e.Message); }
         }
         else
         {
             try { File.WriteAllText(cfgPath, Defaults.ToJsonString(J.Pretty)); } catch { }
         }
         s.cfg = cfg;
+        Log.Configure(J.Str(cfg["log_level"]));
         s.Port = port ?? (J.Num(cfg["port"]) is double cp ? (int)cp : DefaultPort);
         return s;
     }

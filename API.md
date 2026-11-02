@@ -237,6 +237,12 @@ Python client built-ins: `stop` → `t.stop_requested`; `pause`/`resume` (`pausa
 `running` · `paused` · `stale` (no `update`, `log` or `heartbeat` for `heartbeat_timeout`; any of them brings the task back to `running`) · `done` · `failed` · `cancelled` · `lost` (pid died without finish).
 Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in update/log, `/api/notify`. Global mute in tray or panel.
 
+## Local log
+`taskhub.log` in the data folder, for diagnosis; there is no API for it. A line is `yyyy-MM-dd HH:mm:ss.fff LVL area text`, with `LVL` one of `DBG`, `INF`, `WRN`, `ERR`.
+`"log_level"` in `config.json`, read at start: `"info"` (default) or `"debug"`, which adds notification text, task names and panel show / hide; anything else keeps the default.
+One rotated copy, `taskhub.log.1`, past 4 MB. At `debug` the CLI also writes its own failures to `cli.log` (hooks and MCP are silent otherwise).
+A beta build (`build.cmd beta`) defaults to `debug` and keeps three copies of 20 MB. Text that looks like a token or key is masked at any level.
+
 ## Connectors: GitHub Actions
 Panel → ⚙ Settings → Connectors → GitHub Actions (or `POST /api/connectors/github`). Each workflow run of the chosen repositories is a task:
 id `gh-<run id>`, source `github`, project = repository name, description `owner/repo · branch · sha · @actor · event`;

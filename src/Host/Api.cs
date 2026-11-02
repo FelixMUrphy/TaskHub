@@ -243,6 +243,7 @@ sealed class Api
                 if (!mm.Success) continue;
                 var groups = mm.Groups.Cast<Group>().Skip(1).Select(x => x.Value).ToArray();
                 var res = await h(c, q, groups);
+                if (method != "GET") Log.D("api", $"{method} {path}");   // the panel's polling would drown everything else
                 if (res != null) await Json(c, 200, res);
                 return;
             }
@@ -250,13 +251,14 @@ sealed class Api
         }
         catch (ApiError e)
         {
+            Log.D("api", $"{method} {path}: {e.Code}");
             if (!c.Response.HasStarted) await Json(c, e.Code, new JsonObject { ["error"] = e.Message });
         }
         catch (OperationCanceledException) { }
         catch (IOException) { }
         catch (Exception e)
         {
-            Log.W("handler error " + e);
+            Log.E("api", "handler error " + e);
             try { if (!c.Response.HasStarted) await Json(c, 500, new JsonObject { ["error"] = e.Message }); } catch { }
         }
     }
@@ -287,12 +289,12 @@ sealed class Api
         }
         catch (Exception e) when (System.Net.Sockets.Socket.OSSupportsIPv6)
         {
-            Log.W("dual-stack listen failed (" + e.GetBaseException().Message + "), retrying IPv4 only");
+            Log.W("api", "dual-stack listen failed (" + e.GetBaseException().Message + "), retrying IPv4 only");
             try { await app.DisposeAsync(); } catch { }
             app = Build(false);
             await app.StartAsync();
         }
-        Log.W($"listening on {S.Url}");
+        Log.I("api", $"listening on {S.Url}");
     }
 
     public async Task Stop()

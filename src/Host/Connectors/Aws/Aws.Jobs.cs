@@ -136,7 +136,7 @@ sealed partial class AwsConnector
                 p.State = "ok"; p.Code = ""; p.Fails = 0; p.Count = found.Count(j => j.Active); p.ReadAt = now; p.NextAt = now + JobInterval;
             }
         }
-        if (bad != null) { Log.W($"aws: {region} {p.Service}: {bad.Code}"); return; }
+        if (bad != null) { Log.W("aws", $"{region} {p.Service}: {bad.Code}"); return; }
         lock (gate) if (jobPolls.GetValueOrDefault((region, p.Service)) != p) return;   // switched off meanwhile
         ReconcileJobs(region, p, found);
         lock (gate) p.LastRead = now;
@@ -302,7 +302,7 @@ sealed partial class AwsConnector
                     if (status != null) body["jobStatus"] = status; else body["filters"] = recent.DeepClone();
                     if (token != null) body["nextToken"] = token;
                     var r = await JsonCall(c, region, "batch", "/v1/listjobs", null, "application/json", body, ct);
-                    if (r.V == Verdict.Other) { Log.W($"aws: {region} batch: a queue refused: {r.Code}"); refused = true; break; }
+                    if (r.V == Verdict.Other) { Log.W("aws", $"{region} batch: a queue refused: {r.Code}"); refused = true; break; }
                     if (r.V != Verdict.Ok) return r;
                     foreach (var s in (r.Body["jobSummaryList"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
                         if (ParseBatch(s, region, q) is { } j && Wanted(j, since)) byId[j.Id] = j;
@@ -483,7 +483,7 @@ sealed partial class AwsConnector
             ["widgets"] = new JsonArray(new JsonObject { ["id"] = "info", ["type"] = "kv" }),
         };
         try { hub.Register(b, trusted: true); }
-        catch (Exception e) { Log.W($"aws: register {JobTid(j)}: " + e.Message); return; }
+        catch (Exception e) { Log.W("aws", $"register {Log.Id(JobTid(j))}: " + e.Message); return; }
         t.LastSig = null;
     }
 

@@ -115,7 +115,7 @@ sealed partial class AwsConnector
         if (!SaveCost(o => o["next"] = now + CostInterval))
         {
             costBlockedUntil = now + 600;
-            Log.W("aws: cost: the next read can't be saved, not reading");
+            Log.W("aws", "cost: the next read can't be saved, not reading");
             return;
         }
         var today = DateTime.UtcNow.Date;
@@ -164,7 +164,7 @@ sealed partial class AwsConnector
             else if (r.V != Verdict.Ok && r.Code != "DataUnavailableException") Failed(r);   // too little history: only no forecast
             if (r.Code != "network") nothingPaid = false;
         }
-        if (state != "ok") Log.W($"aws: cost: {code}");
+        if (state != "ok") Log.W("aws", $"cost: {code}");
         SaveCost(o =>
         {
             lock (gate) if (gen != moneyGen) return;   // the key changed while this was on its way
@@ -246,7 +246,7 @@ sealed partial class AwsConnector
                 budgetsRead = list;
             }
         }
-        if (bad != null) { Log.W($"aws: budgets: {bad.Code}"); return; }
+        if (bad != null) { Log.W("aws", $"budgets: {bad.Code}"); return; }
         AlertBudgets(list);
     }
 

@@ -276,7 +276,7 @@ def waited(n):
 
 cfg = os.path.join(data, "config.json")
 c = load(cfg) if os.path.exists(cfg) else {}
-c.update({"toasts": False, "autostart": False, "update_check": False, "language": "en"})
+c.update({"log_level": "debug", "toasts": False, "autostart": False, "update_check": False, "language": "en"})
 write(cfg, c)
 integrations("claude-limits=on")
 R = int(time.time()) + 7200

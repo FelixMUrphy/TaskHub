@@ -199,11 +199,11 @@ sealed partial class AwsConnector : ISettingsConnector
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException)
         {
             offline = true;
-            Log.W("aws: key not checked: " + e.GetBaseException().Message);
+            Log.W("aws", "key not checked: " + e.GetBaseException().Message);
         }
         if (r?.V == Verdict.BadKey) throw new ApiError(400, "AWS rejected the key");
         string old = null;
-        try { old = Secrets.Read(S, Id); } catch (Exception e) { Log.W("aws: key not read: " + e.Message); }
+        try { old = Secrets.Read(S, Id); } catch (Exception e) { Log.W("aws", "key not read: " + e.Message); }
         try { Secrets.Write(S, Id, creds.AccessKey + ":" + creds.Secret); }
         catch (Exception e) { throw new ApiError(500, "the key was not saved: " + e.Message); }
         // another key may be another account: what was followed so far can't be told about any more
@@ -238,7 +238,7 @@ sealed partial class AwsConnector : ISettingsConnector
     bool KeySet()
     {
         try { return Secrets.Read(S, Id) is { Length: > 0 }; }
-        catch (Exception e) { Log.W("aws: key not read: " + e.Message); return false; }
+        catch (Exception e) { Log.W("aws", "key not read: " + e.Message); return false; }
     }
 
     string RegionNote(RegionState r) => r.State switch
@@ -371,7 +371,7 @@ sealed partial class AwsConnector : ISettingsConnector
             catch (Exception e)
             {
                 status = "offline: " + e.GetBaseException().Message;
-                Log.W("aws: " + e.GetBaseException().Message);
+                Log.W("aws", e.GetBaseException().Message);
             }
             try { await Task.Delay(Mock ? 100 : 1000, ct); } catch { return; }
         }
@@ -558,7 +558,7 @@ sealed partial class AwsConnector : ISettingsConnector
         }
         if (r.V == Verdict.Clock) SetCheck("clock");
         else if (r.V == Verdict.Ok && keyCheck is "clock" or "network" or "unavailable") SetCheck("ok");
-        if (r.V != Verdict.Ok) { Log.W($"aws: {region}: {r.Code}"); return; }
+        if (r.V != Verdict.Ok) { Log.W("aws", $"{region}: {r.Code}"); return; }
         if (status.StartsWith("offline", StringComparison.Ordinal) || status == "starting") status = "ok";
         Reconcile(region, all);
     }
@@ -717,7 +717,7 @@ sealed partial class AwsConnector : ISettingsConnector
 
     void Try(Action a)
     {
-        try { a(); } catch (ApiError e) { Log.W("aws: " + e.Message); }
+        try { a(); } catch (ApiError e) { Log.W("aws", e.Message); }
     }
 
     /// <summary>The task follows the instance: active while it runs, starts or stops; stopped / terminated -> done. An
@@ -769,7 +769,7 @@ sealed partial class AwsConnector : ISettingsConnector
             ["widgets"] = new JsonArray(new JsonObject { ["id"] = "info", ["type"] = "kv" }),
         };
         try { hub.Register(b, trusted: true); }
-        catch (Exception e) { Log.W($"aws: register {Tid(i.Id)}: " + e.Message); return; }
+        catch (Exception e) { Log.W("aws", $"register {Log.Id(Tid(i.Id))}: " + e.Message); return; }
         t.LastSig = null;
     }
 

@@ -75,7 +75,7 @@ static class Integrations
         string p;
         if (Install.IsPackaged)
             try { p = Install.EnsureStoreCli(); }
-            catch (Exception e) { Log.W("taskhub copy: " + e.Message); p = Install.PackagedCli; }
+            catch (Exception e) { Log.W("agents", "taskhub copy: " + e.Message); p = Install.PackagedCli; }
         else p = Path.Combine(AppContext.BaseDirectory, "taskhub.exe");
         if (!p.Contains(' ')) return p;
         var sb = new StringBuilder(1024);   // 8.3 name: no quoting problems in whatever shell the agent uses
@@ -103,7 +103,7 @@ static class Integrations
     {
         if (k == Kind.Limits && a != Agent.Claude) throw new InvalidOperationException("no plan limits for " + Name(a) + " yet");
         var changed = k == Kind.Limits ? ApplyStatusLine(on, s) : k == Kind.Hooks ? ApplyHooks(a, on, s) : a == Agent.Claude ? ApplyClaudeMcp(on) : ApplyCodexMcp(on);
-        if (changed) Log.W($"integration {Name(a)} {k}: {(on ? "enabled" : "disabled")} ({FileOf(a, k)})");
+        if (changed) Log.I("agents", $"integration {Name(a)} {k}: {(on ? "enabled" : "disabled")} ({FileOf(a, k)})");
         return changed;
     }
 
@@ -118,7 +118,7 @@ static class Integrations
         }
         catch (Exception e)
         {
-            Log.W($"integration {Name(a)} {k}: {e}");
+            Log.E("agents", $"integration {Name(a)} {k}: {e}");
             return L.T("int_error", Name(a), FileOf(a, k)) + "\n" + e.Message;
         }
     }
@@ -155,13 +155,13 @@ static class Integrations
         foreach (var a in All)
             foreach (var k in Kinds)
                 if (s.Get(CfgKey(a, k)) is JsonValue v && v.TryGetValue<bool>(out var on) && on)
-                    try { Apply(a, k, true, s); } catch (Exception e) { Log.W($"integration {Name(a)} {k}: {e.Message}"); }
+                    try { Apply(a, k, true, s); } catch (Exception e) { Log.W("agents", $"integration {Name(a)} {k}: {e.Message}"); }
         // the status line is never put back over what the user has there now: only ours is kept correct
         try
         {
             if (AgentFiles.IsOurStatusLine(AgentFiles.LoadJson(AgentFiles.ClaudeHooks)["statusLine"] as JsonObject)) Apply(Agent.Claude, Kind.Limits, true, s);
         }
-        catch (Exception e) { Log.W($"integration {Name(Agent.Claude)} {Kind.Limits}: {e.Message}"); }
+        catch (Exception e) { Log.W("agents", $"integration {Name(Agent.Claude)} {Kind.Limits}: {e.Message}"); }
     }
 
     /// <summary>Uninstall: remove all of TaskHub's entries, whatever the settings say.</summary>
@@ -169,8 +169,8 @@ static class Integrations
     {
         foreach (var a in All)
             foreach (var k in Kinds)
-                try { Apply(a, k, false, s); } catch (Exception e) { Log.W($"integration {Name(a)} {k}: {e.Message}"); }
-        try { Apply(Agent.Claude, Kind.Limits, false, s); } catch (Exception e) { Log.W($"integration {Name(Agent.Claude)} {Kind.Limits}: {e.Message}"); }
+                try { Apply(a, k, false, s); } catch (Exception e) { Log.W("agents", $"integration {Name(a)} {k}: {e.Message}"); }
+        try { Apply(Agent.Claude, Kind.Limits, false, s); } catch (Exception e) { Log.W("agents", $"integration {Name(Agent.Claude)} {Kind.Limits}: {e.Message}"); }
     }
 
     // ------------------------------------------------------------ hooks (JSON)

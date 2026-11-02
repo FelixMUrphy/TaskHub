@@ -80,7 +80,7 @@ static class AgentHooks
             {
                 case "Stop":
                 {
-                    if (JustSpoke(agent, J.Str(b["cwd"]))) { Log.W(name + " Stop: no toast, the agent has just notified from this folder"); break; }
+                    if (JustSpoke(agent, J.Str(b["cwd"]))) { Log.D("agents", name + " Stop: no toast, the agent has just notified from this folder"); break; }
                     var last = Plain(J.Str(b["last_assistant_message"] ?? b["last-assistant-message"]));
                     Toast(hub, title + " — " + L.T("agent_done"), last.Length > 0 ? J.Cut(last, 200) : L.T("agent_done"), "info");
                     break;
@@ -101,7 +101,7 @@ static class AgentHooks
                 }
             }
         }
-        catch (Exception e) { Log.W(agent + " hook: " + e.Message); }
+        catch (Exception e) { Log.W("agents", agent + " hook: " + e.Message); }
         return new JsonObject();
     }
 

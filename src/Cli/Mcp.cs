@@ -93,7 +93,7 @@ static class Mcp
                     }
                     catch (OperationCanceledException) when (cts.IsCancellationRequested) { }   // cancelled: no answer (MCP)
                     catch (McpError e) { Out(Error(id, e.Code, e.Message)); }
-                    catch (Exception e) { Console.Error.WriteLine("taskhub mcp: " + e); Out(Error(id, -32603, e.Message)); }
+                    catch (Exception e) { CliLog.W("mcp", e.ToString()); Console.Error.WriteLine("taskhub mcp: " + e); Out(Error(id, -32603, e.Message)); }
                     finally { running.TryRemove(key, out _); cts.Dispose(); }
                 });
                 continue;
@@ -116,7 +116,7 @@ static class Mcp
                 Out(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result });
             }
             catch (McpError e) { Out(Error(id, e.Code, e.Message)); }
-            catch (Exception e) { Console.Error.WriteLine("taskhub mcp: " + e); Out(Error(id, -32603, e.Message)); }
+            catch (Exception e) { CliLog.W("mcp", e.ToString()); Console.Error.WriteLine("taskhub mcp: " + e); Out(Error(id, -32603, e.Message)); }
         }
         return 0;   // stdin closed: the client is gone (calls still waiting end with the process)
     }
@@ -327,6 +327,6 @@ static class Mcp
                 default: throw new McpError(-32602, "unknown tool: " + name);
             }
         }
-        catch (HubError e) { return Text("TaskHub: " + e.Message, true); }
+        catch (HubError e) { CliLog.W("mcp", e.Message); return Text("TaskHub: " + e.Message, true); }
     }
 }

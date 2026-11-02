@@ -50,12 +50,12 @@ sealed class Client
     static JsonObject ExeSettings() => ReadJson(Path.Combine(AppContext.BaseDirectory, "TaskHubHost.settings.json"));
 
     /// <summary>The hub's config.json (data folder from TaskHubHost.settings.json, else %APPDATA%\TaskHub).</summary>
-    static JsonObject HubConfig()
-    {
-        var data = ExeSettings()?["data"] is JsonValue dv && dv.TryGetValue<string>(out var d) ? Environment.ExpandEnvironmentVariables(d)
+    internal static JsonObject HubConfig() => ReadJson(Path.Combine(DataFolder(), "config.json"));
+
+    internal static string DataFolder() =>
+        Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 } testHome ? Path.Combine(testHome, "TaskHub")
+        : ExeSettings()?["data"] is JsonValue dv && dv.TryGetValue<string>(out var d) ? Environment.ExpandEnvironmentVariables(d)
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaskHub");
-        return ReadJson(Path.Combine(data, "config.json"));
-    }
 
     public JsonNode Call(string method, string path, JsonNode body = null, double timeoutSec = 10, CancellationToken ct = default)
     {
@@ -302,6 +302,7 @@ Global option: --url URL";
         }
         catch (HubError e)
         {
+            CliLog.W("cli", cmd + ": " + e.Message);
             Console.Error.WriteLine("taskhub: " + e.Message);
             return e.Code == 0 ? 3 : 1;
         }
@@ -327,7 +328,7 @@ Global option: --url URL";
             if (string.IsNullOrWhiteSpace(text)) return 0;
             if (JsonNode.Parse(text) is JsonObject body) c.Call("POST", "/api/hooks/" + agent, body, 3);
         }
-        catch { }
+        catch (Exception e) { CliLog.W("hook", e.GetType().Name + ": " + e.Message); }
         return 0;
     }
 

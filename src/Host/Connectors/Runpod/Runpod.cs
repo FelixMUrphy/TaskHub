@@ -80,13 +80,13 @@ sealed class RunpodConnector : MachineConnector
                 var r = await Call(HttpMethod.Get, "/v2/network-volumes/" + Uri.EscapeDataString(id), null, key, ct);
                 var gb = r.Code == 200 ? J.Num(r.Body?["size"]) : null;
                 volumes[id] = gb > 0 ? (gb, J.Str(r.Body?["type"]).ToUpperInvariant(), J.Now()) : (v.Gb, v.Type ?? "", J.Now());
-                if (gb == null) Log.W($"runpod: network volume size: HTTP {r.Code}");
+                if (gb == null) Log.W("runpod", $"network volume size: HTTP {r.Code}");
                 if (r.Limited || r.Code == 401) return;
             }
             catch (Exception e) when (!ct.IsCancellationRequested)
             {
                 volumes[id] = (v.Gb, v.Type ?? "", J.Now());
-                Log.W("runpod: network volume size: " + e.GetBaseException().Message);
+                Log.W("runpod", "network volume size: " + e.GetBaseException().Message);
             }
         }
     }
@@ -209,7 +209,7 @@ sealed class RunpodConnector : MachineConnector
             billingModeKey = kh;
             billingModeAt = J.Now();
             try { billingMode = await RunpodGraphQlBalance.BillingMode(Post, ct) ?? billingMode; }
-            catch (Exception e) when (!ct.IsCancellationRequested) { Log.W("runpod: billingMode: " + e.GetBaseException().Message); }
+            catch (Exception e) when (!ct.IsCancellationRequested) { Log.W("runpod", "billingMode: " + e.GetBaseException().Message); }
             catch (OperationCanceledException) { billingModeAt = 0; throw; }   // cancelled by a restart: ask again next time
         }
         if (billingMode != null) b.Raw["billingMode"] = billingMode;
@@ -263,7 +263,7 @@ static class RunpodGraphQlBalance
         var r = await post(new JsonObject { ["query"] = Query }, ct);
         if (r.Code != 200 || r.Body?["data"]?["myself"] is not JsonObject me)
         {
-            if (r.Code != 200 || r.Body?["errors"] != null) Log.W($"runpod: balance (GraphQL) HTTP {r.Code}");
+            if (r.Code != 200 || r.Body?["errors"] != null) Log.W("runpod", $"balance (GraphQL) HTTP {r.Code}");
             return r.Code != 200 ? Balance.Failed(r.Code) : new Balance { Error = "no balance in the answer", Code = 200 };
         }
         var b = new Balance

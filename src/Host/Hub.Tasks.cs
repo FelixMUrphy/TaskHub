@@ -98,7 +98,7 @@ sealed partial class Hub
             Prune();
             Bump();
         }
-        Log.W($"register {tid} '{name}' pid={pid}");
+        Log.I("hub", $"register {Log.Id(tid)} pid={pid}"); Log.D("hub", $"task {Log.Id(tid)} = {tid}: '{name}'");
         if (J.Truthy(notify["start"]))
             ToastFor(t, "▶ " + name, J.Truthy(t["description"]) ? J.Str(t["description"]) : L.T("started"));
         if (progressToast && !Muted && S.Bool("toasts", true)) lock (Lock) Notifier?.Progress(ToastSnap(t));
@@ -319,7 +319,7 @@ sealed partial class Hub
             var said = state is "done" or "cancelled" ? "finish" : "fail";
             if (t["notify"] is not JsonObject told || !told.ContainsKey(said) || J.Truthy(told[said])) AgentHooks.AgentSpoke(b);
         }
-        Log.W($"finish {tid} {state}");
+        Log.I("hub", $"finish {Log.Id(tid)} {state}");
         return new JsonObject { ["ok"] = true };
     }
 

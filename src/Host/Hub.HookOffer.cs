@@ -36,7 +36,7 @@ sealed partial class Hub
                 TellHookOffer(offer);
             }
         }
-        catch (Exception e) { Log.W("hooks offer: " + e.Message); }
+        catch (Exception e) { Log.W("agents", "hooks offer: " + e.Message); }
     }
 
     /// <summary>The panel is usually hidden: one notification per agent, ever. Muted: it waits, the card is there anyway.</summary>

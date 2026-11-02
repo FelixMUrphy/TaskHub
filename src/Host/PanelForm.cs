@@ -18,6 +18,7 @@ namespace TaskHub;
 /// </summary>
 sealed class PanelForm : Form
 {
+    int uiErrors;
     readonly Settings S;
     readonly Hub hub;
     WebView2 web;                        // replaced when the WebView2 browser process dies (Recreate)
@@ -80,9 +81,9 @@ sealed class PanelForm : Form
             // Transparency effects switched in Settings -> Personalization -> Colors (fires on a worker thread)
             uiSettings.AdvancedEffectsEnabledChanged += (_, _) => { if (IsHandleCreated) BeginInvoke(ApplyLook); };
         }
-        catch (Exception e) { Log.W("UISettings unavailable: " + e.Message); }
+        catch (Exception e) { Log.W("panel", "UISettings unavailable: " + e.Message); }
         try { Windows.System.Power.PowerManager.EnergySaverStatusChanged += (_, _) => { if (IsHandleCreated) BeginInvoke(ApplyLook); }; }
-        catch (Exception e) { Log.W("energy saver status unavailable: " + e.Message); }
+        catch (Exception e) { Log.W("panel", "energy saver status unavailable: " + e.Message); }
     }
 
     protected override CreateParams CreateParams
@@ -247,7 +248,7 @@ sealed class PanelForm : Form
             if (Bounds != target) Native.SetWindowPos(Handle, IntPtr.Zero, target.X, target.Y, target.Width, target.Height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
             FitWeb();
         }
-        catch (Exception e) { Log.W("appbar: " + e.Message); }
+        catch (Exception e) { Log.W("panel", "appbar: " + e.Message); }
     }
 
     protected override void WndProc(ref Message m)
@@ -396,7 +397,7 @@ sealed class PanelForm : Form
         if (RuntimeVersion() == null)
         {
             RuntimeMissing = true;
-            Log.W("WebView2 Runtime not installed: the panel can't open");
+            Log.E("panel", "WebView2 Runtime not installed: the panel can't open");
             return false;
         }
         RuntimeMissing = false;
@@ -428,7 +429,7 @@ sealed class PanelForm : Form
             {
                 e.Cancel = true;
                 cancelledNavs.Add(e.NavigationId);
-                Log.W("panel: navigation away cancelled");
+                Log.I("panel", "navigation away cancelled");
                 SafeOpen(e.Uri, false);
                 return;
             }
@@ -440,7 +441,7 @@ sealed class PanelForm : Form
         {
             if (cancelledNavs.Remove(e.NavigationId)) return;   // a navigation cancelled above: the page stays as it was
             ready = e.IsSuccess;
-            if (!e.IsSuccess) { Log.W("panel navigation failed: " + e.WebErrorStatus); ReloadSoon(); return; }
+            if (!e.IsSuccess) { Log.W("panel", "panel navigation failed: " + e.WebErrorStatus); ReloadSoon(); return; }
             ApplyLook();
             if (PanelVisible) PostShown(true);
             // a new page knows nothing yet about the room left for settings
@@ -460,7 +461,7 @@ sealed class PanelForm : Form
     /// (renderer) that died or hangs is reloaded; GPU / utility processes come back by themselves.</summary>
     void OnProcessFailed(CoreWebView2ProcessFailedKind kind)
     {
-        Log.W("webview process failed: " + kind);
+        Log.E("panel", "webview process failed: " + kind);
         switch (kind)
         {
             case CoreWebView2ProcessFailedKind.BrowserProcessExited:
@@ -491,15 +492,15 @@ sealed class PanelForm : Form
                 web.Bounds = old.Bounds;
                 Controls.Add(web);
                 Controls.Remove(old);
-                try { old.Dispose(); } catch (Exception e) { Log.W("old webview: " + e.Message); }
+                try { old.Dispose(); } catch (Exception e) { Log.W("panel", "old webview: " + e.Message); }
                 await Task.Delay(1000 * i);
                 try
                 {
                     await InitAsync();
-                    if (web.CoreWebView2 != null) { Log.W("panel: WebView2 re-created"); return; }
+                    if (web.CoreWebView2 != null) { Log.I("panel", "WebView2 re-created"); return; }
                     if (RuntimeMissing) return;
                 }
-                catch (Exception e) { Log.W($"panel re-create ({i}): " + e.Message); }
+                catch (Exception e) { Log.W("panel", $"panel re-create ({i}): " + e.Message); }
             }
         }
         finally { recreating = false; }
@@ -509,7 +510,7 @@ sealed class PanelForm : Form
     async Task RetryInit(string task)
     {
         try { await InitAsync(); }
-        catch (Exception e) { Log.W("panel unavailable: " + e.Message); }
+        catch (Exception e) { Log.E("panel", "panel unavailable: " + e.Message); }
         if (web.CoreWebView2 != null) { ShowPanel(task); return; }
         if (RuntimeMissing) AskRuntime();
     }
@@ -524,7 +525,7 @@ sealed class PanelForm : Form
             if (SetupForm.Ask(S, L.T("webview2_missing"), L.T("webview2_download"), L.T("setup_close")) == true)
                 Hub.OpenTarget(RuntimeUrl);
         }
-        catch (Exception e) { Log.W("runtime question: " + e.Message); }
+        catch (Exception e) { Log.W("panel", "runtime question: " + e.Message); }
         finally { asking = false; }
     }
 
@@ -552,22 +553,22 @@ sealed class PanelForm : Form
     {
         try
         {
-            if (!Hub.LinkOk(url, out var u)) { Log.W("refused to open " + J.Cut(url ?? "", 200)); return; }
+            if (!Hub.LinkOk(url, out var u)) { Log.W("panel", "refused to open " + (Uri.TryCreate(url, UriKind.Absolute, out var refused) ? refused.Scheme + "://" + refused.Host : "a malformed address")); return; }
             if (!u.IsFile)
             {
                 Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true })?.Dispose();
                 return;
             }
-            if (!local) { Log.W("refused to open a local path from a page"); return; }
+            if (!local) { Log.W("panel", "refused to open a local path from a page"); return; }
             var path = u.LocalPath;
             if (Directory.Exists(path))
                 Process.Start(new ProcessStartInfo(Explorer, "\"" + Path.TrimEndingDirectorySeparator(path) + "\"")
                     { UseShellExecute = false })?.Dispose();
             else if (File.Exists(path))
                 Process.Start(new ProcessStartInfo(Explorer, "/select,\"" + path + "\"") { UseShellExecute = false })?.Dispose();
-            else Log.W("open: path not found");
+            else Log.W("panel", "open: path not found");
         }
-        catch (Exception e) { Log.W("open failed: " + e.Message); }
+        catch (Exception e) { Log.W("panel", "open failed: " + e.Message); }
     }
 
     public SettingsBridge SettingsPage;
@@ -606,7 +607,7 @@ sealed class PanelForm : Form
         // every message only from our own page (navigation elsewhere is cancelled, but be sure)
         string src;
         try { src = e.Source; } catch { src = null; }
-        if (!IsPanelUrl(src)) { Log.W("panel: message from another page ignored"); return; }
+        if (!IsPanelUrl(src)) { Log.W("panel", "message from another page ignored"); return; }
         string msg;
         try { msg = e.TryGetWebMessageAsString(); } catch { msg = null; }
         if (msg == null)
@@ -614,6 +615,7 @@ sealed class PanelForm : Form
             try
             {
                 var o = J.Parse(e.WebMessageAsJson) as JsonObject;
+                if (o?["ui_error"] != null && ++uiErrors <= 50) Log.E("ui", J.Cut(J.Str(o["ui_error"]), 1000));   // a recurring error must not rotate the rest away
                 if (o?["open"] != null) SafeOpen(J.Str(o["open"]), true);
                 if (o?["settings_window"] != null) { settingsWanted = J.Str(o["settings_window"]) == "open"; _ = SyncSettings(); }
                 if (o?["settings"] != null && SettingsPage != null)
@@ -754,7 +756,7 @@ sealed class PanelForm : Form
             UpdateBar();
             _ = SyncSettings();   // what the page wants now: it may have changed its mind meanwhile
         }
-        catch (Exception e) { Log.W("settings window: " + e.Message); }
+        catch (Exception e) { Log.W("panel", "settings window: " + e.Message); }
     }
 
     void Place()
@@ -857,6 +859,7 @@ sealed class PanelForm : Form
 
     public void ShowPanel(string task)
     {
+        Log.D("panel", $"show{(task != null ? " for a task" : "")}: visible={Visible} pinned={Pinned} dpi={DeviceDpi} bounds={Bounds} screen={Screen.FromControl(this).WorkingArea}");
         // WebView2 isn't running (runtime missing, start failed, being re-created): nothing to slide in yet
         if (web.CoreWebView2 == null && initTried && !initRunning && !recreating) { _ = RetryInit(task); return; }
         if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
@@ -903,6 +906,7 @@ sealed class PanelForm : Form
     public void HidePanel(bool auto)
     {
         if (!Visible || hiding) return;
+        Log.D("panel", auto ? "hide: lost focus" : "hide: asked");
         if (auto) LastAutoHide = DateTime.UtcNow;
         if (WindowState == FormWindowState.Minimized || !AnimationsOn()) { HideNow(); return; }
         _ = SlideOut();

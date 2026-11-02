@@ -49,7 +49,7 @@ def toasts(what=""):
 
 
 def write_cfg(**extra):
-    o = json.load(open(cfg, encoding="utf-8")) if os.path.exists(cfg) else {"toasts": False, "autostart": False, "toast_rate": 0, "language": "en"}
+    o = json.load(open(cfg, encoding="utf-8")) if os.path.exists(cfg) else {"log_level": "debug", "toasts": False, "autostart": False, "toast_rate": 0, "language": "en"}
     o.update(extra)
     with open(cfg, "w", encoding="utf-8") as f:
         json.dump(o, f)

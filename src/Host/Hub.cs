@@ -103,9 +103,9 @@ sealed partial class Hub
                 tasks[id] = t;
                 internals[id] = new Internal { Ct = ct };
             }
-            Log.W($"restored {tasks.Count} task(s)");
+            Log.I("hub", $"restored {tasks.Count} task(s)");
         }
-        catch (Exception e) { Log.W("state.json unreadable: " + e.Message); }
+        catch (Exception e) { Log.E("hub", "state.json unreadable: " + e.Message); }
     }
 
     readonly object saveLock = new();
@@ -136,7 +136,7 @@ sealed partial class Hub
             }
             catch (Exception e)
             {
-                Log.W("save failed: " + e.Message);
+                Log.E("hub", "save failed: " + e.Message);
                 lock (Lock) dirty = true;   // try again on the next round
             }
         }

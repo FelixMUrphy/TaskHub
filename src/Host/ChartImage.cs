@@ -41,7 +41,7 @@ static class ChartImage
         foreach (var w in charts)
         {
             try { DrawChart(g, w, new Rectangle(Pad, y, W - 2 * Pad, CH), fLabel, fSmall, fg, dim); }
-            catch (Exception e) { Log.W("chart image: " + e.Message); }
+            catch (Exception e) { Log.W("chart", "chart image: " + e.Message); }
             y += CH + Pad;
         }
         using var ms = new MemoryStream();

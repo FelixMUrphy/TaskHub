@@ -156,7 +156,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         Resp r = null;
         try { r = Call(HttpMethod.Get, "/user", null, token, CancellationToken.None).GetAwaiter().GetResult(); }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException)
-        { Log.W("github: token not checked: " + e.GetBaseException().Message); }
+        { Log.W("github", "token not checked: " + e.GetBaseException().Message); }
         if (r?.Code == 401) throw new ApiError(400, "GitHub rejected the token");
         try { Secrets.Write(S, Id, token); }
         catch (Exception e) { throw new ApiError(500, "the token was not saved: " + e.Message); }
@@ -282,7 +282,7 @@ sealed partial class GitHubConnector : ISettingsConnector
     bool TokenSet()
     {
         try { return Secrets.Read(S, Id) is { Length: > 0 }; }
-        catch (Exception e) { Log.W("github: token not read: " + e.Message); return false; }
+        catch (Exception e) { Log.W("github", "token not read: " + e.Message); return false; }
     }
 
     // ------------------------------------------------------------ lifecycle
@@ -319,7 +319,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             catch (Exception e)
             {
                 status = "offline: " + e.GetBaseException().Message;
-                Log.W("github: " + e.GetBaseException().Message);
+                Log.W("github", e.GetBaseException().Message);
                 try { await Task.Delay(15000, ct); } catch { return; }
             }
             try { await Task.Delay(1000, ct); } catch { return; }
@@ -391,7 +391,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         login = null;
         gcmToken = null;
         pausedUntil = J.Now() + 300;
-        Log.W("github: token rejected (" + c.Auth + ")");
+        Log.W("github", "token rejected (" + c.Auth + ")");
     }
 
     // ------------------------------------------------------------ token
@@ -450,7 +450,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             if (!p.WaitForExit(15000)) { try { p.Kill(true); } catch { } return ""; }
             return p.ExitCode == 0 ? outp.Result : "";
         }
-        catch (Exception e) { Log.W("github: git " + args.Split(' ')[0] + ": " + e.Message); }
+        catch (Exception e) { Log.W("github", "git " + args.Split(' ')[0] + ": " + e.Message); }
         return "";
     }
 
@@ -742,7 +742,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         {
             var r = await Call(HttpMethod.Get, $"/repos/{repo}/actions/jobs/{jobId}/logs", null, token, ct, follow: false);
             if (r.Code is not (301 or 302 or 307) || r.Location == null) return new();
-            if (!LogHostOk(r.Location)) { Log.W("github: log link to an unexpected host " + r.Location.Host); return new(); }
+            if (!LogHostOk(r.Location)) { Log.W("github", "log link to an unexpected host " + r.Location.Host); return new(); }
             using var req = new HttpRequestMessage(HttpMethod.Get, r.Location);
             using var resp = await http.Send(req, ct, HttpCompletionOption.ResponseHeadersRead);
             if (resp.StatusCode != HttpStatusCode.OK) return new();
@@ -759,7 +759,7 @@ sealed partial class GitHubConnector : ISettingsConnector
                 if (tail.Count > 30) tail.Dequeue();
             }
         }
-        catch (Exception e) when (e is not OperationCanceledException) { Log.W("github: log: " + e.Message); }
+        catch (Exception e) when (e is not OperationCanceledException) { Log.W("github", "log: " + e.Message); }
         return tail.ToList();
     }
 
@@ -913,7 +913,7 @@ sealed partial class GitHubConnector : ISettingsConnector
                 : searchLeft == 0 && searchReset > 0 ? Math.Max(searchReset, J.Now() + 10) : J.Now() + 120;
             prPausedUntil = Math.Min(until, J.Now() + 3600);
             res.Limited = true;
-            Log.W("github: search rate limit, pull requests wait until " + DateTimeOffset.FromUnixTimeSeconds((long)prPausedUntil).ToLocalTime().ToString("HH:mm:ss"));
+            Log.W("github", "search rate limit, pull requests wait until " + DateTimeOffset.FromUnixTimeSeconds((long)prPausedUntil).ToLocalTime().ToString("HH:mm:ss"));
         }
         else if ((res.Code is 403 or 429) && (rateLeft == 0 || r.Headers.RetryAfter != null || secondary))
         {
@@ -928,7 +928,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             pausedUntil = Math.Max(pausedUntil, Math.Min(until, J.Now() + 3600));
             res.Limited = true;
             status = "rate limit, waiting until " + DateTimeOffset.FromUnixTimeSeconds((long)pausedUntil).ToLocalTime().ToString("HH:mm:ss");
-            Log.W("github: " + status + (secondary ? " (secondary limit)" : ""));
+            Log.W("github", "" + status + (secondary ? " (secondary limit)" : ""));
         }
         else if (res.Code is >= 200 and < 400) secondaryWait = 0;
         return res;
@@ -940,6 +940,6 @@ sealed partial class GitHubConnector : ISettingsConnector
 
     static void Try(Action a)
     {
-        try { a(); } catch (Exception e) { Log.W("github: " + e.Message); }
+        try { a(); } catch (Exception e) { Log.W("github", e.Message); }
     }
 }
