@@ -30,6 +30,9 @@ static class Program
         // tests only: the update check against a local mock of the releases API, steps on stdin (Updater.SelfTest)
         if (Arg("--selftest-update") is { } mockApi && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
             return Updater.SelfTest(S, mockApi);
+        // tests only: the AWS signer against AWS's test suite and a loopback mock (SigV4.SelfTest)
+        if (Arg("--selftest-sigv4") is { } sigIn && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+            return SigV4.SelfTest(sigIn, args[Array.IndexOf(args, "--selftest-sigv4") + 2]);
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
