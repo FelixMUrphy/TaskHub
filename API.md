@@ -240,7 +240,7 @@ Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in updat
 ## Connectors: GitHub Actions
 Panel → ⚙ Settings → Connectors → GitHub Actions (or `POST /api/connectors/github`). Each workflow run of the chosen repositories is a task:
 id `gh-<run id>`, source `github`, project = repository name, description `owner/repo · branch · sha · @actor · event`;
-progress by the steps of all jobs, `stage` = job › step, ETA from the median duration of the workflow's last successful runs;
+`stage` = job › step; ETA and progress both from the median duration of the workflow's last successful runs (past it: no `progress`, the status says "longer than usual"); without such runs, or waiting for an approval, progress by the steps of all jobs;
 on failure the message names the job › step, and (option `logs`) the last 30 lines of its log go to the task log.
 Buttons: open on GitHub, cancel (running), re-run failed jobs (failed), re-run all (finished), each with a confirmation; links to
 the artifacts and to the release of a tag after a successful run. Failures always notify (Windows + Telegram), successes if

@@ -37,6 +37,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         public long Id; public string Repo; public int Attempt; public long WorkflowId;
         public string RunEtag, JobsEtag; public JsonObject Json; public JsonArray Jobs;
         public double NextPoll; public int AwaitAttempt; public double AwaitUntil;
+        public double? Usual;   // usual duration of the workflow, s
     }
     sealed class RepoState { public string Etag; public double NextPoll; public bool Baseline = true; public string Status = ""; }
     readonly Dictionary<long, Run> active = new();                 // runs being followed
@@ -583,6 +584,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             run.Attempt > 1 ? L.T("gh_attempt", run.Attempt) : "",
         }.Where(x => x.Length > 0));
         var exp = await Expected(run, token, ct);
+        run.Usual = exp;
         var states = new JsonArray("running", "paused", "stale");
         var b = new JsonObject
         {
@@ -615,7 +617,10 @@ sealed partial class GitHubConnector : ISettingsConnector
         Try(() => hub.Update(Tid(run.Id), Progress(run)));
     }
 
-    /// <summary>Progress by steps of all jobs (a job without steps yet counts as one), stage = the job / step running now.</summary>
+    /// <summary>Stage = the job / step running now. The bar: time against the usual duration, the same source as the ETA, because steps are
+    /// very uneven (one long test step held the bar at 7 of 19 for most of a run while the ETA ran out). Past the usual duration it
+    /// has nothing to say: no percentage, and the status says so. Without earlier runs, or waiting for an approval, steps of all jobs
+    /// (a job without steps yet counts as one).</summary>
     JsonObject Progress(Run run)
     {
         var st = J.Str(run.Json?["status"]);
@@ -640,9 +645,17 @@ sealed partial class GitHubConnector : ISettingsConnector
             }
         }
         int jd = jobs.Count(x => J.Str(x["status"]) == "completed");
-        u["progress"] = total > 0 ? Math.Min(0.99, (double)done / total) : null;
+        double? bar = total > 0 ? Math.Min(0.99, (double)done / total) : null;
+        var status = L.T("gh_jobs", jd, jobs.Count);
+        if (run.Usual is double usual && usual > 0 && J.Str(u["attention"]).Length == 0 && Ts(run.Json["run_started_at"]) is double started)
+        {
+            var part = Math.Max(0, J.Now() - started) / usual;
+            bar = part < 1 ? Math.Min(0.99, part) : null;
+            if (part >= 1) status += " · " + L.T("gh_longer");
+        }
+        u["progress"] = bar;
         u["stage"] = J.Cut(stage, 200);
-        u["status"] = L.T("gh_jobs", jd, jobs.Count);
+        u["status"] = status;
         return u;
     }
 
