@@ -74,6 +74,7 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
 - **Settings** *(in the panel from 2.9; beside it, with icon tabs, from 3.1)*: ⚙ in the panel (or *Settings* in the tray menu) opens them next to it, one icon tab per section —
   appearance, notifications, Telegram, connectors, AI agents, system (autostart, updates, data folder, API reference), about; the tray
   menu keeps only the quick actions (open the panel, mute, settings, support, exit) in the Windows 11 style. While the panel is pinned, only their own button closes them.
+  On battery (from 3.1) the panel and settings appear and go at once, without the slide.
 - 10 UI languages (English, Українська, Español, Deutsch, Français, Italiano, Português, Polski, 中文, 日本語).
 - Per-user install, no admin rights, no .NET runtime needed; self-healing autostart.
 

@@ -727,7 +727,6 @@ sealed class PanelForm : Form
             }
             if (settingsExtra == 0 && bar?.Registered != true) target = Bounds;   // where it really is: the work area may have changed since it was placed
             var strip = new Rectangle(target.X + settingsExtra, target.Y, target.Width - settingsExtra, target.Height);
-            bool anim = AnimationsOn();
             if (settingsWanted)
             {
                 WithSettings(strip);
@@ -735,16 +734,13 @@ sealed class PanelForm : Form
                 PostSettingsSize();
                 settingsExtra = webExtra;
                 target = new Rectangle(strip.X - settingsExtra, strip.Y, strip.Width + settingsExtra, strip.Height);
-                if (anim)
-                {
-                    sliding = settingsSliding = true;
-                    shownPx = slideW = strip.Width;
-                    await WaitPainted();
-                    if (!settingsSliding) return;   // the panel is being hidden
-                    if (!await Slide(true)) return;
-                }
+                sliding = settingsSliding = true;
+                shownPx = slideW = strip.Width;
+                await WaitPainted();
+                if (!settingsSliding) return;   // the panel is being hidden
+                if (!await Slide(true)) return;
             }
-            else if (anim)
+            else
             {
                 sliding = settingsSliding = true;
                 shownPx = slideW = target.Width;
@@ -785,10 +781,20 @@ sealed class PanelForm : Form
     }
 
     // ------------------------------------------------------------ slide animation
+    /// <summary>Off also on battery: Windows doesn't promise that a window and a WebView2 inside it move in the same frame, and on battery the
+    /// frames are visibly apart (the settings' text over the panel, text on the next monitor, a jerk). Asked at each slide: the charger comes and goes.</summary>
     static bool AnimationsOn()
     {
+        if (OnBattery()) return false;
         try { return Native.SystemParametersInfo(Native.SPI_GETCLIENTAREAANIMATION, 0, out var on, 0) ? on : true; }
         catch { return true; }
+    }
+
+    static bool OnBattery()
+    {
+        if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 } && Environment.GetEnvironmentVariable("TASKHUB_TEST_POWER") is { Length: > 0 } test)
+            return test == "battery";
+        return SystemInformation.PowerStatus.PowerLineStatus == PowerLineStatus.Offline;   // Unknown: as plugged in
     }
 
     /// <summary>Slides the panel in from / out to the right edge of its work area, one step per DWM frame. The window grows
@@ -800,7 +806,7 @@ sealed class PanelForm : Form
     {
         int gen = ++animGen;
         int w = target.Width, from = shownPx, to = show ? w : stopAt;
-        double ms = SlideMs * Math.Abs(to - from) / Math.Max(1, w);
+        double ms = AnimationsOn() ? SlideMs * Math.Abs(to - from) / Math.Max(1, w) : 0;   // 0: one step, in the same order
         animating = true;
         try
         {
@@ -885,12 +891,10 @@ sealed class PanelForm : Form
     async Task SlideIn()
     {
         hiding = false;
-        bool anim = AnimationsOn();
         if (!Visible)
         {
             ApplyLook();
             target = ComputeTarget();
-            if (!anim) { Show(); animGen++; animating = false; ShowFull(); UpdateBar(); _ = SyncSettings(); return; }
             sliding = true;
             PinWebSize();
             SetShown(0);
@@ -898,7 +902,6 @@ sealed class PanelForm : Form
             await WaitPainted();
             if (!sliding) return;    // hidden meanwhile
         }
-        if (!anim) { animGen++; animating = false; ShowFull(); UpdateBar(); _ = SyncSettings(); return; }
         sliding = true;
         if (await Slide(true)) { ShowFull(); UpdateBar(); _ = SyncSettings(); }
     }
