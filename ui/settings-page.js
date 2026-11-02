@@ -28,7 +28,7 @@ function renderSet(){
            : srow(HL("updates"), T("s_store_upd"), ""))
       + srow(HL("data_folder"),"",sbtn("data_folder",T("s_open")))
       + srow(HL("api_help"),"",sbtn("api_help",T("s_open"))));
-    if (tab==="about") h=sec(srow("TaskHub "+s.version, T(s.edition==="store"?"s_ed_store":"s_ed_github"), sbtn("support",HL("support"),"heart")));
+    if (tab==="about") h=sec(srow("TaskHub "+s.version, T(s.edition==="store"?"s_ed_store":"s_ed_github"), sbtn("support",HL("support"),"heart")),T("s_about"));
   }
   if (box.__h===h && box.__tab===tab) return;
   // keep the focus on the same control across a re-render (the state comes back every few seconds)

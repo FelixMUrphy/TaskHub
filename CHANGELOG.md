@@ -9,6 +9,7 @@ from here), followed by the list of commits.
 - Settings open beside the panel, with icon tabs. While the panel is pinned they close only with their own button.
 - Plan limits for Claude Code, off until you turn them on: how much of the 5-hour and weekly limits is used, in the panel, yellow with a warning from 75%, red with a warning from 90%. Your own status line keeps working unchanged.
 - Plan limits for Codex too, off until you turn them on: TaskHub asks Codex every 10 minutes while it is running, with no model requests. In the panel each agent's limits sit under its own name, and the bars take the Windows accent colour.
+- The About page says in a few words what TaskHub does.
 - A task's percentage now shares a row with its status, and the task counter is short (1 / 3), so the header no longer wraps.
 - GitHub Actions: the bar follows the same time estimate as the ETA instead of standing still during a long step. A run past its usual duration says so.
 - Notifications from Claude Code and Codex are offered in the panel when an agent is found and you haven't chosen yet. Nothing changes in the agent's settings until you press Connect.
