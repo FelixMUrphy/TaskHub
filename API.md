@@ -261,7 +261,7 @@ notifies; when it leaves the list the task ends `done` (no notification) with `M
 `No longer waiting for your review` / `No longer open` (read from `GET /repos/{repo}/pulls/{n}`). Turning a switch or the
 connector off ends its tasks. Nothing is ever written to GitHub. Permissions: the search needs none (a fine-grained
 token sees review requests only in its own repositories and public ones); the PR list needs Pull requests: Read-only (no access: the task ends `No access to the repository's pull requests`,
-`pr_status {repo: text}` says so); a repository taken off the list ends its tasks (`The repository is no longer watched`).
+`pr_status {repo: text}` says so, unless `repo_status` already says that the token can't reach the repository at all); a repository taken off the list ends its tasks (`The repository is no longer watched`).
 More than 100 open PRs / review requests are paged; a list too long to read ends nothing. State also has `pr_status`.
 
 ## Connectors: Runpod

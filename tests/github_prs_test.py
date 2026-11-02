@@ -100,6 +100,8 @@ class Api(BaseHTTPRequestHandler):
             return self.reply(200, {"total_count": len(items), "incomplete_results": False, "items": items},
                               {"x-ratelimit-resource": "search", "x-ratelimit-remaining": "29",
                                "x-ratelimit-reset": str(int(time.time()) + 60)})
+        if p.startswith("/repos/o/gone/"):   # a private repository the token wasn't given
+            return self.reply(404, {"message": "Not Found"})
         if p.endswith("/actions/runs"):
             return self.reply(200, {"total_count": 0, "workflow_runs": []})
         parts = p.strip("/").split("/")
@@ -271,6 +273,20 @@ check("repo taken off the list -> 'The repository is no longer watched'", t15 an
 s, r = call("POST", "/api/connectors/github", {"repos": ["o/q", "o/secret"]})
 st = wait(lambda: (call("GET", "/api/connectors/github")[1].get("pr_status") or {}).get("o/secret"))
 check("PR list 403 -> pr_status says 'no access to pull requests'", st and "no access to pull requests" in st, st)
+def repo_note(repo):
+    rows = call("GET", "/api/connectors?view=settings")[1].get("connectors") or []
+    row = next((x for x in rows if x.get("id") == "github"), {})
+    return next((i.get("note") for i in (row.get("list") or {}).get("items", []) if i.get("v") == repo), None)
+check("...runs fine, PR list refused: the settings line names the permission", "Pull requests" in (repo_note("o/secret") or "") and "repository list" not in (repo_note("o/secret") or ""), repo_note("o/secret"))
+# the token can't see the repository at all: 404 on both lists, one line that says what to check
+s, r = call("POST", "/api/connectors/github", {"repos": ["o/q", "o/secret", "o/gone"]})
+gone = wait(lambda: (call("GET", "/api/connectors/github")[1].get("repo_status") or {}).get("o/gone"))
+check("404 on the runs: says to check the name, the token's repository list and permissions",
+      gone and "name" in gone and "repository list" in gone and "permissions" in gone, gone)
+time.sleep(3)
+check("...the PR list adds nothing to it", "o/gone" not in (call("GET", "/api/connectors/github")[1].get("pr_status") or {}), call("GET", "/api/connectors/github")[1].get("pr_status"))
+check("...the settings line has that one sentence", repo_note("o/gone") == gone, repo_note("o/gone"))
+s, r = call("POST", "/api/connectors/github", {"repos": ["o/q", "o/secret"]})
 # no token any more, then both switches off: the PR tasks still end
 call("POST", "/api/connectors/github", {"repos": ["o/r"], "pr_reviews": True})
 check("review again -> task", wait(lambda: (task(T15) or {}).get("state") == "running") is not None, task(T15))

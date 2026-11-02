@@ -250,7 +250,7 @@ if t:
     check("buttons: open, cancel, re-run failed, re-run", ids == ["open", "cancel", "rerun_failed", "rerun"], ids)
 # repos are polled one after another: wait until o/missing has been checked, not just o/r
 r = wait(lambda: (lambda c: c if c.get("repo_status", {}).get("o/missing") else None)(call("GET", "/api/connectors/github")[1])) or {}
-check("repo without access reported", r.get("repo_status", {}).get("o/missing") == "not found or no access", r)
+check("repo without access reported", r.get("repo_status", {}).get("o/missing") == "not found, or the token can't reach it: check the name, then the token's repository list and permissions", r)
 check("token expiry known (warning ahead)", abs((r.get("token_expires") or 0) - EXP) < 2, r.get("token_expires"))
 
 # ---- past the usual duration; no usual duration
@@ -373,7 +373,7 @@ s, r = call("POST", "/api/connectors/github", {"repos": ["o/r"]})
 with lock:
     faults["secondary"] = 1
 r = wait(lambda: (lambda x: x if "rate limit" in (x.get("status") or "") else None)(call("GET", "/api/connectors/github")[1]))
-check("secondary rate limit -> paused, said so", r is not None and r["repo_status"].get("o/r") != "no access (Actions: read)", r)
+check("secondary rate limit -> paused, said so", r is not None and r["repo_status"].get("o/r") != "no access: the token needs Actions: Read-only", r)
 time.sleep(0.5)
 n = len(calls)
 time.sleep(4)

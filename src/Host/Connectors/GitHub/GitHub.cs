@@ -184,7 +184,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         string[] rs;
         lock (gate) rs = c.Repos.ToArray();
         var rst = new JsonObject();
-        lock (gate) foreach (var r in rs) rst[r] = repos.TryGetValue(r, out var x) ? x.Status : "";
+        lock (gate) foreach (var r in rs) rst[r] = repos.TryGetValue(r, out var x) ? RepoStatusText(x.Status) : "";
         return new JsonObject
         {
             ["enabled"] = c.Enabled, ["repos"] = J.StrArray(c.Repos), ["interval"] = c.Interval,
@@ -467,6 +467,20 @@ sealed partial class GitHubConnector : ISettingsConnector
         });
     }
 
+    // A repository's state is kept as a code and put into words when read: the language can change, and a 304 keeps the state for hours.
+    // GitHub's 404 doesn't tell a wrong name from a repository the token wasn't given or a missing permission (its docs name all three),
+    // so the words name all three. https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api
+    const string StatusNotFound = "not_found", StatusNoActions = "no_actions", StatusMoved = "moved", StatusMovedTo = "moved:";
+
+    static string RepoStatusText(string status) => status switch
+    {
+        StatusNotFound => L.T("gh_repo_not_found"),
+        StatusNoActions => L.T("gh_repo_no_actions"),
+        StatusMoved => L.T("gh_repo_moved"),
+        _ when status.StartsWith(StatusMovedTo) => L.T("gh_repo_moved_to", status[StatusMovedTo.Length..]),
+        _ => status,
+    };
+
     // ------------------------------------------------------------ runs
     async Task PollRepo(string repo, RepoState rs, string token, Conf c, CancellationToken ct)
     {
@@ -474,7 +488,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         if (r.Code == 304) return;
         if (r.Limited) return;   // paused; the status says until when
         if (r.Code == 401) { Rejected(c); return; }
-        if (r.Code is 403 or 404) { rs.Status = r.Code == 404 ? "not found or no access" : "no access (Actions: read)"; return; }
+        if (r.Code is 403 or 404) { rs.Status = r.Code == 404 ? StatusNotFound : StatusNoActions; return; }
         if (r.Code != 200) { rs.Status = $"HTTP {r.Code}"; return; }
         rs.Etag = r.ETag;
         var page = (r.Body?["workflow_runs"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().ToList();
@@ -482,7 +496,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         if (r.Redirected)
         {
             var moved = J.Str(page.FirstOrDefault()?["repository"]?["full_name"]);
-            rs.Status = moved.Length > 0 && !moved.Equals(repo, StringComparison.OrdinalIgnoreCase) ? "repository moved to " + moved : "repository moved";
+            rs.Status = moved.Length > 0 && !moved.Equals(repo, StringComparison.OrdinalIgnoreCase) ? StatusMovedTo + moved : StatusMoved;
         }
         else rs.Status = "ok";
         // more new runs than one page (a burst of pushes): the next pages too, while everything on a page is new

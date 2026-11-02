@@ -12,6 +12,7 @@ from here), followed by the list of commits.
 - GitHub Actions: the bar follows the same time estimate as the ETA instead of standing still during a long step. A run past its usual duration says so.
 - Notifications from Claude Code and Codex are offered in the panel when an agent is found and you haven't chosen yet. Nothing changes in the agent's settings until you press Connect.
 - No more two notifications for one thing: "response ready" is left out when the agent has just sent its own notification or finished a task from the same project.
+- GitHub Actions: a repository the token can't reach now gets one clear line in your language that says what to check, instead of two English and mixed messages.
 
 ## 3.0.0 — 2026-11-02
 

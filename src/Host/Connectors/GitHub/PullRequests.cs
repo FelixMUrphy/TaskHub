@@ -48,7 +48,9 @@ sealed partial class GitHubConnector
         if (!c.PrDependabot) return o;
         lock (gate)
             foreach (var (repo, pl) in pullLists)
-                if (pl.NoAccess && c.Repos.Contains(repo, StringComparer.OrdinalIgnoreCase)) o[repo] = L.T("pr_no_access");
+                // a repository the token can't reach at all has its one line already: the permission named here wouldn't be the answer
+                if (pl.NoAccess && c.Repos.Contains(repo, StringComparer.OrdinalIgnoreCase)
+                    && !(repos.TryGetValue(repo, out var rs) && rs.Status == StatusNotFound)) o[repo] = L.T("pr_no_access");
         return o;
     }
 
