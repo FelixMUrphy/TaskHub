@@ -1,7 +1,7 @@
 """The card offering an agent's hooks (what is offered, one notification, nothing written, no way to choose over HTTP) and Stop held back
 right after the agent spoke through MCP (real `taskhub mcp`, real working folder). Own port, temporary home and data: never the real
 home, the real configs or the real hub. The click itself is a WebView2 message, not reachable from here. Argument: TaskHubHost.exe."""
-import json, os, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.request
+import ctypes, json, os, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.request
 
 EXE = sys.argv[1]
 CLI = os.path.join(os.path.dirname(EXE), "taskhub.exe")
@@ -218,6 +218,16 @@ try:
         check("...this agent's mark still counts", not stop())
         spoke(cwd=project.upper() + "\\")
         check("same folder, other case and a trailing slash: none", not stop())
+        # the same folder under its 8.3 name: .NET reports the long one, an agent may report what it was started with
+        buf = ctypes.create_unicode_buffer(1024)
+        got = ctypes.windll.kernel32.GetShortPathNameW(os.path.realpath(project), buf, 1024)
+        print(f"short name of the project folder: {'differs' if got and buf.value != os.path.realpath(project) else 'none here'}", flush=True)
+        spoke(cwd=os.path.realpath(project))
+        check("a Stop from the folder's 8.3 name: none", not stop(cwd=buf.value if got else project), buf.value)
+        spoke(cwd=buf.value if got else project)
+        check("a notify from the folder's 8.3 name: the long name's Stop has none", not stop(cwd=os.path.realpath(project)), buf.value)
+        call("POST", "/api/notify", {"title": "t", "message": "m", "source": "claude", "agent_cwd": "bad\x00folder"})
+        check("a folder that is no path breaks nothing", stop())
         spoke()
         check("a Notification is never held back", stop(event="Notification"))
         check("a PermissionRequest is never held back", stop(event="PermissionRequest"))

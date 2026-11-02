@@ -37,7 +37,13 @@ static class AgentHooks
     static readonly TimeSpan SpokeFor = TimeSpan.FromSeconds(30);
     static readonly Dictionary<string, DateTime> spoke = new();
 
-    static string SpokeKey(string agent, string cwd) => agent + "|" + cwd.Trim().TrimEnd('\\', '/').ToLowerInvariant();
+    /// <summary>One folder, one key: GetFullPath expands an 8.3 name (the MCP server reports the long one, an agent what it was started with).</summary>
+    static string SpokeKey(string agent, string cwd)
+    {
+        var path = cwd.Trim();
+        try { path = Path.GetFullPath(path); } catch (Exception e) when (e is ArgumentException or IOException or NotSupportedException or System.Security.SecurityException) { }
+        return agent + "|" + path.TrimEnd('\\', '/').ToLowerInvariant();
+    }
 
     /// <summary>A notification or a finished task from TaskHub's MCP server: "source" is the agent, "agent_cwd" the folder it runs in.</summary>
     public static void AgentSpoke(JsonObject b)
