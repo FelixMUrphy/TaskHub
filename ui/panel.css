@@ -184,7 +184,7 @@ details.lgx pre{margin:5px 0 0;max-height:220px;overflow:auto;background:var(--o
 pre .warn{color:var(--amber)} pre .error{color:var(--red)} pre .cmd{color:var(--blue)} pre .sys{color:var(--mut)}
 .meta{color:var(--mut);font-size:11px;margin-top:5px;display:flex;gap:10px;flex-wrap:wrap}
 .meta a{color:var(--acc);text-decoration:none}
-#snack{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:6px 12px;border-radius:7px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90%}
+#snack{position:fixed;z-index:15;left:50%;bottom:14px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:6px 12px;border-radius:7px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90%}
 #snack.on{opacity:1}
 .dlg{position:fixed;inset:0;background:#0008;display:none;align-items:center;justify-content:center;z-index:20}
 .dlg.on{display:flex}
@@ -193,15 +193,35 @@ pre .warn{color:var(--amber)} pre .error{color:var(--red)} pre .cmd{color:var(--
 .dlg .row{display:flex;gap:6px;justify-content:flex-end}
 .pywebview-drag-region{cursor:default}
 .lng{font:inherit;font-size:12px;background:var(--track);color:var(--fg);border:0;border-radius:6px;padding:2px 4px;cursor:pointer;max-width:110px}
-/* settings page: replaces the header and the list while open (Windows 11 settings: sections of rounded cards, rows with
-   a title, a grey description and the control on the right, toggle switches) */
-body.setmode>header,body.setmode #srcf,body.setmode #list,body.setmode #sb{display:none}
-#set{display:none;flex:1;min-height:0;flex-direction:column}
-body.setmode #set{display:flex}
-#set .sh{flex:none;display:flex;align-items:center;gap:6px;padding:8px 12px 8px 8px;border-bottom:1px solid var(--ln);user-select:none}
-#set .sh h2{font-size:14px;font-weight:650;margin:0}
+/* settings (Windows 11 settings: rounded cards, rows with a title, a grey description and the control on the right, toggle
+   switches), one section per tab of the icon strip. In the app: left of the panel in the same window, which is made wider
+   for them (PanelForm); the panel keeps its width. A browser tab: instead of the header and the list. */
+html:not(.native) body.setmode>header,html:not(.native) body.setmode #srcf,html:not(.native) body.setmode #list,html:not(.native) body.setmode #sb{display:none}
+#set{display:none;flex:1;min-height:0;flex-direction:row}
+html:not(.native) body.setmode #set{display:flex}
+html.native body.setwide{padding-left:calc(100vw - var(--pw,100vw))}
+html.native body.setwide #grip{display:none}
+html.native body.setwide #set{display:flex;position:fixed;left:0;top:0;bottom:0;width:var(--setw,560px);z-index:7;border-right:1px solid var(--ln)}
+html.native.setover body.setwide #set{background:var(--bg)}
+#rail{flex:none;width:48px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0;border-right:1px solid var(--ln);user-select:none}
+#rail .sp{flex:1}
+.rt{position:relative;flex:none;width:36px;height:36px;padding:0;border:0;border-radius:7px;background:none;color:var(--mut);cursor:pointer;display:grid;place-items:center}
+.rt i{font:normal 18px/1 "Segoe Fluent Icons","Segoe MDL2 Assets";speak:none}
+.rt:hover{background:var(--o2);color:var(--fg)}
+.rt[aria-selected=true]{background:var(--o2);color:var(--fg)}
+.rt[aria-selected=true]::before{content:"";position:absolute;left:-6px;top:9px;bottom:9px;width:3px;border-radius:2px;background:var(--acc)}
+html.acc-neutral .rt[aria-selected=true]::before{background:var(--fg)}
+.rt .dot{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 2px var(--bg)}
+#settip{position:absolute;z-index:8;left:52px;background:var(--fg);color:var(--bg);font-size:12px;padding:4px 9px;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .1s}
+#settip.on{opacity:1}
+@media (prefers-reduced-motion:reduce){#settip{transition:none}}
+@media (forced-colors:active){.rt[aria-selected=true]{outline:2px solid Highlight;outline-offset:-2px}.rt .dot{forced-color-adjust:none;background:Highlight;box-shadow:none}#settip{border:1px solid CanvasText}}
+#setpane{flex:1;min-width:0;display:flex;flex-direction:column}
+#set .sh{flex:none;display:flex;align-items:center;gap:6px;padding:8px 8px 8px 14px;user-select:none}
+#set .sh h2{flex:1;min-width:0;font-size:14px;font-weight:650;margin:0}
 #set .sc{flex:1;min-height:0;overflow-y:auto;outline:none;padding:4px 10px 16px;scrollbar-width:thin;overscroll-behavior:contain}
 #set h3{font-size:12.5px;font-weight:600;margin:14px 2px 6px}
+#sethost>.scard+.scard{margin-top:10px}
 #set .scard{background:color-mix(in srgb,var(--card) var(--calpha),transparent);border:1px solid var(--ln);border-radius:8px}
 #set .srow{display:flex;align-items:center;gap:10px;padding:8px 12px;min-height:44px}
 #set .srow+.srow{border-top:1px solid var(--ln)}

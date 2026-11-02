@@ -70,8 +70,8 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
   see-through background and cards (*Panel transparency*; *Card transparency* from 2.9 — in ⚙), light / dark theme and accent colour follow Windows
   (or set in ⚙). *From 2.9.4* the settings say when Windows itself draws no blur (energy saver on, or *Transparency
   effects* off in Windows settings), with a link to that setting.
-- **Settings in the panel** *(from 2.9)*: ⚙ in the panel (or *Settings* in the tray menu) opens one page with everything —
-  appearance, notifications and Telegram, connectors, AI agents, autostart, updates, data folder, API reference; the tray
+- **Settings beside the panel** *(from 2.9; tabs from 3.1)*: ⚙ in the panel (or *Settings* in the tray menu) opens them next to it, one icon tab per section —
+  appearance, notifications, Telegram, connectors, AI agents, system (autostart, updates, data folder, API reference), about; the tray
   menu keeps only the quick actions (open the panel, mute, settings, support, exit) in the Windows 11 style.
 - 10 UI languages (English, Українська, Español, Deutsch, Français, Italiano, Português, Polski, 中文, 日本語).
 - Per-user install, no admin rights, no .NET runtime needed; self-healing autostart.
@@ -139,7 +139,7 @@ Scripted: `TaskHubHost.exe --integrations claude=on codex=on claude-mcp=on codex
 [API.md → Claude Code hooks](API.md#claude-code-hooks), [Codex hooks](API.md#codex-hooks), [MCP server](API.md#mcp-server).
 
 ### Telegram
-Settings → *Notifications* → *Telegram*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
+Settings → *Telegram*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
 *Connect*, scan the QR code with your phone (or open the link on this PC) and press *Start* (in a private chat with the bot:
 groups can't be linked, since every member could press the tasks' buttons). Everything is set up right on the settings
 page *(from 2.9.4; before, in a window of its own)*. To link another account later (e.g. the one on your phone), press

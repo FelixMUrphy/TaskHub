@@ -1,36 +1,44 @@
 const reSet=()=>{ $("#sethost").__h=null; renderSet(); };
+// what was typed in a field of a tab: survives the redraws and a visit to another tab; only fields still there are kept
+let TYPED={};
+const IN_KEEP="input[data-ckey],input[data-tgtok],input[data-ladd]";
+function keepTyped(box){ if (!box.__tab) return; const m=new Map(); for (const e of box.querySelectorAll(IN_KEEP)) m.set(ckey(e),e.value); TYPED[box.__tab]=m; }
+function wipeTyped(){ TYPED={}; for (const e of $("#sethost").querySelectorAll(IN_KEEP)) e.value=""; }
 function renderSet(){
   const box=$("#sethost"); if (!box || !setOpen()) return;
-  const s=NATIVE? SET : null, muted=data? !!data.muted : !!(s && s.muted);
-  const sec=(t,rows,note)=>`<h3>${esc(t)}</h3><div class="scard">${rows}</div>`+(note?`<div class="sd" style="margin:5px 4px 0">${esc(note)}</div>`:"");
+  renderRail();
+  const tab=currentTab(), s=NATIVE? SET : null, muted=data? !!data.muted : !!(s && s.muted);
+  const sec=(rows,note)=>`<div class="scard">${rows}</div>`+(note?`<div class="sd" style="margin:5px 4px 0">${esc(note)}</div>`:"");
   const mute=srow(HL("mute",T("notif_off")), T(muted?"s_mute_on":"s_mute_off"), tgl("muted",muted));
-  let h;
-  if (!s) h=sec(T("sec_notif"),mute);   // the browser page: only what the HTTP API allows
+  let h="";
+  if (!s){ if (tab==="notif") h=sec(mute); }   // the browser page: only what the HTTP API allows
   else {
     const tg=s.telegram, up=s.updates;
     // turned off in Windows (Settings › Notifications): toasts vanish silently, so say it and offer the switch
     const winOff=/^disabled/.test(s.notifications||"")? srow(T("s_win_off"),T("s_win_off_d"),sbtn("notif_settings",T("s_open"))) : "";
-    h=sec(T("sec_notif"), winOff + mute + srow(HL("test_toast"),"",sbtn("test_toast",T("s_send")))
-      + (tg? tgRows(tg) : ""));
-    h+=sec(HL("connectors"), (s.connectors||[]).map(connRow).join(""), T("s_conn_note"));
-    h+=sec(HL("integrations"), (s.agents||[]).map(a=>srow(a.name, a.detected? "" : T("s_not_found"), "")
+    if (tab==="notif") h=sec(winOff + mute + srow(HL("test_toast"),"",sbtn("test_toast",T("s_send"))));
+    if (tab==="telegram" && tg) h=sec(tgRows(tg));
+    if (tab==="connectors") h=sec((s.connectors||[]).map(connRow).join(""), T("s_conn_note"));
+    if (tab==="agents") h=sec((s.agents||[]).map(a=>srow(a.name, a.detected? "" : T("s_not_found"), "")
         + ["hooks","mcp"].map(k=>srow(HL("menu_"+k),"",tgl("agent",a[k],` data-agent="${a.agent}" data-kind="${k}"`),"sub")).join("")).join(""));
-    h+=sec(T("sec_system"), srow(HL("autostart"),"",tgl("autostart",s.autostart))
+    if (tab==="system") h=sec(srow(HL("autostart"),"",tgl("autostart",s.autostart))
       + (up? srow(HL("updates"), "", up.available? sbtn("update_open",HL("update_to"),"primary") : sbtn("update_check_now",HL("update_check_now")))
            + srow(HL("update_auto"),"",tgl("update_check",up.auto),"sub")
            : srow(HL("updates"), T("s_store_upd"), ""))
       + srow(HL("data_folder"),"",sbtn("data_folder",T("s_open")))
       + srow(HL("api_help"),"",sbtn("api_help",T("s_open"))));
-    h+=sec(T("sec_about"), srow("TaskHub "+s.version, T(s.edition==="store"?"s_ed_store":"s_ed_github"), sbtn("support",HL("support"),"heart")));
+    if (tab==="about") h=sec(srow("TaskHub "+s.version, T(s.edition==="store"?"s_ed_store":"s_ed_github"), sbtn("support",HL("support"),"heart")));
   }
-  if (box.__h===h) return;
+  if (box.__h===h && box.__tab===tab) return;
   // keep the focus on the same control across a re-render (the state comes back every few seconds)
   const f=document.activeElement, fk=f && box.contains(f) ? ckey(f) : null;
-  // a key being pasted, a number being typed
-  const IN="input[data-ckey],input[data-cset],input[data-tgtok],input[data-ladd]";
-  const typed={}; for (const e of box.querySelectorAll(IN)) if (e.dataset.ckey||e.dataset.tgtok!=null||e.dataset.ladd!=null? e.value : e===f) typed[ckey(e)]=e.value;
-  box.innerHTML=h; box.__h=h;
-  for (const e of box.querySelectorAll(IN)) if (ckey(e) in typed) e.value=typed[ckey(e)];
+  // a key being pasted (kept per tab), a number being typed
+  keepTyped(box);
+  const num={}; for (const e of box.querySelectorAll("input[data-cset]")) if (e===f) num[ckey(e)]=e.value;
+  box.innerHTML=h; box.__h=h; box.__tab=tab;
+  const kept=TYPED[tab];
+  for (const e of box.querySelectorAll(IN_KEEP)) if (kept && kept.has(ckey(e))) e.value=kept.get(ckey(e));
+  for (const e of box.querySelectorAll("input[data-cset]")) if (ckey(e) in num) e.value=num[ckey(e)];
   if (fk) for (const e of box.querySelectorAll("button,input,select,a[data-open]")) if (ckey(e)===fk){ e.focus({preventScroll:true}); break; }
 }
 // "Settings" next to the transparency hint: Windows Settings, the page that turned the blur off

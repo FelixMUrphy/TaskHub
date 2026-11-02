@@ -36,6 +36,9 @@ if (NATIVE){ document.documentElement.classList.add("native"); try{ window.chrom
   if(d && d.shown) panelShown(true);
   if(d && d.paint){ requestAnimationFrame(()=>requestAnimationFrame(()=>host("painted"))); }
   if(d && d.open_settings) openSet();
+  if(d && d.settings_size) settingsRoom(d.settings_size);
+  if(d && d.settings_gone) settingsGone();
+  if(d && d.close_settings) closeSet(true);
   if(d && d.settings_state) settingsReply(d);
   if(d && d.control_reply){ const r=d.control_reply, t=findTask(r.task), c=t && (t.controls||[]).find(x=>x.id===r.id); snack(r.ok? T("sent",c?c.label:r.id) : T("error")+": "+(r.error||"")); }
   if(d && d.hidden){ panelShown(false); closeSet(); const a=document.activeElement; if (a && a.closest && a.closest("header,#set")) a.blur(); } }); }catch(e){} host("look"); }
