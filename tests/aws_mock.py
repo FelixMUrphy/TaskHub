@@ -52,9 +52,11 @@ class Mock:
             def date_time_string(self, timestamp=None):
                 return email.utils.formatdate((timestamp or time.time()) + mock.date_offset, usegmt=True)
 
-            def raw(self, code, ctype, b):
+            def raw(self, code, ctype, b, headers=None):
                 self.send_response(code)
                 self.send_header("Content-Type", ctype)
+                for k, v in (headers or {}).items():
+                    self.send_header(k, v)
                 self.send_header("Content-Length", str(len(b)))
                 self.send_header("Connection", "close")
                 self.end_headers()

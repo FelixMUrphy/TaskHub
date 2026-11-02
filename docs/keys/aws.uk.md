@@ -5,6 +5,8 @@
 ## Для чого він TaskHub
 - **Спостереження:** ваші інстанси EC2 у регіонах, якими ви користуєтеся: назва, тип, регіон, стан і час роботи.
   Інстанс, що працює довше за встановлений вами ліміт (типово 72 години), отримує нагадування «Забули?».
+- **Довгі завдання, якщо ви їх увімкнете:** завдання навчання SageMaker і завдання AWS Batch: стан, час, причина збою. Кожне має свій
+  перемикач, типово вимкнений. Для звичайного навчання SageMaker не повідомляє відсотків, тому TaskHub їх не показує.
 - **Ніколи:** TaskHub нічого не запускає, не зупиняє і не змінює у вашому обліковому записі. Ця політика не дає йому такої змоги.
 
 TaskHub читає кожен регіон раз на 10 хвилин. На сторінці цін EC2 немає плати за такі виклики, але прямо про їхню безплатність AWS не пише.
@@ -31,6 +33,17 @@ AWS радить тимчасові облікові дані. TaskHub потр�
 }
 ```
 
+Щоб стежити за довгими завданнями, додайте записи для тих, які вмикаєте:
+
+```json
+{"Sid": "TaskHubSageMakerList", "Effect": "Allow", "Action": "sagemaker:ListTrainingJobs", "Resource": "*"},
+{"Sid": "TaskHubSageMakerJob", "Effect": "Allow", "Action": "sagemaker:DescribeTrainingJob", "Resource": "arn:aws:sagemaker:*:*:training-job/*"},
+{"Sid": "TaskHubBatch", "Effect": "Allow", "Action": ["batch:DescribeJobQueues", "batch:ListJobs", "batch:DescribeJobs"], "Resource": "*"}
+```
+
+`sagemaker:DescribeTrainingJob` і `batch:DescribeJobs` повертають повний опис завдання, де можуть бути його параметри та змінні середовища.
+TaskHub читає лише стан, час, ліміт часу й причину збою.
+
 `ec2:DescribeRegions` знаходить регіони, увімкнені в обліковому записі. Без нього TaskHub стежить лише за регіонами, які ви
 вказали самі, або за `us-east-1`, якщо ви не вказали жодного.
 
@@ -55,11 +68,12 @@ AWS радить тимчасові облікові дані. TaskHub потр�
 |---|---|
 | Ключ працює, але його політика не дозволяє `ec2:DescribeRegions` | Додайте дозвіл вище або вкажіть свої регіони |
 | Немає доступу в цьому регіоні | Політика або обліковий запис не дозволяє цей регіон. Інші регіони працюють далі |
+| SageMaker або AWS Batch: ключ не має доступу | Додайте записи вище або вимкніть цей перемикач |
 | Перевірте годинник цього комп’ютера | AWS відхиляє запити, підписані з неправильним часом. Виправте годинник; ключ справний |
 
 ## Де зберігається ключ
 - Лише у Диспетчері облікових даних Windows, ніколи в `config.json`. Обидві частини зберігаються разом і більше не показуються.
-- Сам секрет ніколи не надсилається: він підписує кожен запит. Запити йдуть лише на `ec2.<region>.amazonaws.com`.
+- Сам секрет ніколи не надсилається: він підписує кожен запит. Запити йдуть лише на `ec2.<region>.amazonaws.com` і, для увімкненого, на `api.sagemaker.<region>.amazonaws.com` та `batch.<region>.amazonaws.com`.
 
 ## Відкличте його
 - **В AWS:** консоль IAM → **Users** → користувач → **Security credentials** → **Access keys** → **Actions** → **Deactivate**,
@@ -74,4 +88,9 @@ AWS радить тимчасові облікові дані. TaskHub потр�
 - Найкращі практики: <https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html>
 - Виклики: <https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstances.html>,
   <https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeRegions.html>
+- Довгі завдання: <https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_ListTrainingJobs.html>,
+  <https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_DescribeTrainingJob.html>,
+  <https://docs.aws.amazon.com/batch/latest/APIReference/API_ListJobs.html>,
+  <https://docs.aws.amazon.com/batch/latest/APIReference/API_DescribeJobs.html>,
+  <https://docs.aws.amazon.com/batch/latest/APIReference/API_DescribeJobQueues.html>
 - Регіони: <https://docs.aws.amazon.com/accounts/latest/reference/manage-acct-regions.html>

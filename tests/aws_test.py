@@ -3,7 +3,7 @@ is checked by the mock's own SigV4 signer. Instances become tasks (aws-<id>) wit
 DescribeRegions or the user's list, per-Region states (no access, throttling, 500, unreadable answers) that never declare instances gone,
 stopped / terminated -> done, "forgotten?" with its button, the two-part key kept in the Credential Manager and nowhere else, temporary and
 malformed keys refused, a bad key changing nothing, a revoked key, a wrong clock not called a bad key, nothing polled when off."""
-import json, os, threading, time, urllib.error, urllib.parse, urllib.request
+import json, os, shutil, subprocess, tempfile, threading, time, urllib.error, urllib.parse, urllib.request
 import vault
 from aws_mock import Mock
 
@@ -24,6 +24,17 @@ enabled = ["us-east-1", "eu-west-1", "ap-south-1"]
 faults = {}
 regions_fault = {"on": None}
 page_size = {"n": 2}
+# jobs: Region -> SageMaker jobs; (Region, queue) -> Batch jobs; service -> fault (status, error type) or "dns"-free stand-ins
+training = {}
+describe = {}
+batch = {}
+queues = {}
+job_faults = {}
+describe_faults = {}          # job name -> (status, error type)
+sm_queues = set()             # Batch queues of type SAGEMAKER_TRAINING: ListJobs refuses them
+sm_page = {"n": 1}            # ListTrainingJobs reads a page, then filters by status (as the docs warn), so pages can be empty
+batch_page = {"n": 100}
+regions_delay = {"s": 0}
 
 
 def check(name, cond, extra=""):
@@ -48,7 +59,76 @@ def err_xml(code):
     return f"<?xml version=\"1.0\"?><Response><Errors><Error><Code>{code}</Code><Message>secret detail for {code}</Message></Error></Errors><RequestID>r</RequestID></Response>".encode()
 
 
+def jr(code, obj):
+    return code, "application/x-amz-json-1.1", json.dumps(obj).encode()
+
+
+def job_handler(rec):
+    region, svc = rec["region"], rec["service"]
+    body = json.loads(rec["body"] or "{}")
+    with lock:
+        f = job_faults.get((region, svc)) or job_faults.get(svc)
+        if f and f[1].startswith("header:"):
+            return f[0], "application/json", b'{"message": "secret detail"}', {"X-Amzn-Errortype": f[1][7:]}
+        if f:
+            return jr(f[0], {"__type": f"com.amazon#{f[1]}", "message": f[2] if len(f) > 2 else "secret detail"})
+        if svc == "sagemaker":
+            action = rec["headers"].get("x-amz-target", [""])[0].replace("SageMaker.", "")
+            if action == "DescribeTrainingJob":
+                name = body["TrainingJobName"]
+                if name in describe_faults:
+                    return jr(describe_faults[name][0], {"__type": describe_faults[name][1]})
+                d = describe.get((region, name)) or next((i for i in training.get(region, []) if i["TrainingJobName"] == name), None)
+                return jr(200, d) if d else jr(400, {"__type": "ResourceNotFound", "message": "no job"})
+            if action != "ListTrainingJobs":
+                return jr(400, {"__type": "UnknownOperationException"})
+            items = sorted(training.get(region, []), key=lambda i: -i["CreationTime"])
+            if "LastModifiedTimeAfter" in body:
+                items = [i for i in items if i["LastModifiedTime"] > body["LastModifiedTimeAfter"]]
+            start = int(body.get("NextToken") or 0)
+            page = items[start:start + sm_page["n"]]
+            if "StatusEquals" in body:   # MaxResults first, then the status filter
+                page = [i for i in page if i["TrainingJobStatus"] == body["StatusEquals"]]
+            more = start + sm_page["n"] < len(items)
+            return jr(200, {"TrainingJobSummaries": page, **({"NextToken": str(start + sm_page["n"])} if more else {})})
+        if rec["path"] == "/v1/describejobqueues":
+            return jr(200, {"jobQueues": [{"jobQueueName": n, "status": "VALID", "state": "ENABLED", "jobQueueType": "SAGEMAKER_TRAINING" if n in sm_queues else "ECS"} for n in queues.get(region, [])]})
+        if rec["path"] == "/v1/describejobs":
+            everything = [i for (r, _), js in batch.items() if r == region for i in js]
+            return jr(200, {"jobs": [i for i in everything if i["jobId"] in body["jobs"]]})
+        if rec["path"] == "/v1/listjobs":
+            if body["jobQueue"] in sm_queues:
+                return jr(400, {"__type": "ClientException", "message": "use ListServiceJobs for this queue"})
+            items = sorted(batch.get((region, body["jobQueue"]), []), key=lambda i: -i["createdAt"])
+            if body.get("filters"):   # with a filter jobStatus is ignored and any status comes back
+                t = int(body["filters"][0]["values"][0])
+                items = [i for i in items if i["createdAt"] >= t]
+            else:
+                items = [i for i in items if i["status"] == body.get("jobStatus", "RUNNING")]
+            start = int(body.get("nextToken") or 0)
+            page = items[start:start + batch_page["n"]]
+            more = start + batch_page["n"] < len(items)
+            return jr(200, {"jobSummaryList": page, **({"nextToken": str(start + batch_page["n"])} if more else {})})
+        return jr(404, {"__type": "NotFound"})
+
+
+def sm_job(name, status="InProgress", phase="Training", age=600, end=None):
+    now = time.time()
+    return {"TrainingJobName": name, "TrainingJobArn": f"arn:aws:sagemaker:us-east-1:123456789012:training-job/{name}", "CreationTime": now - age, "LastModifiedTime": now,
+            "TrainingJobStatus": status, "SecondaryStatus": phase, **({"TrainingEndTime": end} if end else {})}
+
+
+def b_job(jid, name, status, age=600, stopped=None, **kw):
+    ms = lambda t: int(t * 1000)
+    now = time.time()
+    return {"jobId": jid, "jobName": name, "status": status, "createdAt": ms(now - age), "startedAt": ms(now - age + 5), **({"stoppedAt": ms(stopped)} if stopped else {}), **kw}
+
+
 def handler(rec):
+    if rec["service"] != "ec2":
+        return job_handler(rec)
+    if "DescribeRegions" in rec["query"] and regions_delay["s"]:
+        time.sleep(regions_delay["s"])
     q = dict(urllib.parse.parse_qsl(rec["query"]))
     region = rec["region"]
     with lock:
@@ -353,6 +433,109 @@ with mock:
         with lock:
             regions_fault["on"] = None
 
+        # ------------------------------------------------------------ long jobs
+        mock.requests.clear()
+        time.sleep(0.8)
+        check("job services off by default: never asked", not [q for q in mock.requests if q["service"] != "ec2"], {q["service"] for q in mock.requests})
+        rw = row()
+        check("settings row: two switches, off", [s["key"] for s in rw["switches"]] == ["sagemaker", "batch"] and not any(s["value"] for s in rw["switches"]), rw["switches"])
+        now = time.time()
+        with lock:
+            training["us-east-1"] = [sm_job("classifier-train"), sm_job("old-finished", "Completed", "Completed", 90000, now - 86000) | {"LastModifiedTime": now - 86000}]
+            training["eu-west-1"] = [sm_job("classifier-train", age=300)]   # the same name in another Region is another job
+            describe[("us-east-1", "classifier-train")] = sm_job("classifier-train") | {"StoppingCondition": {"MaxRuntimeInSeconds": 14400}, "TrainingStartTime": now - 500}
+            queues["us-east-1"] = ["render-q"]
+            batch[("us-east-1", "render-q")] = [b_job("11111111-aaaa", "video render array", "PENDING", arrayProperties={"size": 10, "statusSummary": {"SUCCEEDED": 3, "FAILED": 1, "RUNNING": 6}}),
+                                                b_job("22222222-bbbb", "waiting", "RUNNABLE"), b_job("33333333-cccc", "ancient", "SUCCEEDED", 90000, now - 86000)]
+        s, r = call("POST", "/api/connectors/aws", {"sagemaker": True, "batch": True, "job_interval": 0.2})
+        check("switches on", s == 200 and r["sagemaker"] is True and r["batch"] is True, (s, r))
+        jid = lambda name, region: next((j["task"] for j in state()["jobs"] if j["id"] == name and j["region"] == region), None)
+        wait(lambda: jid("classifier-train", "us-east-1") and jid("classifier-train", "eu-west-1"))
+        a, b = jid("classifier-train", "us-east-1"), jid("classifier-train", "eu-west-1")
+        check("same name in two Regions: two tasks", a and b and a != b, (a, b))
+        t = when(a, lambda t: "Time limit" in json.dumps(t.get("widgets", [])))
+        check("training job -> task: phase, time limit, Region, no invented percent", t and t["state"] == "running" and t.get("status") == "Training" and t.get("progress") is None
+              and "SageMaker" in t["description"] and "us-east-1" in t["description"] and "4h" in json.dumps(t["widgets"]), t)
+        check("an empty first page didn't end the list (MaxResults before the filter)", any('"NextToken"' in q["body"] for q in mock.requests if q["service"] == "sagemaker"))
+        check("signed for sagemaker, JSON 1.1, target signed", any(q["service"] == "sagemaker" and q.get("verified") and "x-amz-target" in q.get("signed", []) and q["headers"]["content-type"] == ["application/x-amz-json-1.1"] for q in mock.requests))
+        check("finished before the switch was on: not shown", not any(j["id"] == "old-finished" for j in state()["jobs"]), state()["jobs"])
+        ta = when("aws-b-11111111-aaaa", lambda t: t.get("progress") is not None)
+        check("array job: real progress from its children; a parent PENDING with running children reads RUNNING", ta and abs(ta["progress"] - 0.4) < 0.001 and "render-q" in ta["description"] and ta.get("status") == "RUNNING", ta)
+        tw = when("aws-b-22222222-bbbb", lambda t: t.get("status") == "RUNNABLE")
+        check("a queued job shows its state", tw is not None and tw["state"] == "running", task("aws-b-22222222-bbbb"))
+        check("old finished Batch job: not shown", task("aws-b-33333333-cccc") is None)
+        check("Batch requests signed", any(q["service"] == "batch" and q.get("verified") and '"jobStatus": "RUNNING"' in q["body"].replace('":"', '": "') for q in mock.requests))
+        dump = json.dumps(state()) + json.dumps(call("GET", "/api/tasks")[1])
+        check("no account id from the job ARN on tasks or state", "123456789012" not in dump)
+
+        # finish: failed with the reason, stopped -> cancelled, done, a job born and finished between reads
+        with lock:
+            now = time.time()
+            training["us-east-1"][0] = sm_job("classifier-train", "Failed", "Failed", 600, now)
+            describe[("us-east-1", "classifier-train")] = training["us-east-1"][0] | {"FailureReason": "AlgorithmError:\n  out of memory", "TrainingStartTime": now - 500}
+            training["eu-west-1"][0] = sm_job("classifier-train", "Stopped", "Stopped", 300, now)
+            training["us-east-1"].append(sm_job("quick-job", "Completed", "Completed", 30, now))
+            q = batch[("us-east-1", "render-q")]
+            q[0]["status"] = "FAILED"; q[0]["statusReason"] = "Essential container exited"; q[0]["stoppedAt"] = int(now * 1000)
+            q[1]["status"] = "SUCCEEDED"; q[1]["stoppedAt"] = int(now * 1000)
+        t = when(a, lambda t: t["state"] == "failed")
+        check("failed training: failed, with the reason on one line", t and t.get("message") == "AlgorithmError: out of memory", t and t.get("message"))
+        t = when(b, lambda t: t["state"] == "cancelled")
+        check("stopped training: cancelled", t is not None, task(b))
+        qj = wait(lambda: jid("quick-job", "us-east-1"))
+        t = when(qj, lambda t: t["state"] == "done") if qj else None
+        check("a job born and finished between two reads still shows, with its toast", t and t.get("notify", {}).get("finish") is True, t)
+        t = when("aws-b-11111111-aaaa", lambda t: t["state"] == "failed")
+        check("failed Batch job: its reason", t and t.get("message") == "Essential container exited", t and t.get("message"))
+        t = when("aws-b-22222222-bbbb", lambda t: t["state"] == "done")
+        check("succeeded Batch job: done", t is not None, task("aws-b-22222222-bbbb"))
+        with lock:
+            batch[("us-east-1", "render-q")].append(b_job("44444444-dddd", "stopped by hand", "RUNNING"))
+        when("aws-b-44444444-dddd", lambda t: t["state"] == "running")
+        with lock:
+            j = batch[("us-east-1", "render-q")][-1]
+            j["status"] = "FAILED"; j["isCancelled"] = True; j["stoppedAt"] = int(time.time() * 1000)
+        check("cancelled Batch job: cancelled, not failed", when("aws-b-44444444-dddd", lambda t: t["state"] == "cancelled") is not None, task("aws-b-44444444-dddd"))
+
+        # a service that refuses says so, and declares nothing finished
+        with lock:
+            batch[("us-east-1", "render-q")].append(b_job("55555555-eeee", "still running", "RUNNING"))
+            job_faults["batch"] = (400, "ClientException", "User is not authorized to perform: batch:ListJobs")
+        got = wait(lambda: state()["job_polls"].get("us-east-1/batch", {}).get("state") == "no_access")
+        with lock:
+            job_faults.clear()
+        when("aws-b-55555555-eeee", lambda t: t["state"] == "running")
+        with lock:
+            job_faults["batch"] = (403, "AccessDeniedException")
+        got2 = wait(lambda: all(v["state"] == "no_access" for k, v in state()["job_polls"].items() if k.endswith("/batch")))
+        time.sleep(0.5)
+        t = task("aws-b-55555555-eeee")
+        rw = row()
+        check("Batch's ClientException 'not authorized' = no access", got, state()["job_polls"])
+        check("no access: job not declared finished, EC2 and key unaffected", got2 and t["state"] == "running" and state()["key_check"] == "ok", (t["state"], state()["key_check"]))
+        check("no access everywhere: the settings say what to do and link the list", any("AWS Batch" in n and "no access" in n for n in rw["notes"]) and rw.get("help_needed") is True, rw["notes"])
+        dump = json.dumps(state()) + json.dumps(rw)
+        check("the service's error text isn't repeated", "not authorized" not in dump and "secret detail" not in dump, dump[:200])
+        with lock:
+            job_faults.clear()
+            job_faults["sagemaker"] = (400, "ThrottlingException")
+        check("throttling: that poll's state", wait(lambda: state()["job_polls"].get("us-east-1/sagemaker", {}).get("state") == "throttled"), state()["job_polls"])
+        with lock:
+            job_faults.clear()
+
+        # switch off: one summary, nothing asked
+        wait(lambda: state()["job_polls"].get("us-east-1/batch", {}).get("state") == "ok")
+        before = len(toasts())
+        s, r = call("POST", "/api/connectors/aws", {"batch": False})
+        t = task("aws-b-55555555-eeee")
+        new = toasts()[before:]
+        check("Batch switched off: its jobs let go with one summary", s == 200 and t["state"] == "done" and "No longer watched" in (t.get("message") or "") and len(new) == 1 and "job" in new[0], (t["state"], new))
+        check("...machines keep being followed", task("aws-i-0a1")["state"] == "running", task("aws-i-0a1")["state"])
+        mock.requests.clear()
+        time.sleep(0.8)
+        check("...and Batch isn't asked any more", not [q for q in mock.requests if q["service"] == "batch"], [q["path"] for q in mock.requests if q["service"] == "batch"][:2])
+        call("POST", "/api/connectors/aws", {"sagemaker": False, "job_interval": 300})
+
         # ------------------------------------------------------------ a restart of the loop, another key
         s, r = call("POST", "/api/connectors/aws", {"key": f"{KID}:{SECRET}"})
         when("aws-i-0a1", lambda t: t["state"] == "running")
@@ -370,6 +553,183 @@ with mock:
         check("another key: one summary", len(new) == 1 and "machine" in new[0], new)
         check("another key (maybe another account): what was followed is let go first", s == 200 and t["state"] == "done" and "No longer watched" in (t.get("message") or ""), t)
         check("...then the same instances are followed under the new key", when("aws-i-0a1", lambda t: t["state"] == "running") is not None, task("aws-i-0a1"))
+
+        # ------------------------------------------------------------ long jobs: long histories, partial answers, finishing states
+        with lock:
+            for x in (training, describe, queues, batch, job_faults, describe_faults):
+                x.clear()
+            sm_page["n"], batch_page["n"] = 1, 1
+        s, r = call("POST", "/api/connectors/aws", {"job_interval": "abc"})
+        check("job_interval must be a number", s == 400, (s, r))
+        call("POST", "/api/connectors/aws", {"sagemaker": True, "batch": True, "job_interval": 0.2})
+        with lock:
+            training["us-east-1"] = [sm_job(n, age=a) for n, a in (("deep", 90000), ("limit-run", 80000), ("del-failed", 70000), ("denied-run", 60000), ("gone-run", 50000))]
+            queues["us-east-1"] = ["sm-q", "render-q"]
+            sm_queues.add("sm-q")
+            batch[("us-east-1", "render-q")] = [b_job("66666666-aaaa", "deep batch", "RUNNING", 90000), b_job("77777777-bbbb", "deep batch 2", "RUNNING", 90000)]
+        sid = lambda name: next((j["task"] for j in state()["jobs"] if j["id"] == name), None)
+        wait(lambda: all(sid(n) for n in ("deep", "limit-run", "del-failed", "denied-run", "gone-run")))
+        check("a queue that refuses ListJobs (SageMaker type) doesn't lose the others", when("aws-b-66666666-aaaa", lambda t: t["state"] == "running") is not None, state()["job_polls"])
+        ids = {n: sid(n) for n in ("deep", "limit-run", "del-failed", "denied-run", "gone-run")}
+        with lock:
+            now = time.time()
+            # a long history comes first in the lists: more pages than may be read
+            training["us-east-1"] += [sm_job(f"hist-{i}", "Completed", "Completed", 40000 - i, now - 30000) | {"LastModifiedTime": now - 30000} for i in range(30)]
+            batch[("us-east-1", "render-q")] += [b_job(f"h{i:07d}-cccc", "hist", "SUCCEEDED", 40000 - i, now - 30000) for i in range(30)]
+            d = {i["TrainingJobName"]: i for i in training["us-east-1"]}
+            d["deep"].update(sm_job("deep", "Completed", "Completed", 90000, now))
+            d["limit-run"].update(sm_job("limit-run", "Stopped", "MaxRuntimeExceeded", 80000, now))
+            d["del-failed"].update(sm_job("del-failed", "Deleting", "Failed", 70000, now))
+            describe[("us-east-1", "del-failed")] = d["del-failed"] | {"FailureReason": "Role arn:aws:iam::123456789012:role/x refused for account 123456789012"}
+            # no longer in any list: only the job's own answer can tell
+            training["us-east-1"] = [i for i in training["us-east-1"] if i["TrainingJobName"] not in ("denied-run", "gone-run")]
+            describe_faults["denied-run"] = (403, "AccessDeniedException")
+            j = batch[("us-east-1", "render-q")][0]
+            j["status"] = "SUCCEEDED"; j["stoppedAt"] = int(now * 1000)
+            del batch[("us-east-1", "render-q")][1]
+        check("over the page limit: a followed job still finishes (SageMaker)", when(ids["deep"], lambda t: t["state"] == "done") is not None, task(ids["deep"]) and task(ids["deep"])["state"])
+        check("over the page limit: a followed job still finishes (Batch)", when("aws-b-66666666-aaaa", lambda t: t["state"] == "done") is not None, (task("aws-b-66666666-aaaa") or {}).get("state"))
+        t = when("aws-b-77777777-bbbb", lambda t: t["state"] != "running")
+        check("Batch: a job its own answer no longer knows is let go", t and "No longer watched" in (t.get("message") or ""), t and t["state"])
+        t = when(ids["limit-run"], lambda t: t["state"] != "running")
+        check("stopped by its time limit: failed, and says so", t and t["state"] == "failed" and "time limit" in (t.get("message") or "").lower(), t and (t["state"], t.get("message")))
+        t = when(ids["del-failed"], lambda t: t["state"] != "running")
+        check("being deleted after a failure: failed", t and t["state"] == "failed", t and t["state"])
+        check("an account id in a failure reason goes no further", t and "123456789012" not in json.dumps(t) and "refused" in (t.get("message") or ""), t and t.get("message"))
+        t = when(ids["gone-run"], lambda t: t["state"] != "running")
+        check("SageMaker: a job that no longer exists is let go", t and "No longer watched" in (t.get("message") or ""), t and t["state"])
+        time.sleep(1)
+        t = task(ids["denied-run"])
+        check("the job's own answer refused: nothing declared finished", t["state"] == "running", t["state"])
+        with lock:
+            describe_faults.clear()
+            training["us-east-1"].append(sm_job("denied-run", "InProgress", "Training", 60000))
+            job_faults["sagemaker"] = (400, "ThrottlingException:http://internal.example/#frag")
+        check("an error type with a URI part: still throttling", wait(lambda: state()["job_polls"].get("us-east-1/sagemaker", {}).get("state") == "throttled"), state()["job_polls"].get("us-east-1/sagemaker"))
+        with lock:
+            job_faults.clear()
+            job_faults["batch"] = (400, "header:ThrottlingException")
+        check("the error type in X-Amzn-Errortype is read", wait(lambda: state()["job_polls"].get("us-east-1/batch", {}).get("state") == "throttled"), state()["job_polls"].get("us-east-1/batch"))
+        with lock:
+            job_faults.clear()
+        # a switch changed while a new key is being checked isn't lost
+        with lock:
+            regions_delay["s"] = 2
+        keyer = threading.Thread(target=lambda: call("POST", "/api/connectors/aws", {"key": f"{KID2}:{SECRET2}"}))
+        keyer.start()
+        time.sleep(0.5)
+        call("POST", "/api/connectors/aws", {"batch": False})
+        keyer.join()
+        with lock:
+            regions_delay["s"] = 0
+        check("a switch changed during a key check stays changed", state()["batch"] is False, state()["batch"])
+        # connector off, jobs finish, on again: no pile of toasts
+        wait(lambda: state()["job_polls"].get("us-east-1/sagemaker", {}).get("state") == "ok")
+        offon = None
+        with lock:
+            training["us-east-1"] = [sm_job("off-on")]
+        wait(lambda: sid("off-on"))
+        offon = sid("off-on")
+        call("POST", "/api/connectors/aws", {"enabled": False})
+        with lock:
+            now = time.time()
+            training["us-east-1"] = [sm_job("off-on", "Completed", "Completed", 600, now), sm_job("born-off", "Completed", "Completed", 5, now)]
+        time.sleep(0.3)
+        before = len(toasts())
+        call("POST", "/api/connectors/aws", {"enabled": True})
+        time.sleep(2)
+        new = toasts()[before:]
+        check("finished while the connector was off: no toasts on turning it on", not any("off-on" in l or "born-off" in l for l in new), new)
+        check("...and not shown", not any(x.get("name") == "born-off" for x in call("GET", "/api/tasks")[1].get("tasks", [])), state()["jobs"])
+        call("POST", "/api/connectors/aws", {"sagemaker": False, "batch": False, "job_interval": 300})
+        with lock:
+            for x in (training, describe, queues, batch, job_faults, describe_faults):
+                x.clear()
+            sm_queues.clear()
+            sm_page["n"], batch_page["n"] = 1, 100
+
+        # ------------------------------------------------------------ long jobs across a real restart (a hub of its own)
+        data2 = tempfile.mkdtemp(prefix="taskhub-aws2-")
+        url2 = "http://127.0.0.1:47893"
+        exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "TaskHubHost.exe")
+        with open(os.path.join(data2, "config.json"), "w", encoding="utf-8") as f:
+            json.dump({"toasts": False, "autostart": False, "language": "en", "toast_rate": 0, "toast_task_gap": 0, "connectors": {"aws": {"api": f"http://127.0.0.1:{PORT}"}}}, f)
+
+        def call2(method, path, body=None):
+            rq = urllib.request.Request(url2 + path, method=method, data=json.dumps(body).encode() if body is not None else None, headers={"X-TaskHub": "1", "Content-Type": "application/json"})
+            with op.open(rq, timeout=10) as r:
+                return json.load(r)
+
+        def task2(tid):
+            try:
+                return call2("GET", f"/api/tasks/{tid}")
+            except urllib.error.HTTPError:
+                return None
+
+        def start2():
+            h = subprocess.Popen([exe, "--port", "47893", "--data", data2, "--no-tray"])
+            def up():
+                try:
+                    return call2("GET", "/api/health") is not None
+                except OSError:
+                    return False
+            wait(up, 30)
+            return h
+
+        def tid2(name):
+            for j in call2("GET", "/api/connectors/aws").get("jobs", []):
+                if j["id"] == name:
+                    return j["task"]
+
+        def toasts2():
+            time.sleep(0.6)
+            try:
+                return [l for l in open(os.path.join(data2, LOG), encoding="utf-8", errors="replace") if "TOAST [" in l]
+            except OSError:
+                return []
+
+        hub2 = None
+        try:
+            with lock:
+                job_faults.clear()
+                training["us-east-1"] = []
+                queues["us-east-1"] = []
+            hub2 = start2()
+            with lock:
+                job_faults[("eu-west-1", "sagemaker")] = (403, "AccessDeniedException")   # one Region refusing mustn't hold "since" back
+            call2("POST", "/api/connectors/aws", {"key": f"{KID}:{SECRET}", "enabled": True, "regions": ["us-east-1", "eu-west-1"], "sagemaker": True, "job_interval": 0.2})
+            with lock:
+                training["us-east-1"] = [sm_job("runs-on"), sm_job("cleared", "Completed", "Completed", 60, time.time())]
+            wait(lambda: tid2("runs-on") and tid2("cleared"))
+            run_t, cleared_t = tid2("runs-on"), tid2("cleared")
+            wait(lambda: (task2(cleared_t) or {}).get("state") == "done")
+            call2("DELETE", f"/api/tasks/{cleared_t}?force=1")
+            time.sleep(4)   # "since" moves past the cleared job
+            check("a finished job past \"since\" is forgotten", tid2("cleared") is None, call2("GET", "/api/connectors/aws").get("jobs"))
+            hub2.kill(); hub2.wait(10)
+            before = len(toasts2())
+            with lock:
+                now = time.time()
+                training["us-east-1"][0] = sm_job("runs-on", "Completed", "Completed", 600, now)
+                training["us-east-1"].append(sm_job("born-while-off", "Completed", "Completed", 5, now))
+                # "cleared" keeps its old LastModifiedTime: a real read wouldn't list it any more
+            hub2 = start2()
+            wait(lambda: (task2(run_t) or {}).get("state") == "done")
+            t = task2(run_t)
+            check("restart: a followed job that ended meanwhile finishes, once, with its toast", t and t["state"] == "done" and sum("runs-on" in l for l in toasts2()[before:]) == 1, (t and t["state"], toasts2()[before:]))
+            named = lambda n: next((x["id"] for x in call2("GET", "/api/tasks").get("tasks", []) if x.get("name") == n), None)
+            wait(lambda: named("born-while-off"))
+            b2 = named("born-while-off")
+            check("restart: a job that started and ended while off shows, without a toast", b2 and (task2(b2) or {}).get("state") == "done" and not any("born-while-off" in l for l in toasts2()[before:]), toasts2()[before:])
+            check("restart: a finished job the user cleared doesn't come back", task2(cleared_t) is None, task2(cleared_t))
+            call2("POST", "/api/connectors/aws", {"forget_key": True, "enabled": False})
+        finally:
+            if hub2:
+                hub2.kill(); hub2.wait(10)
+            with lock:
+                training.clear(); describe.clear(); queues.clear(); batch.clear(); job_faults.clear()
+            vault.delete(vault.target(data2, "aws"))
+            shutil.rmtree(data2, ignore_errors=True)
 
         # ------------------------------------------------------------ off, forget
         time.sleep(0.6)

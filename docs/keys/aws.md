@@ -5,6 +5,8 @@
 ## What TaskHub uses it for
 - **Watch:** your EC2 instances in the Regions you use: name, type, Region, state and how long they have been running.
   An instance running longer than the limit you set (72 hours by default) gets a "Forgotten?" reminder.
+- **Long jobs, if you turn them on:** SageMaker training jobs and AWS Batch jobs: state, time, failure reason. Each has its own
+  switch, off by default. SageMaker doesn't report a percentage for ordinary training jobs, so TaskHub doesn't show one.
 - **Never:** TaskHub starts, stops or changes nothing in your account. This policy gives it no way to.
 
 TaskHub reads each Region every 10 minutes. AWS's EC2 pricing page lists no charge for these calls, but AWS doesn't say outright that they are free.
@@ -31,6 +33,17 @@ Create a policy with this JSON. Later versions of the connector may need more, a
 }
 ```
 
+To follow long jobs, add the statements for the ones you turn on:
+
+```json
+{"Sid": "TaskHubSageMakerList", "Effect": "Allow", "Action": "sagemaker:ListTrainingJobs", "Resource": "*"},
+{"Sid": "TaskHubSageMakerJob", "Effect": "Allow", "Action": "sagemaker:DescribeTrainingJob", "Resource": "arn:aws:sagemaker:*:*:training-job/*"},
+{"Sid": "TaskHubBatch", "Effect": "Allow", "Action": ["batch:DescribeJobQueues", "batch:ListJobs", "batch:DescribeJobs"], "Resource": "*"}
+```
+
+`sagemaker:DescribeTrainingJob` and `batch:DescribeJobs` return a job's whole description, which can include its settings and environment
+variables. TaskHub reads only the state, times, time limit and failure reason.
+
 `ec2:DescribeRegions` finds the Regions enabled in your account. Without it, TaskHub watches only the Regions you list
 yourself, or `us-east-1` if you list none.
 
@@ -55,11 +68,12 @@ Leave **Regions** empty to watch every Region enabled in the account, or add onl
 |---|---|
 | The key works, but its policy doesn't allow `ec2:DescribeRegions` | Add the permission above or list your Regions |
 | No access in this Region | The policy or the account doesn't allow this Region. Other Regions keep working |
+| SageMaker or AWS Batch: the key has no access | Add the statements above, or turn that switch off |
 | Check this computer's clock | AWS refuses requests signed with a wrong time. Fix the clock; the key is fine |
 
 ## Where the key is kept
 - Only in the Windows Credential Manager, never in `config.json`. Both parts are kept together and never shown again.
-- The secret itself is never sent: it signs each request. Requests go only to `ec2.<region>.amazonaws.com`.
+- The secret itself is never sent: it signs each request. Requests go only to `ec2.<region>.amazonaws.com` and, for what you turn on, `api.sagemaker.<region>.amazonaws.com` and `batch.<region>.amazonaws.com`.
 
 ## Revoke it
 - **At AWS:** IAM console → **Users** → the user → **Security credentials** → **Access keys** → **Actions** → **Deactivate**, then
@@ -74,4 +88,9 @@ Leave **Regions** empty to watch every Region enabled in the account, or add onl
 - Best practices: <https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html>
 - The calls: <https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstances.html>,
   <https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeRegions.html>
+- Long jobs: <https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_ListTrainingJobs.html>,
+  <https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_DescribeTrainingJob.html>,
+  <https://docs.aws.amazon.com/batch/latest/APIReference/API_ListJobs.html>,
+  <https://docs.aws.amazon.com/batch/latest/APIReference/API_DescribeJobs.html>,
+  <https://docs.aws.amazon.com/batch/latest/APIReference/API_DescribeJobQueues.html>
 - Regions: <https://docs.aws.amazon.com/accounts/latest/reference/manage-acct-regions.html>

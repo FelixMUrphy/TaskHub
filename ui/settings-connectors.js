@@ -13,7 +13,7 @@ const connRow=c=>{
     h+=srow(ch.label, ch.note||"", `<select data-csel="${esc(ch.key)}" data-conn="${id}" aria-label="${esc(ch.label)}">`
       + (ch.options||[]).map(o=>`<option value="${esc(o.v)}"${o.v===ch.value?" selected":""}>${esc(o.t)}</option>`).join("")+`</select>`,"sub stack"); }
   if (c.uses_key){
-    const help=(!c.key_set || c.key_check==="revoked" || c.key_check==="denied") && c.help_url
+    const help=(!c.key_set || c.key_check==="revoked" || c.key_check==="denied" || c.help_needed) && c.help_url
       ? `<div class="sd"><a class="klink" tabindex="0" role="link" data-open="${esc(c.help_url)}">${esc(T("s_key_help"))}</a></div>` : "";
     const row=(title,ctl)=>`<div class="srow sub"><div class="sl"><div>${esc(title)}</div>${help}</div>${ctl}</div>`;
     if (CHECKING.has(c.id)) h+=srow(T("s_key_checking"),"","","sub");

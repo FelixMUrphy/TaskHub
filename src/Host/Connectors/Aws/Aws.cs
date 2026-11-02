@@ -16,7 +16,7 @@ namespace TaskHub;
 /// Config (connectors.aws): enabled, regions, forgotten_hours, forgotten_exempt, list_interval, api (tests: a loopback
 /// mock only). Key: Credential Manager "aws", as "access key id:secret". Own SigV4 signer, no SDK (see SigV4.cs).
 /// </summary>
-sealed class AwsConnector : ISettingsConnector
+sealed partial class AwsConnector : ISettingsConnector
 {
     public string Id => "aws";
     public string Title => "AWS";
@@ -28,7 +28,7 @@ sealed class AwsConnector : ISettingsConnector
     const double KeyRetry = 1800, MaxBackoff = 1800, ClockSkew = 300, ReminderGap = 600;
 
     // A Region name; only this ever goes into a host name, so a config or API value can't point a signed request elsewhere.
-    static readonly Regex RegionRx = new(@"^[a-z]{2}(-[a-z]+){1,3}-\d{1,2}$", RegexOptions.CultureInvariant);
+    static readonly Regex RegionRx = new(@"^[a-z]{2}(-[a-z]+){1,3}-\d{1,2}\z", RegexOptions.CultureInvariant);
     static readonly Regex KeyIdRx = new(@"^[A-Z0-9]{16,128}$", RegexOptions.CultureInvariant);
     static readonly Regex SecretRx = new(@"^[\x21-\x7E]{16,128}$", RegexOptions.CultureInvariant);
     static readonly Regex InstanceRx = new(@"^i-[0-9a-zA-Z]{1,40}$", RegexOptions.CultureInvariant);
@@ -58,10 +58,11 @@ sealed class AwsConnector : ISettingsConnector
     }
 
     /// <summary>The last word from one Region. state: "" (not read yet) | ok | no_access | throttled | clock | error.</summary>
-    sealed class RegionState { public string State = ""; public string Code = ""; public int Count, Fails; public double NextAt, ReadAt; }
+    class RegionState { public string State = ""; public string Code = ""; public int Count, Fails; public double NextAt, ReadAt; }
 
     readonly Dictionary<string, Track> machines = new();          // instance id -> what we know / show
     readonly Dictionary<string, RegionState> regions = new();     // the watched Regions
+    readonly object configLock = new();                            // one change of the settings at a time
     string[] allowed = { HomeRegion };                             // Regions whose host may be called (validated names)
     string status = "off";
     string keyCheck;                                               // ok | revoked | denied | clock | network | unavailable; null: none
@@ -72,7 +73,19 @@ sealed class AwsConnector : ISettingsConnector
     public AwsConnector(Settings s, Hub h)
     {
         S = s; hub = h;
-        http = new SafeHttp(() => Mock ? new[] { Api.Host.ToLowerInvariant() } : allowed.Select(r => $"ec2.{r}.amazonaws.com"));
+        http = new SafeHttp(() => Mock ? new[] { Api.Host.ToLowerInvariant() } : AllowedHosts());
+    }
+
+    /// <summary>Exact hosts built from validated Region names, only for what is switched on: no suffix a third party could
+    /// register under.</summary>
+    IEnumerable<string> AllowedHosts()
+    {
+        foreach (var r in allowed)
+        {
+            yield return $"ec2.{r}.amazonaws.com";
+            if (JobsOn("sagemaker")) yield return $"api.sagemaker.{r}.amazonaws.com";
+            if (JobsOn("batch")) yield return $"batch.{r}.amazonaws.com";
+        }
     }
 
     // ------------------------------------------------------------ settings
@@ -86,10 +99,16 @@ sealed class AwsConnector : ISettingsConnector
     List<string> ChosenRegions => (Cfg["regions"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x)).Where(x => RegionRx.IsMatch(x)).ToList();
 
     public JsonObject SettingsChange(JsonObject page) =>
-        SettingsRows.Change(page, "key", "forget_key", new[] { "regions", "forgotten_hours" });
+        SettingsRows.Change(page, "key", "forget_key", new[] { "regions", "forgotten_hours", "sagemaker", "batch" });
 
-    /// <summary>Changes the settings (settings page / API); bad values or a rejected key: nothing is changed.</summary>
+    /// <summary>Changes the settings (settings page / API); bad values or a rejected key: nothing is changed. One at a time: a
+    /// key check takes seconds, and a change made meanwhile mustn't be overwritten.</summary>
     public JsonObject Configure(JsonObject b)
+    {
+        lock (configLock) return ConfigureLocked(b);
+    }
+
+    JsonObject ConfigureLocked(JsonObject b)
     {
         var c = Cfg;
         bool wasOn = J.Truthy(c["enabled"]);
@@ -118,7 +137,12 @@ sealed class AwsConnector : ISettingsConnector
             if (chosen.Count > MaxRegions) throw new ApiError(400, $"at most {MaxRegions} Regions");
             c["regions"] = J.StrArray(chosen);
         }
+        ConfigureJobs(b, c);
         if (b.ContainsKey("enabled")) c["enabled"] = J.Truthy(b["enabled"]);
+        // on again: like turning a switch on, what finished meanwhile isn't news
+        if (!wasOn && J.Truthy(c["enabled"]))
+            foreach (var svc in new[] { "sagemaker", "batch" })
+                if (J.Truthy(c[svc])) c[svc + "_since"] = J.Now();
         bool keyGiven = J.IsStr(b["key"]);
         if (keyGiven) SetKey(J.Str(b["key"]));   // a rejected key: nothing is changed
         Connectors.SetConfig(S, Id, c);
@@ -128,11 +152,16 @@ sealed class AwsConnector : ISettingsConnector
             keyCheck = null;
             Release(_ => true);
         }
-        if (wasOn && !J.Truthy(c["enabled"])) Release(_ => true);
+        if (wasOn && !J.Truthy(c["enabled"]))
+        {
+            Release(_ => true);
+            lock (gate) jobPolls.Clear();
+        }
+        else if (!keyGiven && !J.Truthy(b["forget_key"]) && chosen == null) SyncJobPolls();
         // polls keep their schedule across other changes: a number typed in the settings causes no burst of requests
         if (keyGiven || chosen != null || J.Truthy(b["forget_key"]))
         {
-            lock (gate) { regions.Clear(); nextRegions = 0; regionFails = 0; }
+            lock (gate) { regions.Clear(); jobPolls.Clear(); nextRegions = 0; regionFails = 0; }
         }
         Start();
         return State();
@@ -221,6 +250,11 @@ sealed class AwsConnector : ISettingsConnector
                 items.Add(new JsonObject { ["v"] = r, ["note"] = regions.TryGetValue(r, out var rs) ? RegionNote(rs) : "" });
         var forgotten = SettingsRows.Field("forgotten_hours", null, 0, 8760, 1, ForgottenHours);
         forgotten["text"] = L.T("aws_forgotten_field");
+        var notes = new JsonArray();
+        var denied = JobNotes();
+        foreach (var n in denied) notes.Add((JsonNode)n);
+        notes.Add((JsonNode)L.T("aws_note_readonly"));
+        notes.Add((JsonNode)L.T("aws_note_unverified"));
         return new JsonObject
         {
             ["id"] = Id, ["name"] = Title, ["kind"] = "key", ["enabled"] = on, ["uses_key"] = true,
@@ -230,13 +264,17 @@ sealed class AwsConnector : ISettingsConnector
                 new JsonObject { ["ph"] = L.T("aws_key_secret") }),
             ["summary"] = !on ? "" : SettingsRows.Line(Summary(), SettingsRows.Normal(st) ? "" : st),
             ["help_url"] = SettingsRows.KeyHelpUrl(Id, "uk"),
+            ["help_needed"] = denied.Count > 0,   // the key works but lacks what a switch needs: the page lists it
             ["list"] = new JsonObject
             {
                 ["key"] = "regions", ["label"] = L.T("aws_regions"), ["items"] = items, ["placeholder"] = HomeRegion,
                 ["add"] = L.T("aws_region_add"), ["remove"] = L.T("aws_region_remove"), ["empty"] = L.T("aws_regions_all"), ["dup"] = L.T("aws_region_dup"),
             },
             ["fields"] = new JsonArray(forgotten),
-            ["notes"] = new JsonArray(L.T("aws_note_readonly"), L.T("aws_note_unverified")),
+            ["switches"] = new JsonArray(
+                new JsonObject { ["key"] = "sagemaker", ["text"] = L.T("aws_sw_sagemaker"), ["value"] = JobsOn("sagemaker"), ["head"] = L.T("aws_jobs_head"), ["hint"] = L.T("aws_jobs_hint") },
+                new JsonObject { ["key"] = "batch", ["text"] = L.T("aws_sw_batch"), ["value"] = JobsOn("batch") }),
+            ["notes"] = notes,
         };
     }
 
@@ -248,6 +286,8 @@ sealed class AwsConnector : ISettingsConnector
         {
             int running = machines.Values.Count(t => t.I.RawState == "running");
             if (running > 0) parts.Add(L.N("m_running_n", running));
+            int activeJobs = jobs.Values.Count(t => t.J.Active);
+            if (activeJobs > 0) parts.Add(L.N("aws_jobs_n", activeJobs));
             int read = regions.Values.Count(r => r.State == "ok");
             if (read > 0) parts.Add(L.N("aws_regions_n", read));
             var bad = regions.Where(r => r.Value.State is "no_access" or "throttled" or "error").Select(r => r.Key).OrderBy(x => x, StringComparer.Ordinal).ToList();
@@ -260,6 +300,8 @@ sealed class AwsConnector : ISettingsConnector
     {
         var list = new JsonArray();
         var regs = new JsonObject();
+        var jl = new JsonArray();
+        var polls = new JsonObject();
         int running;
         lock (gate)
         {
@@ -268,6 +310,10 @@ sealed class AwsConnector : ISettingsConnector
                 list.Add(new JsonObject { ["id"] = t.I.Id, ["name"] = t.I.Name, ["region"] = t.I.Region, ["state"] = t.I.RawState, ["task"] = Tid(t.I.Id) });
             foreach (var (k, r) in regions.OrderBy(x => x.Key, StringComparer.Ordinal))
                 regs[k] = new JsonObject { ["state"] = r.State, ["code"] = r.Code, ["count"] = r.Count, ["read_at"] = r.ReadAt > 0 ? r.ReadAt : null };
+            foreach (var (tid, t) in jobs.OrderBy(x => x.Key, StringComparer.Ordinal))
+                jl.Add(new JsonObject { ["kind"] = t.J.Kind, ["id"] = t.J.Id, ["name"] = t.J.Name, ["region"] = t.J.Region, ["state"] = t.J.Raw, ["task"] = tid });
+            foreach (var (k, p) in jobPolls.OrderBy(x => x.Key.Region + x.Key.Service, StringComparer.Ordinal))
+                polls[k.Region + "/" + k.Service] = new JsonObject { ["state"] = p.State, ["code"] = p.Code, ["active"] = p.Count };
         }
         return new JsonObject
         {
@@ -275,6 +321,7 @@ sealed class AwsConnector : ISettingsConnector
             ["key_check"] = keyCheck, ["key_check_text"] = CheckText(),
             ["regions"] = regs, ["regions_chosen"] = J.StrArray(ChosenRegions), ["machines"] = list, ["running"] = running,
             ["forgotten_hours"] = ForgottenHours, ["forgotten_exempt"] = J.StrArray(Exempt), ["list_interval"] = Interval,
+            ["sagemaker"] = JobsOn("sagemaker"), ["batch"] = JobsOn("batch"), ["job_interval"] = JobInterval, ["jobs"] = jl, ["job_polls"] = polls,
             ["summary"] = Summary(),
         };
     }
@@ -322,7 +369,14 @@ sealed class AwsConnector : ISettingsConnector
             if (J.Str(full["source"]) != Id || full["meta"]?[Id] is not JsonObject g) continue;
             var id = J.Str(g["id"]);
             var region = J.Str(g["region"]);
-            if (!InstanceRx.IsMatch(id) || !RegionRx.IsMatch(region)) continue;
+            if (!RegionRx.IsMatch(region)) continue;
+            if (J.Str(g["kind"]) is "sm" or "batch" && Hub.IsActive(J.Str(full["state"])))
+            {
+                var job = new Job { Kind = J.Str(g["kind"]), Id = id, Name = J.Str(g["name"], id), Region = region, Queue = J.Str(g["queue"]), Raw = J.Str(g["state"]), Phase = J.Str(g["state"]), Created = J.Num(g["created"]) };
+                lock (gate) jobs.TryAdd(JobTid(job), new JobTrack { J = job });
+                continue;
+            }
+            if (!InstanceRx.IsMatch(id)) continue;
             var i = new Instance
             {
                 Id = id, Name = J.Str(g["name"]), Region = region, Type = J.Str(g["type"]), LaunchRaw = J.Str(g["launch"]),
@@ -347,7 +401,11 @@ sealed class AwsConnector : ISettingsConnector
         if (keyCheck == "revoked") return;   // nothing is asked until the key works again (checked every 30 min)
         KeyValuePair<string, RegionState> due;
         lock (gate) due = regions.Where(r => r.Value.NextAt <= now).OrderBy(r => r.Value.NextAt).FirstOrDefault();
-        if (due.Key != null) await Poll(due.Key, due.Value, creds, ct);
+        KeyValuePair<(string Region, string Service), JobPoll> job;
+        lock (gate) job = jobPolls.Where(p => p.Value.NextAt <= now).OrderBy(p => p.Value.NextAt).FirstOrDefault();
+        // one read per tick, whichever has waited longest: neither kind can starve the other
+        if (job.Value != null && (due.Key == null || job.Value.NextAt < due.Value.NextAt)) await PollJobs(job.Key.Region, job.Value, creds, ct);
+        else if (due.Key != null) await Poll(due.Key, due.Value, creds, ct);
         RemindAll();
     }
 
@@ -426,7 +484,8 @@ sealed class AwsConnector : ISettingsConnector
                 i++;
             }
         }
-        Release(t => !names.Contains(t.I.Region));
+        Release(t => !names.Contains(t.I.Region), j => !names.Contains(j.Region));
+        SyncJobPolls();
     }
 
     async Task Poll(string region, RegionState rs, SigV4.Creds creds, CancellationToken ct)
@@ -539,9 +598,7 @@ sealed class AwsConnector : ISettingsConnector
             {
                 if (JsonNode.Parse(text) is JsonObject o)
                 {
-                    code = J.Str(o["__type"] ?? o["code"]);
-                    if (code.Contains('#')) code = code[(code.IndexOf('#') + 1)..];
-                    if (code.Contains(':')) code = code[..code.IndexOf(':')];
+                    code = NormCode(J.Str(o["__type"] ?? o["code"]));
                 }
             }
             catch (System.Text.Json.JsonException) { }
@@ -552,6 +609,15 @@ sealed class AwsConnector : ISettingsConnector
 
     /// <summary>On the error's type, not the status. A wrong clock also looks like a bad signature or a bad key, so those
     /// are compared with the answer's Date first: a good key on a machine with a wrong clock isn't called revoked.</summary>
+    /// <summary>"com.amazon#Name:detail" -> "Name".</summary>
+    static string NormCode(string code)
+    {
+        code = (code ?? "").Trim();
+        if (code.Contains(':')) code = code[..code.IndexOf(':')];
+        if (code.Contains('#')) code = code[(code.IndexOf('#') + 1)..];
+        return CodeRx.IsMatch(code) ? code : "";
+    }
+
     static Verdict Classify(string code, int httpCode, DateTimeOffset? serverDate)
     {
         bool skew = serverDate is { } d && Math.Abs((DateTimeOffset.UtcNow - d).TotalSeconds) > ClockSkew;
@@ -773,13 +839,17 @@ sealed class AwsConnector : ISettingsConnector
 
     /// <summary>What can't be told about any more (another key, connector off, a Region no longer watched) stops being
     /// followed. It isn't called stopped or terminated: nobody knows. A mass action: one summary, not a toast per machine.</summary>
-    void Release(Func<Track, bool> which)
+    void Release(Func<Track, bool> which, Func<Job, bool> whichJobs = null)
     {
+        whichJobs ??= _ => which(null);
         List<Track> gone;
+        List<(string Tid, Job J)> goneJobs;
         lock (gate)
         {
             gone = machines.Values.Where(which).ToList();
             foreach (var t in gone) machines.Remove(t.I.Id);
+            goneJobs = jobs.Where(kv => whichJobs(kv.Value.J)).Select(kv => (kv.Key, kv.Value.J)).ToList();
+            foreach (var (tid, _) in goneJobs) jobs.Remove(tid);
         }
         var released = new List<string>();
         foreach (var t in gone)
@@ -792,9 +862,22 @@ sealed class AwsConnector : ISettingsConnector
                 released.Add(tid);
             });
         }
+        int machinesLet = released.Count;
+        foreach (var (tid, _) in goneJobs)
+        {
+            if (TryTask(tid) is not { } task || !Hub.IsActive(J.Str(task["state"]))) continue;
+            Try(() =>
+            {
+                hub.FinishQuietly(tid, new JsonObject { ["state"] = "done", ["message"] = L.T("aws_unwatched") });
+                released.Add(tid);
+            });
+        }
         if (released.Count == 0) return;
         hub.MarkSeen(released);
-        hub.Notify(new JsonObject { ["title"] = "TaskHub · " + Title, ["level"] = "info", ["message"] = L.N("aws_unwatched_n", released.Count), ["click"] = "dismiss" });
+        var parts = new List<string>();
+        if (machinesLet > 0) parts.Add(L.N("aws_unwatched_n", machinesLet));
+        if (released.Count > machinesLet) parts.Add(L.N("aws_unwatched_jobs_n", released.Count - machinesLet));
+        hub.Notify(new JsonObject { ["title"] = "TaskHub · " + Title, ["level"] = "info", ["message"] = string.Join(", ", parts), ["click"] = "dismiss" });
     }
 
     // ------------------------------------------------------------ buttons
@@ -805,11 +888,14 @@ sealed class AwsConnector : ISettingsConnector
         if (cid is not ("keep" or "remind")) throw new ApiError(404, $"unknown action '{cid}'");
         var id = J.Str(g["id"]);
         if (!InstanceRx.IsMatch(id)) throw new ApiError(404, "not an AWS instance");
-        var c = Cfg;
-        var ex = Exempt;
-        if (cid == "keep") ex.Add(id); else ex.Remove(id);
-        c["forgotten_exempt"] = J.StrArray(ex);
-        Connectors.SetConfig(S, Id, c);
+        lock (configLock)
+        {
+            var c = Cfg;
+            var ex = Exempt;
+            if (cid == "keep") ex.Add(id); else ex.Remove(id);
+            c["forgotten_exempt"] = J.StrArray(ex);
+            Connectors.SetConfig(S, Id, c);
+        }
         Track t;
         lock (gate) machines.TryGetValue(id, out t);
         if (t != null) Show(t, true);
