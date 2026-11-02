@@ -274,6 +274,7 @@ static class Fluent
             anim.Start();
         }
         /// <summary>0..1, or null for "working, how long unknown".</summary>
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
         public double? Value { get => value; set { this.value = value; Invalidate(); } }
         protected override void Dispose(bool disposing) { if (disposing) anim.Dispose(); base.Dispose(disposing); }
 

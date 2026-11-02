@@ -104,7 +104,7 @@ static class Runner
                 (JsonNode)new JsonObject { ["id"] = "interrupt", ["label"] = "Ctrl+C", ["kind"] = "signal", ["confirm"] = "Надіслати Ctrl+C процесу?", ["toast"] = toastCtl },
                 (JsonNode)new JsonObject { ["id"] = "stdin", ["label"] = "Send input", ["kind"] = "signal", ["input"] = new JsonObject { ["type"] = "text", ["label"] = "stdin" } },
             };
-            foreach (var pc in preset?.Controls ?? Enumerable.Empty<JsonObject>()) controls.Add(pc);
+            foreach (var pc in preset?.Controls ?? Enumerable.Empty<JsonObject>()) controls.Add((JsonNode)pc);
             var reg = new JsonObject
             {
                 ["id"] = tid, ["name"] = name ?? Cut(cmdline, 80), ["source"] = source,
