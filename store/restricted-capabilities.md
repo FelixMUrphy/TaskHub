@@ -22,7 +22,7 @@ Details for each capability follow in the restricted capabilities justification.
 
 ## runFullTrust
 
-TaskHub is a desktop tray application (WinForms + WebView2, .NET 8). It runs a local HTTP API on 127.0.0.1:47800 that
+TaskHub is a desktop tray application (WinForms + WebView2, .NET 10). It runs a local HTTP API on 127.0.0.1:47800 that
 the user's own scripts and AI coding agents (Claude Code, Codex) use to report long-running jobs, shows a tray icon,
 Windows notifications and a task panel, and acts on the user's commands for those jobs: it signals or kills the
 reporting process (the "Stop" and "Kill" buttons) and, when a task declares one, runs the command line the task

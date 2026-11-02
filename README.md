@@ -272,7 +272,7 @@ in the notification center. Bursts (2.9): at most `toast_rate` notifications a m
 every `toast_task_gap` seconds (2); the rest fold into the latest one ("+N more notifications"), toasts and Telegram alike.
 
 ## Build from source
-`build.cmd` (needs the .NET 8 SDK) → `dist\TaskHub-<version>-setup.exe` (single self-contained file; the CLI is built
+`build.cmd` (needs the .NET 10 SDK) → `dist\TaskHub-<version>-setup.exe` (single self-contained file; the CLI is built
 first and embedded) and `app\` for development. Sources: `src\Host` (Kestrel HTTP API, WinForms tray, WebView2 panel,
 WinRT toasts; connectors in `src\Host\Connectors\<Name>\`, see its README), `src\Cli`, `ui\` (the panel page: `index.html`
 + CSS / JS parts the hub puts together), `i18n\` (translations, 10 languages), `clients\python`.
