@@ -302,7 +302,7 @@ plus a disk series in `load` (CPU, RAM, Disk); load values Vast.ai leaves null a
 `start_date`. Link: the Vast.ai console. Buttons (probe: `PUT /api/v0/instances/0/ {label}` - 403 = read-only): stop / reboot
 (running), start (stopped), delete = destroy (panel only, typed name) - as Runpod. Vast.ai's `200 {"success": false, msg}`
 answers count as errors (its `msg` is shown). Spent = `/api/v0/charges` of the last 30 days (≈); balance and credit from
-`/api/v0/users/current` (credit, when present, is `amount`). Polling as Runpod (list paged 25 at a time); a 429 (Vast.ai sends
+`/api/v0/users/current/` (credit, when present, is `amount`). Polling as Runpod (list paged 25 at a time); a 429 (Vast.ai sends
 no Retry-After) pauses everything 60 s, doubling while 429s follow each other (up to 30 min).
 
 ## Connectors: AWS

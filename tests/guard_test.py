@@ -148,7 +148,7 @@ class Vast(Mock):
                 return self.reply(200, {"instances": list(inst.values()), "next_token": None})
             if m == "GET" and p == "/api/v0/charges/":
                 return self.reply(200, {"results": [{"source": "instance-201", "amount": 2.0}], "next_token": None})
-            if m == "GET" and p == "/api/v0/users/current":
+            if m == "GET" and p == "/api/v0/users/current/":
                 return self.reply(200, dict(user))
             mm = re.match(r"^/api/v0/instances/(\d+)/$", p)
             if mm:

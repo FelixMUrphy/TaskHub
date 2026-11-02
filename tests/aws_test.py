@@ -288,7 +288,7 @@ with mock:
               and mock.requests[0]["region"] == "us-east-1" and mock.requests[0]["service"] == "ec2", mock.requests[:1])
 
         # ------------------------------------------------------------ instances -> tasks
-        t1 = when("aws-i-0a1", lambda t: t["state"] == "running")
+        t1 = when("aws-i-0a1", lambda t: t["state"] == "running" and t.get("description"))   # the card is filled just after it is registered
         check("running instance -> active task named from its Name tag", t1 and t1["name"] == "video render" and t1["source"] == "aws" and t1["project"] == "AWS", t1)
         check("task card: Region and type", t1 and "us-east-1" in t1.get("description", "") and "t3.micro" in t1.get("description", ""), t1)
         check("console link: the Region's console, not an unverified link to the machine", t1 and [l["url"] for l in t1.get("links", [])] == ["https://us-east-1.console.aws.amazon.com/ec2/home?region=us-east-1"], t1 and t1.get("links"))

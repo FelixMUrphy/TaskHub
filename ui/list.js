@@ -142,7 +142,7 @@ function renderLimits(){
       const x=ws[w]; if (!x || x.used_percentage==null) continue;
       const done=x.resets_at && t>=x.resets_at, p=Math.floor(x.used_percentage), old=t-x.at>900, up=x.used_percentage, lvl=done||!th.length?"":up>=th[th.length-1]?"bad":up>=th[0]?"warn":"";
       const val=done? T("limit_reset_done")
-        : [p+"%", x.resets_at? T("limit_resets",when(x.resets_at)) : "", old? T("limit_updated",ago(t-x.at)) : ""].filter(Boolean).join(" · ");
+        : [T("limit_used",p), x.resets_at? T("limit_resets",when(x.resets_at)) : "", old? T("limit_updated",ago(t-x.at)) : ""].filter(Boolean).join(" · ");
       rows.push(`<div class="lim${old||done?" old":""}"${lvl?` data-l="${lvl}"`:""}><div class="lt"><span>${esc(T(k))}</span><span class="lv">${esc(val)}</span></div><div class="lb" aria-hidden="true"><i style="width:${done?0:p}%"></i></div></div>`);
     }
     if (!rows.length && prob[agent]) rows.push(`<div class="limn">${esc(T("limit_p_"+prob[agent]))}</div>`);   // on, but no numbers: say why
