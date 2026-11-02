@@ -13,13 +13,18 @@ const connRow=c=>{
     h+=srow(ch.label, ch.note||"", `<select data-csel="${esc(ch.key)}" data-conn="${id}" aria-label="${esc(ch.label)}">`
       + (ch.options||[]).map(o=>`<option value="${esc(o.v)}"${o.v===ch.value?" selected":""}>${esc(o.t)}</option>`).join("")+`</select>`,"sub stack"); }
   if (c.uses_key){
-    const help=(!c.key_set || c.key_check==="revoked") && c.help_url
+    const help=(!c.key_set || c.key_check==="revoked" || c.key_check==="denied") && c.help_url
       ? `<div class="sd"><a class="klink" tabindex="0" role="link" data-open="${esc(c.help_url)}">${esc(T("s_key_help"))}</a></div>` : "";
     const row=(title,ctl)=>`<div class="srow sub"><div class="sl"><div>${esc(title)}</div>${help}</div>${ctl}</div>`;
     if (CHECKING.has(c.id)) h+=srow(T("s_key_checking"),"","","sub");
     else if (c.key_set && !KEYEDIT.has(c.id))
       h+=row(T("s_key_set"), `<button class="btn" data-ck="replace" data-conn="${id}">${esc(T("s_key_replace"))}</button>`
         + `<button class="btn" data-ck="remove" data-conn="${id}">${esc(T("s_key_forget"))}</button>`);
+    else if (c.key_parts)   // a key of several parts (AWS: access key ID + secret), each its own field, sent joined with ":"
+      h+=`<div class="srow sub stack kparts"><div class="sl"><div>${esc(T(c.key_set?"s_key_set":"s_key_none"))}</div>${help}</div>`
+        + c.key_parts.map((p,k)=>`<input class="kin wide" type="password" autocomplete="off" spellcheck="false" data-ckey="${id}"${k?` data-kp="${k}"`:""} placeholder="${esc(p.ph)}" aria-label="${esc(p.ph)}">`).join("")
+        + `<button class="btn" data-ck="save" data-conn="${id}">${esc(T("s_key_save"))}</button>`
+        + (c.key_set? `<button class="btn" data-ck="cancel" data-conn="${id}">${esc(T("cancel"))}</button>` : "") + `</div>`;
     else
       h+=row(T(c.key_set?"s_key_set":"s_key_none"), `<input class="kin" type="password" autocomplete="off" spellcheck="false" data-ckey="${id}" placeholder="${esc(T("s_key_ph"))}">`
         + `<button class="btn" data-ck="save" data-conn="${id}">${esc(T("s_key_save"))}</button>`

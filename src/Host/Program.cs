@@ -245,6 +245,7 @@ static class Program
         connectors.Add(new GitHubConnector(S, hub));
         connectors.Add(new RunpodConnector(S, hub));
         connectors.Add(new VastAiConnector(S, hub));
+        connectors.Add(new AwsConnector(S, hub));
         var api = new Api(S, hub) { Telegram = telegram, Conns = connectors };
         try { api.Start().GetAwaiter().GetResult(); }
         catch (Exception e)

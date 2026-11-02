@@ -78,8 +78,12 @@ function connKey(id, what){
   if (what==="remove"){ ask(T("s_key_remove_q", c? c.name : id)).then(ok=>{ if (ok) host({settings:"set",connector:id,forget_key:true}); }); return; }
   if (what==="replace"){ KEYEDIT.add(id); reSet(); const i=keyInput(id); if (i) i.focus(); return; }
   if (what==="cancel"){ KEYEDIT.delete(id); reSet(); return; }
-  const inp=keyInput(id), v=inp? inp.value.trim() : ""; if (!v){ if (inp) inp.focus(); return; }
-  inp.value=""; KEYEDIT.delete(id); CHECKING.add(id); reSet();
+  // every part of the key must be there (one field for most connectors); parts go joined with ":"
+  const ins=[...$("#sethost").querySelectorAll("input[data-ckey]")].filter(e=>e.dataset.ckey===id);
+  const empty=ins.find(e=>!e.value.trim()); if (empty || !ins.length){ if (empty) empty.focus(); return; }
+  const v=ins.map(e=>e.value.trim()).join(":");
+  for (const e of ins) e.value="";
+  KEYEDIT.delete(id); CHECKING.add(id); reSet();
   clearTimeout(checkTimer); checkTimer=setTimeout(()=>{ CHECKING.clear(); reSet(); },45000);   // no reply: don't say "checking" forever
   host({settings:"set",connector:id,key:v});
 }

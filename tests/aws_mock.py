@@ -1,7 +1,7 @@
 """Mock of the AWS endpoints (loopback, stdlib). It checks every request's SigV4 signature with its own signer, written from the
 AWS documentation and independent of the hub's, on the bytes that really arrived.
 https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-create-signed-request.html"""
-import hashlib, hmac, json, re, threading, urllib.parse
+import email.utils, hashlib, hmac, json, re, threading, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 UNRESERVED = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
@@ -35,10 +35,12 @@ AUTH_RX = re.compile(r"^AWS4-HMAC-SHA256 Credential=([^/]+)/(\d{8})/([^/]+)/([^/
 
 
 class Mock:
-    """`keys`: access key -> secret. `requests`: what arrived and whether its signature held."""
+    """`keys`: access key -> secret. `requests`: what arrived and whether its signature held. `handler(rec)`, called for a
+    verified request, answers it as the service would: (status, content type, body bytes); none: {"ok": true}.
+    `date_offset`: seconds added to the answers' Date header (as seen from a machine whose clock is off)."""
 
-    def __init__(self, port, keys):
-        self.keys, self.requests = keys, []
+    def __init__(self, port, keys, handler=None):
+        self.keys, self.requests, self.handler, self.date_offset = keys, [], handler, 0
         mock = self
 
         class H(BaseHTTPRequestHandler):
@@ -46,6 +48,17 @@ class Mock:
 
             def log_message(self, *a):
                 pass
+
+            def date_time_string(self, timestamp=None):
+                return email.utils.formatdate((timestamp or time.time()) + mock.date_offset, usegmt=True)
+
+            def raw(self, code, ctype, b):
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(b)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(b)
 
             def reply(self, code, obj):
                 b = json.dumps(obj).encode()
@@ -77,6 +90,8 @@ class Mock:
                 rec.update(verified=hmac.compare_digest(want, sig), region=region, service=service, signed=signed.split(";"))
                 if not rec["verified"]:
                     return self.reply(403, {"__type": "InvalidSignatureException", "message": "signature mismatch"})
+                if mock.handler:
+                    return self.raw(*mock.handler(rec))
                 self.reply(200, {"ok": True})
 
             do_GET = do_POST = handle_any

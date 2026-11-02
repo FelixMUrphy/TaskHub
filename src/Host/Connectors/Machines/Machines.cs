@@ -708,7 +708,7 @@ abstract partial class MachineConnector : ISettingsConnector
 
     static string Money(double? v) => Usd.Money(v);
 
-    static string Hours(double h) =>
+    internal static string Hours(double h) =>
         h >= 48 ? L.T("m_days", ((int)(h / 24)).ToString(CultureInfo.InvariantCulture))
         : h >= 1 ? L.T("m_hours", ((int)Math.Floor(h)).ToString(CultureInfo.InvariantCulture))
         : L.T("m_minutes", Math.Max(0, (int)(h * 60)).ToString(CultureInfo.InvariantCulture));

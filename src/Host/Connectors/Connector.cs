@@ -62,7 +62,7 @@ sealed class Connectors
 static class Secrets
 {
     /// <summary>Every name TaskHub saves a secret under (connectors, Telegram bot): deleted by uninstall --purge.</summary>
-    public static readonly string[] Names = { "github", "telegram", "runpod", "vastai" };
+    public static readonly string[] Names = { "github", "telegram", "runpod", "vastai", "aws" };
 
     const int ErrorNotFound = 1168;
 

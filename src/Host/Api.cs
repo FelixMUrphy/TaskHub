@@ -146,6 +146,7 @@ sealed class Api
             {
                 GitHubConnector gh => gh.Configure(b),
                 MachineConnector mc => mc.Configure(b),
+                AwsConnector aw => aw.Configure(b),
                 _ => throw new ApiError(404, "not configurable"),
             }));
         });

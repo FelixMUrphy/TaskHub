@@ -223,6 +223,9 @@ body.setmode #set{display:flex}
 #set .li .lv{font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;font-weight:400;overflow-wrap:anywhere}
 #set .srow.stack{flex-wrap:wrap;row-gap:6px}
 #set .srow.stack select{max-width:none;flex:1 1 calc(100% - 14px);margin-left:14px}
+#set .srow.kparts>.sl{flex:1 1 100%}
+#set .srow.kparts>.kin.wide{flex:1 1 calc(100% - 14px);margin-left:14px}
+#set .srow.kparts>.btn:first-of-type{margin-left:14px}
 #set .srow.li>.kin.wide{margin-left:14px}
 #set .kin.wide{flex:1;width:auto}
 #set .gh{font-weight:600}

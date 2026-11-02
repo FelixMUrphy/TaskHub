@@ -152,7 +152,7 @@ sealed class SettingsBridge
                         }
                         catch (ApiError e) when (keyed && e.Code == 400)
                         {
-                            err = L.T("k_invalid", cn.Title);   // nothing saved, the old key (if any) stays
+                            err = e.Ui ?? L.T("k_invalid", cn.Title);   // nothing saved, the old key (if any) stays
                         }
                         catch (ApiError e) when (e.Code == 400 && (e.Message.StartsWith("guard_") || e.Ui != null))
                         {

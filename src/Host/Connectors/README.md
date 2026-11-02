@@ -8,7 +8,7 @@ A connector watches an outside service and shows its jobs as TaskHub tasks. Each
 | `SettingsRow.cs` | `ISettingsConnector`: the connector's row on the settings page; helpers in `SettingsRows` |
 | `GitHub/` | GitHub Actions: runs as tasks, its setup window, `github.i18n.json` |
 | `Machines/` | the shared base of machine connectors (GPU / cloud machines) and the balance guard, `machines.i18n.json` |
-| `Aws/` | AWS (in progress): `SigV4.cs`, the request signer |
+| `Aws/` | AWS, read-only (in progress): `Aws.cs` EC2 instances as tasks, `SigV4.cs` the request signer |
 | `Runpod/`, `VastAi/` | the service adapters on top of `Machines/`, each with its own `<id>.i18n.json` |
 
 ## Adding a connector

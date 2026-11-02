@@ -8,6 +8,7 @@ work, how to paste it into TaskHub and how to revoke it.
 | GitHub Actions | [github.md](github.md) | [github.uk.md](github.uk.md) |
 | Runpod | [runpod.md](runpod.md) | [runpod.uk.md](runpod.uk.md) |
 | Vast.ai | [vastai.md](vastai.md) | [vastai.uk.md](vastai.uk.md) |
+| AWS | [aws.md](aws.md) | [aws.uk.md](aws.uk.md) |
 
 For every connector:
 - TaskHub keeps the key only in the Windows Credential Manager — never in `config.json`.
