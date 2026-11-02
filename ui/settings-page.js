@@ -21,7 +21,7 @@ function renderSet(){
     if (tab==="connectors") h=sec((s.connectors||[]).map(connRow).join(""), T("s_conn_note"));
     if (tab==="agents") h=sec((s.agents||[]).map(a=>srow(a.name, a.detected? "" : T("s_not_found"), "")
         + ["hooks","mcp"].map(k=>srow(HL("menu_"+k),"",tgl("agent",a[k],` data-agent="${a.agent}" data-kind="${k}"`),"sub")).join("")
-        + (a.limits===undefined? "" : srow(HL("menu_limits"),HL(a.limits_wraps?"limits_d_wrap":"limits_d_new"),tgl("agent",a.limits,` data-agent="${a.agent}" data-kind="limits"`),"sub"))).join(""));
+        + (a.limits===undefined? "" : srow(HL(a.agent==="codex"?"menu_limits_codex":"menu_limits"),HL(a.agent==="codex"?"limits_d_codex":a.limits_wraps?"limits_d_wrap":"limits_d_new"),tgl("agent",a.limits,` data-agent="${a.agent}" data-kind="limits"`),"sub"))).join(""));
     if (tab==="system") h=sec(srow(HL("autostart"),"",tgl("autostart",s.autostart))
       + (up? srow(HL("updates"), "", up.available? sbtn("update_open",HL("update_to"),"primary") : sbtn("update_check_now",HL("update_check_now")))
            + srow(HL("update_auto"),"",tgl("update_check",up.auto),"sub")

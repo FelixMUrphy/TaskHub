@@ -106,7 +106,7 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/connectors/aws` | `{enabled?, key?: "id:secret", forget_key?, regions?: [..], forgotten_hours?: 0-8760, list_interval?: 300-3600, sagemaker?: bool, batch?: bool, job_interval?: 120-3600, cost?: bool, budgets?: bool}` | changes the settings; a key AWS rejects -> 400, nothing saved (3.1) |
 | POST | `/api/connectors/runpod`, `/api/connectors/vastai` | `{guard?: bool, guard_warn?: $\|null, guard_stop?: $\|null, guard_grace_min?: 1-120, guard_snooze_min?: 5-240, guard_exempt?: [machine id], idle_stop_minutes?: 0\|5-1440}` | balance guard (2.9, [below](#balance-guard)); `guard_warn` must be above `guard_stop` (>= 0), else 400 and nothing changes; a threshold you don't send is compared as saved. These fields can go in one request with the connector's own: any invalid value → 400 and nothing is saved; `idle_stop_minutes` (2.9.3): auto-stop on GPU idle, 0 = off |
 | GET | `/api/guard/log` | `?provider=runpod\|vastai&limit=1-200` (50) | what the balance guard stopped, newest first (2.9): `{entries: [{t, provider, machine_id, name, trigger: "auto"\|"stop_now"\|"idle", balance, threshold, idle_minutes, burn_per_hr, spent, spent_estimated, result: "stopped"\|"failed", error, storage_per_day, storage_note, storage_approx}]}` |
-| GET | `/api/limits` | | plan limits as last reported (3.1): `{claude: {five_hour: {used_percentage, resets_at, at}, seven_day: {...}}}`; also `limits` and `limits_warn` in `GET /api/tasks`; empty while the switch is off |
+| GET | `/api/limits` | | plan limits as last reported (3.1): `{claude: {five_hour: {used_percentage, resets_at, at}, seven_day: {...}}, codex: {...}}`, only agents with their switch on; also `limits` and `limits_warn` in `GET /api/tasks`; empty while the switch is off |
 | POST | `/api/limits/claude` | `{five_hour?: {used_percentage, resets_at?}, seven_day?: {...}}` | a reading, from `taskhub statusline`; only these numbers are kept; ignored while the switch is off |
 | POST | `/api/clear` | | remove finished tasks |
 | POST | `/api/settings` | `{muted?: bool, seen?: true \| [task ids], language?, theme?: "system"\|"light"\|"dark", accent?: "system"\|"taskhub", panel_transparency?: 0-100, card_transparency?: 0-100, panel_group?: "project"\|"source"\|"none", panel_pinned?: bool}` | mute toasts; panel look (also in `GET /api/tasks` → `panel`, which also shows `panel_push_windows`: read-only, it changes only on the panel's settings page) |
@@ -400,6 +400,16 @@ and within a window the highest percentage stands. Only readings without `resets
 
 Claude Code gives these numbers only on Pro, Max and Ultra plans and after the first API response, so nothing is known while no session runs, and any limit a model has of its own isn't included.
 A project's own `statusLine`, `disableAllHooks` or `allowManagedHooksOnly` can keep this command from running.
+
+## Plan limits (Codex)
+
+From 3.1, off by default: Settings → AI agents → Codex → *plan limits in the panel*, or with the hub closed `TaskHubHost.exe --integrations codex-limits=on` (`limits_codex` in `config.json`; with the hub running this exits 1 and changes nothing). Nothing is written to Codex's settings.
+
+Codex has no status line, so TaskHub asks Codex itself: once when you turn this on, then every 10 minutes while a `codex` process is running (checked once a minute). It starts `codex app-server` with no window, sends `initialize`, `initialized` and `account/rateLimits/read`, and closes it (about a second; a Codex that doesn't answer in 20 s is ended). No thread is started, so there are no model requests and your MCP servers aren't started. Codex uses its own login and asks OpenAI for the numbers; a read also adds to Codex's own logs and caches in `CODEX_HOME`.
+
+Windows are told apart by length (300 and 10080 minutes), so a plan with no 5-hour window shows only the week. Only `used_percentage` and `resets_at` are kept, and warnings work as for [Claude Code](#plan-limits-claude-code). There is no HTTP route to report them: `POST /api/limits/codex` is 404. A reading replaces the last one, also when it is lower (reset credits can do that inside a window). TaskHub looks for `codex.exe` on `PATH`, then inside the npm package next to `codex.cmd`.
+
+`codex app-server` is documented by OpenAI as experimental. If Codex is not found, not logged in or answers differently, the log says so (error code only), the last numbers stay with their age shown, and with no numbers to show `limits_problem` in `GET /api/tasks` says why: `{codex: "not_found" | "login" | "failed"}`, a line in the panel.
 
 ## Codex hooks
 Same notifications for [Codex](https://developers.openai.com/codex/hooks): Codex runs command hooks, so use the CLI, which

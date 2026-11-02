@@ -78,11 +78,14 @@ main{padding:10px;display:flex;flex-direction:column;gap:9px}
 #hookoffer .hd{color:var(--mut);margin-top:4px}
 #limits{display:none;flex:none;padding:0 12px 6px;font-size:12px}
 #limits.on{display:block}
+.limg+.limg{margin-top:7px;padding-top:6px;border-top:1px solid var(--o2)}
+.limh{font-weight:600;margin-bottom:2px}
+.limn{color:var(--mut)}
 .lim+.lim{margin-top:5px}
 .lim .lt{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 8px;color:var(--mut)}
 .lim .lv{color:var(--fg)}
 .lim .lb{height:3px;margin-top:2px;background:var(--o2);border-radius:2px;overflow:hidden}
-.lim .lb i{display:block;height:100%;background:var(--blue);border-radius:2px;transition:width .4s}
+.lim .lb i{display:block;height:100%;background:var(--acc);border-radius:2px;transition:width .4s}
 .lim[data-l=warn] .lb i{background:var(--amber)} .lim[data-l=bad] .lb i{background:var(--red)}
 .lim[data-l=bad] .lv{color:var(--red)}
 .lim.old:not([data-l]) .lv{color:var(--mut)} .lim.old:not([data-l]) .lb i{background:var(--grey)}

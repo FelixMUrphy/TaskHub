@@ -36,6 +36,12 @@ static class Program
         // tests only: masking and rotation of the log (Log.SelfTest)
         if (Arg("--selftest-log") is { } logLines && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
             return Log.SelfTest(int.Parse(logLines));
+        // tests only: which Codex program would be asked for its limits (Hub.LocateCodex)
+        if (Arg("--selftest-codex-locate") is { } locateOut && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+        {
+            File.WriteAllText(locateOut, Hub.LocateCodex() ?? "");
+            return 0;
+        }
         // tests only: the Codex hook command for a path (Integrations.CodexCommand)
         if (Has("--selftest-codex-command") && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
         {
@@ -78,11 +84,17 @@ static class Program
             int rc = 0;
             var outp = new List<string>();
             foreach (var a in Integrations.All)
-                foreach (var k in a == Integrations.Agent.Claude ? Integrations.Kinds.Append(Integrations.Kind.Limits) : Integrations.Kinds)
+                foreach (var k in Integrations.Kinds.Append(Integrations.Kind.Limits))
                 {
                     var key = Integrations.ArgName(a, k);
                     var v = args.FirstOrDefault(x => x.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase))?[(key.Length + 1)..];
-                    if (v is "on" or "off")
+                    // a running hub holds its config in memory: it would go on as before and write its value back over this one
+                    if (v is "on" or "off" && a == Integrations.Agent.Codex && k == Integrations.Kind.Limits && Running(S))
+                    {
+                        rc = 1;
+                        outp.Add($"{key}: error TaskHub is running: use Settings -> AI agents, or close it first");
+                    }
+                    else if (v is "on" or "off")
                     {
                         bool changed = false;
                         try { changed = Integrations.Apply(a, k, v == "on", S); if (Integrations.Remembered(k)) S.Set((Integrations.CfgKey(a, k), v == "on")); }

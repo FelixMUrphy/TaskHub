@@ -28,10 +28,11 @@ partial class Hub
     static double? NumOnly(JsonNode n) =>
         n is JsonValue v && v.GetValueKind() == JsonValueKind.Number && v.TryGetValue<double>(out var d) && double.IsFinite(d) ? d : null;
 
-    /// <summary>TaskHub's status line is in Claude Code's settings now. The file is read again only when it changed; while it can't be
-    /// read (being edited, broken) the last answer stands. Under Lock.</summary>
-    bool LimitsOn()
+    /// <summary>Codex: its switch. Claude: TaskHub's status line is in Claude Code's settings now. The file is read again only when it changed;
+    /// while it can't be read (being edited, broken) the last answer stands. Under Lock.</summary>
+    bool LimitsOn(string agent)
     {
+        if (agent == "codex") return S.Bool(CodexLimitsKey);
         var p = AgentFiles.ClaudeHooks;
         var stamp = File.Exists(p) ? File.GetLastWriteTimeUtc(p) : default;
         if (limitsKnown && stamp == limitsStamp) return limitsOn;
@@ -52,7 +53,9 @@ partial class Hub
         try
         {
             var p = S.File_(LimitsFile);
-            if (File.Exists(p) && JsonNode.Parse(File.ReadAllText(p))?["claude"] is JsonObject c) limits["claude"] = c.DeepClone();
+            if (File.Exists(p) && JsonNode.Parse(File.ReadAllText(p)) is JsonObject saved)
+                foreach (var agent in new[] { "claude", "codex" })
+                    if (saved[agent] is JsonObject c) limits[agent] = c.DeepClone();
         }
         catch (Exception e) { Log.E("limits", "plan_limits.json unreadable: " + e.Message); }
         return limits;
@@ -65,10 +68,11 @@ partial class Hub
         {
             var r = new JsonObject();
             var store = LimitsStore();
-            if (store.Count > 0 && !LimitsOn())
+            var off = store.Select(kv => kv.Key).Where(agent => !LimitsOn(agent)).ToList();
+            if (off.Count > 0)
             {
-                store.Clear();
-                SaveLimits("{}");
+                foreach (var agent in off) store.Remove(agent);
+                SaveLimits(store.ToJsonString());
             }
             foreach (var (agent, v) in store)
             {
@@ -88,7 +92,7 @@ partial class Hub
         ? a.Select(NumOnly).Where(x => x is > 0 and <= 100).Select(x => x.Value).Distinct().OrderBy(x => x).ToArray()
         : LimitWarnDefault;
 
-    /// <summary>A reading from `taskhub statusline`. Ignored while the switch is off, so off means nothing is kept.</summary>
+    /// <summary>A reading from `taskhub statusline` or Hub.CodexLimits. Ignored while the switch is off, so off means nothing is kept.</summary>
     public JsonObject ReportLimits(string agent, JsonObject b)
     {
         var notes = new List<JsonObject>();
@@ -97,10 +101,14 @@ partial class Hub
         string text = null;
         lock (Lock)
         {
-            if (!LimitsOn()) return new JsonObject { ["ok"] = true, ["ignored"] = true };
+            if (!LimitsOn(agent)) return new JsonObject { ["ok"] = true, ["ignored"] = true };
             var store = LimitsStore();
             var a = store[agent] as JsonObject ?? new JsonObject();
-            bool any = false, changed = false;
+            // several Claude sessions may disagree, so the highest stands; Codex is one source that is asked, and reset credits can lower a reading inside a window
+            bool any = false, changed = false, oneSource = agent == "codex";
+            if (oneSource)
+                foreach (var w in LimitWindows)
+                    if (b[w] is not JsonObject && a.Remove(w)) changed = true;   // a window the plan no longer has
             foreach (var w in LimitWindows)
             {
                 if (b[w] is not JsonObject x || NumOnly(x["used_percentage"]) is not double raw) continue;
@@ -114,11 +122,11 @@ partial class Hub
                 bool fresh = prev == null || prevResets <= now;
                 if (!fresh && resets != null && prevResets != null)
                 {
-                    if (resets < prevResets - ResetSlackSec) continue;   // a session still in an earlier window
-                    fresh = resets > prevResets + ResetSlackSec;
+                    if (!oneSource && resets < prevResets - ResetSlackSec) continue;   // a session still in an earlier window
+                    fresh = Math.Abs(resets.Value - prevResets.Value) > ResetSlackSec && (oneSource || resets > prevResets);
                 }
                 else if (!fresh) fresh = pct < prevPct - FallPoints;
-                if (!fresh) pct = Math.Max(pct, prevPct ?? 0);
+                if (!fresh && !oneSource) pct = Math.Max(pct, prevPct ?? 0);
                 if (!fresh && pct == prevPct && resets == prevResets && now - (NumOnly(prev["at"]) ?? 0) < SameAgainSec) continue;
                 var warned = fresh ? new List<double>() : (prev["warned"] as JsonArray ?? new JsonArray()).Select(NumOnly).Where(n => n != null).Select(n => n.Value).ToList();
                 var crossed = warnAt.Where(t => pct >= t && !warned.Contains(t)).ToList();

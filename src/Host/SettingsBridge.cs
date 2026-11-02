@@ -34,11 +34,8 @@ sealed class SettingsBridge
                 ["hooks"] = Integrations.Enabled(a, Integrations.Kind.Hooks), ["mcp"] = Integrations.Enabled(a, Integrations.Kind.Mcp),
                 ["detected"] = Integrations.Detected(a),
             };
-            if (a == Integrations.Agent.Claude)
-            {
-                row["limits"] = Integrations.Enabled(a, Integrations.Kind.Limits);
-                row["limits_wraps"] = Integrations.HasOwnStatusLine();
-            }
+            row["limits"] = Integrations.Enabled(a, Integrations.Kind.Limits);
+            if (a == Integrations.Agent.Claude) row["limits_wraps"] = Integrations.HasOwnStatusLine();
             agents.Add(row);
         }
         var t = tg?.State();
@@ -47,7 +44,7 @@ sealed class SettingsBridge
         up?.RecheckIfStale();   // open page: a remembered "Update to X" may be days old (the hub runs on while the panel is hidden)
         // the host's own translations of what used to be the tray's items (one source of the words in 10 languages)
         var labels = new JsonObject();
-        foreach (var k in new[] { "mute", "test_toast", "connectors", "integrations", "menu_hooks", "menu_mcp", "menu_limits", "limits_d_new", "limits_d_wrap", "autostart",
+        foreach (var k in new[] { "mute", "test_toast", "connectors", "integrations", "menu_hooks", "menu_mcp", "menu_limits", "menu_limits_codex", "limits_d_codex", "limits_d_new", "limits_d_wrap", "autostart",
                      "updates", "update_check_now", "update_auto", "data_folder", "api_help", "support" })
             labels[k] = L.T(k).TrimStart('❤', ' ');
         if (up?.Available is { } av) labels["update_to"] = L.T("update_to", av.Version.ToString(3)).TrimStart('⬆', ' ').TrimEnd('…');
@@ -182,7 +179,8 @@ sealed class SettingsBridge
                         bool on = J.Truthy(c["on"]);
                         err = await Task.Run(() => Integrations.Set(a, k, on, S));
                         if (err == null && on) note = Integrations.Hint(a, k);
-                        if (err == null && !on && k == Integrations.Kind.Limits) hub.ClearLimits("claude");
+                        if (err == null && !on && k == Integrations.Kind.Limits) hub.ClearLimits(a == Integrations.Agent.Codex ? "codex" : "claude");
+                        if (err == null && on && k == Integrations.Kind.Limits && a == Integrations.Agent.Codex) hub.ReadCodexLimitsNow();
                         if (k == Integrations.Kind.Hooks) await Task.Run(hub.RefreshHookOffer);
                     }
                     break;

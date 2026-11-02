@@ -16,6 +16,7 @@ sealed partial class Hub
         {
             try { await Task.Delay(3000, ct); } catch { break; }
             if (watchTicks % 20 == 0) _ = Task.Run(RefreshHookOffer);   // first tick, then every minute: agents' files and PATH, which can be slow
+            TickCodexLimits();
             if (++watchTicks % 200 == 0)   // ~10 min: history older than history_days
                 lock (Lock) if (Prune()) Bump();
             try

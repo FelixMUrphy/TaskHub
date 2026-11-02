@@ -131,19 +131,26 @@ function layout(){
 }
 // plan limits as last reported: past the reset the old percentage says nothing any more, an old reading says how old it is
 function renderLimits(){
-  const box=$("#limits"), names={claude:"Claude Code"}, rows=[], t=now(), th=data.limits_warn||[];
+  const box=$("#limits"), names={claude:"Claude Code",codex:"Codex"}, groups=[], t=now(), th=data.limits_warn||[];
   const when=r=>{ const d=new Date(r*1000), today=d.toDateString()===new Date().toDateString();
     return d.toLocaleString(LANG, today? {hour:"2-digit",minute:"2-digit"} : {weekday:"short",hour:"2-digit",minute:"2-digit"}); };
-  for (const [agent,ws] of Object.entries(data.limits||{}))
+  // each agent under its own name, always in the same order, so two agents' limits don't read as one list
+  const prob=data.limits_problem||{};
+  for (const agent of [...new Set([...Object.keys(data.limits||{}),...Object.keys(prob)])].sort()){
+    const ws=(data.limits||{})[agent]||{}, rows=[];
     for (const [w,k] of [["five_hour","limit_5h"],["seven_day","limit_7d"]]){
       const x=ws[w]; if (!x || x.used_percentage==null) continue;
       const done=x.resets_at && t>=x.resets_at, p=Math.floor(x.used_percentage), old=t-x.at>900, up=x.used_percentage, lvl=done||!th.length?"":up>=th[th.length-1]?"bad":up>=th[0]?"warn":"";
       const val=done? T("limit_reset_done")
         : [p+"%", x.resets_at? T("limit_resets",when(x.resets_at)) : "", old? T("limit_updated",ago(t-x.at)) : ""].filter(Boolean).join(" · ");
-      rows.push(`<div class="lim${old||done?" old":""}"${lvl?` data-l="${lvl}"`:""}><div class="lt"><span>${esc((names[agent]||agent)+" · "+T(k))}</span><span class="lv">${esc(val)}</span></div><div class="lb" aria-hidden="true"><i style="width:${done?0:p}%"></i></div></div>`);
+      rows.push(`<div class="lim${old||done?" old":""}"${lvl?` data-l="${lvl}"`:""}><div class="lt"><span>${esc(T(k))}</span><span class="lv">${esc(val)}</span></div><div class="lb" aria-hidden="true"><i style="width:${done?0:p}%"></i></div></div>`);
     }
-  const h=rows.join("");
-  if (box.__h!==h){ box.innerHTML=h; box.__h=h; box.classList.toggle("on",rows.length>0); }
+    if (!rows.length && prob[agent]) rows.push(`<div class="limn">${esc(T("limit_p_"+prob[agent]))}</div>`);   // on, but no numbers: say why
+    const name=esc(names[agent]||agent);
+    if (rows.length) groups.push(`<div class="limg" role="group" aria-label="${name}"><div class="limh">${name}</div>${rows.join("")}</div>`);
+  }
+  const h=groups.join("");
+  if (box.__h!==h){ box.innerHTML=h; box.__h=h; box.classList.toggle("on",groups.length>0); }
 }
 // an agent's hooks, offered once: nothing is written before a click, and a click needs the native panel (never HTTP)
 function renderHookOffer(){

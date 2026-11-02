@@ -125,7 +125,7 @@ The setup dialog (and later Settings → *AI agents*) has independent options pe
 | Option | What you get | Where TaskHub writes |
 |---|---|---|
 | **Notifications (hooks)** | a toast when the agent finishes a response or needs your permission | Claude Code: `~/.claude/settings.json` · Codex: `~/.codex/hooks.json` |
-| **Plan limits** (from 3.1, off until you turn it on in Settings → AI agents; Claude Code only so far) | how much of the 5-hour and weekly limits is used, in the panel, yellow with a warning from 75%, red with a warning from 90% | Claude Code: `~/.claude/settings.json` (`statusLine`) |
+| **Plan limits** (from 3.1, off until you turn it on in Settings → AI agents, for each agent) | how much of the 5-hour and weekly limits is used, in the panel, yellow with a warning from 75%, red with a warning from 90% | Claude Code: `~/.claude/settings.json` (`statusLine`) · Codex: nothing, TaskHub asks it directly |
 | **TaskHub tools (MCP)** | the agent gets tools `notify`, `task_start/update/finish`, `task_commands`, `task_wait` (from 2.9.2), `task_list` and shows its long jobs in the panel by itself | Claude Code: `~/.claude.json` · Codex: `~/.codex/config.toml` |
 
 TaskHub adds — and on uninstall removes (Store edition: see below) — only its own entries and keeps everything else (backup of the original:
@@ -135,6 +135,7 @@ TaskHub adds — and on uninstall removes (Store edition: see below) — only it
   `/mcp` should list `taskhub` as connected. Cloud sessions run on Anthropic's servers and can't reach TaskHub on your PC.
 - **Plan limits** — needs a Pro, Max or Ultra plan; the numbers appear after Claude Code's next reply and update only while a session runs, so an old reading says how old it is.
   Your own status line keeps working unchanged. If you have none, Claude Code shows an empty one and hides hints such as `esc to interrupt`. Details: [API.md](API.md#plan-limits-claude-code).
+- **Plan limits in Codex** — TaskHub asks Codex for the numbers every 10 minutes while Codex is running, with no model requests. This relies on a part of Codex that its makers call experimental, so a Codex update can stop it: the numbers then just get old, and everything else keeps working. With no numbers to show, the panel says why (not found on `PATH`, not signed in, couldn't read). Details: [API.md](API.md#plan-limits-codex).
 - **Codex** — restart Codex. Hooks: Codex → Settings → Hooks → *Trust all* (Codex asks once for new hooks).
   MCP: the `taskhub` server should appear among Codex's MCP servers.
 

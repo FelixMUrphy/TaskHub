@@ -13,6 +13,7 @@ namespace TaskHub;
 ///           Claude Code: ~/.claude/settings.json (2 HTTP hooks)   Codex: ~/.codex/hooks.json (2 command hooks)
 ///   Mcp   - the agent gets TaskHub tools (notify, task_start/update/finish, task_commands) via `taskhub mcp`:
 ///           Claude Code: ~/.claude.json "mcpServers.taskhub"      Codex: ~/.codex/config.toml [mcp_servers.taskhub]
+/// (Codex's Limits: Hub.CodexLimits, a switch in TaskHub's own config; nothing in Codex's files.)
 /// A third, Limits, is only ever turned on by hand in the settings (not offered at install): the plan's limit readings through
 ///           `taskhub statusline`, Claude Code's "statusLine" in ~/.claude/settings.json, which wraps the user's own (Hub.Limits).
 /// TaskHub adds / removes exactly its own entries and keeps everything else; before the first change of a file the
@@ -33,6 +34,7 @@ static class Integrations
         (Agent.Claude, Kind.Hooks or Kind.Limits) => AgentFiles.ClaudeHooks,
         (Agent.Claude, Kind.Mcp) => AgentFiles.ClaudeMcp,
         (Agent.Codex, Kind.Hooks) => AgentFiles.CodexHooks,
+        (Agent.Codex, Kind.Limits) => "config.json",
         _ => AgentFiles.CodexMcp,
     };
     public static string CfgKey(Agent a, Kind k = Kind.Hooks) =>
@@ -46,6 +48,7 @@ static class Integrations
         (Agent.Codex, Kind.Hooks) => L.T("codex_trust"),
         (Agent.Codex, Kind.Mcp) => L.T("hint_codex_mcp"),
         (Agent.Claude, Kind.Mcp) => L.T("hint_claude_mcp"),
+        (Agent.Codex, Kind.Limits) => null,
         (_, Kind.Limits) => L.T("hint_limits"),
         _ => L.T("hint_claude"),
     };
@@ -90,7 +93,7 @@ static class Integrations
     {
         try
         {
-            if (k == Kind.Limits) return a == Agent.Claude && AgentFiles.IsOurStatusLine(AgentFiles.LoadJson(FileOf(a, k))["statusLine"] as JsonObject);
+            if (k == Kind.Limits) return a == Agent.Claude ? AgentFiles.IsOurStatusLine(AgentFiles.LoadJson(FileOf(a, k))["statusLine"] as JsonObject) : L.S?.Bool("limits_codex") == true;
             if (k == Kind.Hooks) return AgentFiles.HasHooks(AgentFiles.LoadJson(FileOf(a)), a == Agent.Claude);
             if (a == Agent.Claude) return AgentFiles.IsOurMcp((AgentFiles.LoadJson(FileOf(a, k))["mcpServers"] as JsonObject)?["taskhub"] as JsonObject);
             return AgentFiles.TomlBlock(AgentFiles.ReadText(FileOf(a, k))).ours;
@@ -101,8 +104,7 @@ static class Integrations
     /// <summary>Add (on) or remove (off) TaskHub's entries. Returns true if a file was changed.</summary>
     public static bool Apply(Agent a, Kind k, bool on, Settings s)
     {
-        if (k == Kind.Limits && a != Agent.Claude) throw new InvalidOperationException("no plan limits for " + Name(a) + " yet");
-        var changed = k == Kind.Limits ? ApplyStatusLine(on, s) : k == Kind.Hooks ? ApplyHooks(a, on, s) : a == Agent.Claude ? ApplyClaudeMcp(on) : ApplyCodexMcp(on);
+        var changed = k == Kind.Limits ? (a == Agent.Claude ? ApplyStatusLine(on, s) : ApplyCodexLimits(on, s)) : k == Kind.Hooks ? ApplyHooks(a, on, s) : a == Agent.Claude ? ApplyClaudeMcp(on) : ApplyCodexMcp(on);
         if (changed) Log.I("agents", $"integration {Name(a)} {k}: {(on ? "enabled" : "disabled")} ({FileOf(a, k)})");
         return changed;
     }
@@ -170,7 +172,8 @@ static class Integrations
         foreach (var a in All)
             foreach (var k in Kinds)
                 try { Apply(a, k, false, s); } catch (Exception e) { Log.W("agents", $"integration {Name(a)} {k}: {e.Message}"); }
-        try { Apply(Agent.Claude, Kind.Limits, false, s); } catch (Exception e) { Log.W("agents", $"integration {Name(Agent.Claude)} {Kind.Limits}: {e.Message}"); }
+        foreach (var a in All)
+            try { Apply(a, Kind.Limits, false, s); } catch (Exception e) { Log.W("agents", $"integration {Name(a)} {Kind.Limits}: {e.Message}"); }
     }
 
     // ------------------------------------------------------------ hooks (JSON)
@@ -231,6 +234,35 @@ static class Integrations
         return true;
     }
 
+    static bool ApplyCodexLimits(bool on, Settings s)
+    {
+        if (!on) ForgetLimits(s, "codex");
+        if (s.Bool("limits_codex") == on) return false;
+        s.Set(("limits_codex", on));
+        return true;
+    }
+
+    /// <summary>One agent's readings out of the kept file, the other's stay: each has its own switch. An empty or broken file goes.</summary>
+    static void ForgetLimits(Settings s, string agent)
+    {
+        var path = s.File_(Hub.LimitsFile);
+        if (!File.Exists(path)) return;
+        try
+        {
+            if (JsonNode.Parse(File.ReadAllText(path)) is JsonObject o)
+            {
+                o.Remove(agent);
+                if (o.Count > 0)
+                {
+                    File.WriteAllText(path, o.ToJsonString());
+                    return;
+                }
+            }
+        }
+        catch (Exception e) { Log.W("limits", "plan_limits.json: " + e.Message); }
+        File.Delete(path);
+    }
+
     // ------------------------------------------------------------ status line: Claude Code (~/.claude/settings.json)
     /// <summary>The command as both of Claude Code's shells read it (Git Bash, else PowerShell): forward slashes, bash would eat
     /// backslashes. CliPath gives an 8.3 path, so the quotes (which PowerShell would not run) stay for PCs without 8.3 names.</summary>
@@ -256,8 +288,7 @@ static class Integrations
         if (!on)
         {
             var removed = AgentFiles.RemoveStatusLine();
-            var kept = s.File_(Hub.LimitsFile);
-            if (File.Exists(kept)) File.Delete(kept);   // also from a script or an uninstall; a running hub follows the settings file
+            ForgetLimits(s, "claude");   // also from a script or an uninstall; a running hub follows the settings file
             return removed;
         }
         var path = AgentFiles.ClaudeHooks;

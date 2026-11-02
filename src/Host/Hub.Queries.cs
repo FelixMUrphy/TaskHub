@@ -53,6 +53,7 @@ sealed partial class Hub
                 ["lang"] = L.Lang, ["language"] = L.Setting,
                 ["panel"] = PanelSettings(),
                 ["limits"] = LimitsView(),
+                ["limits_problem"] = LimitsProblem(),
                 ["limits_warn"] = new JsonArray(LimitThresholds().Select(x => (JsonNode)JsonValue.Create(x)).ToArray()),
                 ["hooks_offer"] = hookOffer.DeepClone(),
                 ["hooks_offer_tg"] = hookOfferTg,
