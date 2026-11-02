@@ -3,7 +3,7 @@
 What changed in each release of TaskHub. The release page on GitHub shows the section of its version (CI takes it
 from here), followed by the list of commits.
 
-## Unreleased
+## 3.0.0 — 2026-11-02
 
 - TaskHub now runs on .NET 10 (long-term support until November 2028); .NET 8 support ends on 10 November 2026.
   The runtime is still inside the app, nothing to install.
