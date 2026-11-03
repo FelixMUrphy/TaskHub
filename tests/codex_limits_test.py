@@ -276,9 +276,9 @@ try:
     # finding the program
     out = os.path.join(rig, "found.txt")
 
-    def locate(*dirs):
+    def locate(*dirs, cwd=None):
         env = dict(os.environ, TASKHUB_TEST_HOME=home, PATH=";".join(dirs))
-        subprocess.run([EXE, "--data", data, "--selftest-codex-locate", out], env=env, timeout=30)
+        subprocess.run([EXE, "--data", data, "--selftest-codex-locate", out], env=env, timeout=30, cwd=cwd)
         return open(out, encoding="utf-8").read()
 
     npm = os.path.join(rig, "npm")
@@ -293,6 +293,7 @@ try:
     touch(os.path.join(npm, "codex.cmd"))
     check("npm: the program inside the package, not the shim", locate(npm) == os.path.join(native, "codex.exe"), locate(npm))
     check("a codex.exe on PATH", locate(alone, npm) == os.path.join(alone, "codex.exe"), locate(alone, npm))
+    check("a relative PATH entry doesn't count", locate("alone", cwd=rig) == "", locate("alone", cwd=rig))
     check("a bad PATH entry doesn't stop it", locate("C:\\no\\such\\folder", '"', alone) == os.path.join(alone, "codex.exe"))
 finally:
     shutil.rmtree(data, ignore_errors=True)

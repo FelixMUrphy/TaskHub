@@ -73,6 +73,7 @@ sealed partial class Hub
         foreach (var d in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             try
             {
+                if (!Path.IsPathFullyQualified(d)) continue;   // relative: whatever folder the hub was started in
                 var exe = Path.Combine(d, "codex.exe");
                 if (File.Exists(exe)) return exe;
                 var pkg = Path.Combine(d, "node_modules", "@openai", "codex", "node_modules", "@openai");

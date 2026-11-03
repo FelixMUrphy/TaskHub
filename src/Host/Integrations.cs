@@ -181,8 +181,8 @@ static class Integrations
     {
         if (a == Agent.Claude)
         {
-            // a command, not a URL: whoever answers a URL with the hub down reads the agent's last message and can steer it; this CLI says
-            // nothing back. With args there is no shell, so neither Git Bash nor PowerShell has to read the path. No token in the agent's file.
+            // a command, not a URL: whoever answers a URL with the hub down can steer the agent; this CLI says nothing back. A process holding
+            // the port with the hub down can still read what the CLI sends: the agent's event, as with any local API. With args there is no shell, so neither Git Bash nor PowerShell has to read the path. No token in the agent's file.
             var exe = CliPath();
             JsonObject H() => new() { ["type"] = "command", ["command"] = exe, ["args"] = new JsonArray("hook", "claude"), ["timeout"] = 10 };
             return new() { ("Stop", null, H()), ("Notification", "permission_prompt|elicitation_dialog", H()) };

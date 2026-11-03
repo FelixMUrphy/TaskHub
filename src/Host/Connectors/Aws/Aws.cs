@@ -717,7 +717,7 @@ sealed partial class AwsConnector : ISettingsConnector
 
     void Try(Action a)
     {
-        try { a(); } catch (ApiError e) { Log.W("aws", e.Message); }
+        try { a(); } catch (ApiError e) { Log.W("aws", $"task not updated ({e.Code})"); }   // the text has the task's id, which can hold a job's name
     }
 
     /// <summary>The task follows the instance: active while it runs, starts or stops; stopped / terminated -> done. An

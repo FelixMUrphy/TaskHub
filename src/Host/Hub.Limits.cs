@@ -17,7 +17,6 @@ partial class Hub
     public const string LimitsFile = "plan_limits.json";
     const double ResetSlackSec = 300, FallPoints = 1;   // resets_at or a rounded percentage may wobble a little within one window
     const double SameAgainSec = 60;                     // the same numbers again: no write, no redraw (several sessions, refreshInterval)
-    const double MaxEpoch = 253402300799;               // the last second DateTimeOffset can show
     static readonly string[] LimitWindows = { "five_hour", "seven_day" };
     static readonly double[] LimitWarnDefault = { 75, 90 };
     readonly object limitsSave = new();
@@ -114,7 +113,8 @@ partial class Hub
                 if (b[w] is not JsonObject x || NumOnly(x["used_percentage"]) is not double raw) continue;
                 any = true;
                 var pct = Math.Clamp(raw, 0, 100);
-                var resets = NumOnly(x["resets_at"]) is double rv && rv > 0 && rv <= MaxEpoch ? rv : (double?)null;
+                // no window ends later than its length from now: kept, such a time would make every real reading "an earlier window"
+                var resets = NumOnly(x["resets_at"]) is double rv && rv > 0 && rv <= now + (w == "five_hour" ? 18000 : 604800) + ResetSlackSec ? rv : (double?)null;
                 if (resets <= now) continue;   // a session that hasn't heard of the reset yet
                 var prev = a[w] as JsonObject;
                 var prevPct = NumOnly(prev?["pct"]);

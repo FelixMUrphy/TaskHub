@@ -137,7 +137,7 @@ static class StatusLine
         foreach (var d in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';'))
             try
             {
-                if (d.Trim().Length == 0 || !File.Exists(Path.Combine(d.Trim(), "git.exe"))) continue;
+                if (!Path.IsPathFullyQualified(d.Trim()) || !File.Exists(Path.Combine(d.Trim(), "git.exe"))) continue;
                 // <Git>\cmd\git.exe or <Git>\mingw64\bin\git.exe -> <Git>\bin\bash.exe
                 foreach (var up in new[] { "..", Path.Combine("..", "..") })
                 {

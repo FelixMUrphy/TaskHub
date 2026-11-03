@@ -41,6 +41,8 @@ static class AgentHooks
     static string SpokeKey(string agent, string cwd)
     {
         var path = cwd.Trim();
+        // not for a path on another machine: GetFullPath asks the file system about a name with `~`, which would connect there (measured: 42 s on an address that doesn't answer)
+        if (!path.StartsWith(@"\\") && !path.StartsWith("//") && !path.StartsWith(@"\/") && !path.StartsWith(@"/\"))
         try { path = Path.GetFullPath(path); } catch (Exception e) when (e is ArgumentException or IOException or NotSupportedException or System.Security.SecurityException) { }
         return agent + "|" + path.TrimEnd('\\', '/').ToLowerInvariant();
     }

@@ -316,7 +316,7 @@ Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no t
 `integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder), `install_test.py` (setup /
 uninstall in a temporary folder), `mcp_test.py` (`taskhub mcp`), `telegram_test.py` (Telegram bridge against a mock Bot API),
 `github_test.py`, `runpod_test.py`, `vastai_test.py` and `guard_test.py` (connectors and the balance guard against mock APIs),
-`aws_sigv4_test.py` and `aws_test.py` (the AWS signer against AWS's test suite, the connector against a simulator), `limits_test.py` and `codex_limits_test.py` (plan limits),
+`aws_sigv4_test.py` and `aws_test.py` (the AWS signer against AWS's test suite, the connector against a simulator), `limits_test.py` and `codex_limits_test.py` (plan limits), `payload_bounds_test.py` (what a local process can post),
 `hooks_offer_test.py` and `hook_form_test.py` (agent hooks), `log_test.py` (log levels, masking, rotation).
 Every push runs the build and these tests on GitHub Actions (`.github/workflows/ci.yml`, Windows runner); pushing a tag
 `v<version>` (matching `Settings.Version`, `build.cmd` and both `.csproj`) also publishes the release with the setup exe

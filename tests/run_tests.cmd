@@ -38,6 +38,7 @@ for %%D in ("%EXE%") do "%PYTHON%" blender_test.py "%%~dpDtaskhub.exe" || set RC
 "%PYTHON%" limits_test.py "%EXE%" || set RC=1
 "%PYTHON%" hooks_offer_test.py "%EXE%" || set RC=1
 "%PYTHON%" codex_limits_test.py "%EXE%" || set RC=1
+"%PYTHON%" payload_bounds_test.py "%EXE%" || set RC=1
 "%PYTHON%" hook_form_test.py "%EXE%" || set RC=1
 "%PYTHON%" log_test.py "%EXE%" "%DATA%" || set RC=1
 "%PYTHON%" i18n_test.py || set RC=1
