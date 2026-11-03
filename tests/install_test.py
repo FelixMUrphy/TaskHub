@@ -219,6 +219,19 @@ try:
     check("copy step", selftest("copy", src, dst) == 0)
     check("no Mark of the Web on the copy", os.path.exists(dst) and not os.path.exists(dst + ":Zone.Identifier"))
 
+    # ---- the Telegram page's line: a bot that refuses to deliver doesn't read as connected
+    d2 = os.path.join(home, "data-en")
+    os.makedirs(d2, exist_ok=True)
+    with open(os.path.join(d2, "config.json"), "w") as f:
+        json.dump({"language": "en"}, f)
+    out = os.path.join(home, "tg.txt")
+    check("Telegram line for a blocked bot", selftest("tg-text", "blocked", out, d=d2) == 0)
+    text = open(out, encoding="utf-8").read() if os.path.exists(out) else ""
+    check("blocked: says so, doesn't say connected", "refuses" in text and "onnected" not in text, text)
+    selftest("tg-text", "connected", out, d=d2)
+    text = open(out, encoding="utf-8").read() if os.path.exists(out) else ""
+    check("connected: says connected", "onnected" in text and "test_bot" in text, text)
+
     # ---- uninstall takes this copy's autostart entries for other ports, not another copy's; the entry has its details
     check("register for the details", selftest("register") == 0)
     run_value = reg(RUN, "TaskHub")
@@ -228,10 +241,13 @@ try:
     reg_set(RUN, "TaskHub-1234", run_value + " --port 1234")
     reg_set(RUN, "TaskHub-5678", '"D:\\Other\\Something.exe" --port 5678')
     reg_set(RUN, "TaskHub-notes", run_value)
+    reg_set(RUN, "TaskHub-4321", '"D:\\Portable\\TaskHubHost.exe" --port 4321')
     check("unregister", selftest("unregister") == 0)
     check("this copy's entry for another port is gone", reg(RUN, "TaskHub-1234") is None, reg(RUN, "TaskHub-1234"))
     check("another program's entry stays", reg(RUN, "TaskHub-5678") is not None)
     check("a name that only looks alike stays", reg(RUN, "TaskHub-notes") is not None)
+    check("another copy of TaskHub, in its own folder, stays", reg(RUN, "TaskHub-4321") is not None)
+    reg_set(RUN, "TaskHub-4321", None)
     reg_set(RUN, "TaskHub-5678", None)
     reg_set(RUN, "TaskHub-notes", None)
 finally:

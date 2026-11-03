@@ -496,6 +496,15 @@ if EXE:
         faults2["forbidden"] = False
         push({"message": {"message_id": 1, "chat": {"id": 888}, "from": {"id": 888}, "text": "hello"}})
         check("a message from the user: connected again", tg5("status", "connected"))
+        # live progress goes its own way to the chat: a refusal there counts too
+        faults2["forbidden"] = True
+        code, r5 = call("POST", "/api/tasks", {"name": "Refused run", "total": 10}, url=url5)
+        call("POST", f"/api/tasks/{r5.get('id')}/update", {"current": 3}, url=url5)
+        check("a refused progress message: blocked", tg5("status", "blocked"))
+        faults2["forbidden"] = False
+        # a new link starts afresh
+        call("POST", "/api/telegram", {"relink": True}, url=url5)
+        check("a new link: no longer blocked", tg5("status", "connected") or tg5("status", "waiting for /start", 2))
         call("POST", "/api/telegram", {"disconnect": True}, url=url5)
     finally:
         faults2["forbidden"] = False

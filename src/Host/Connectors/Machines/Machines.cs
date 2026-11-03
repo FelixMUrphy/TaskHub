@@ -175,8 +175,8 @@ abstract partial class MachineConnector : ISettingsConnector
     };
 
     /// <summary>Changes the settings (settings page / API); unknown keys are ignored, bad values rejected (nothing changed).</summary>
-    /// <summary>The local API's way in. What stops the user's machines is changed only on the settings page, as with AWS's paid read: a script
-    /// or an agent mustn't turn it on, or turn it off and leave a machine spending. The simulator stops nothing.</summary>
+    /// <summary>The local API's way in. The switches and limits of the balance guard and idle stop change only on the settings page, as with AWS's
+    /// paid read. The other settings, the connector's own switch among them, stay open to the API. The simulator stops nothing.</summary>
     public JsonObject ConfigureHttp(JsonObject b)
     {
         if (!Mock && b.Any(kv => kv.Key.StartsWith("guard") || kv.Key == "idle_stop_minutes"))

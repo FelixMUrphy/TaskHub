@@ -157,11 +157,37 @@ try:
         r = hook()
         check("a proof for another port is refused", not other.leaked(), other.leaked())
 
+    # ------------------------------------------------------------ the hub's own second start, and what TaskHub gives a command
+    def second():
+        p = subprocess.Popen([EXE, "--port", str(PORT), "--data", data, "--no-tray"], env=ENV)
+        try:
+            return p.wait(15)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait(10)
+            return None
+
+    with Listener() as other:
+        rc = second()
+        check("TaskHub starting, another program on the port: it gets no token", not any(q["auth"] or "ui/open" in q["path"] for q in other.seen), other.seen)
+        check("...and TaskHub doesn't just vanish: it can't listen", rc == 1, rc)
+    with Listener(lambda path: (200, {"proof": hmac.new(bytes.fromhex(key), f"taskhub-hub-proof|{PORT}|{path.split('=')[-1]}".encode(), hashlib.sha256).hexdigest()})) as other:
+        rc = second()
+        check("a second start: a hub that proves itself still opens the panel", rc == 0 and any("ui/open" in q["path"] and q["auth"] == "Bearer " + TOKEN for q in other.seen), (rc, other.seen))
+
+    with Listener() as other:
+        r = notify(dict(ENV, TASKHUB_URL=URL))
+        check("TASKHUB_URL with the hub's own address: still checked", r.returncode != 0 and not other.leaked(), (r, other.leaked()))
+        subprocess.run([CLI, "run", "--quiet", "--", CLI, "notify", "nested-" + MARK], env=ENV, capture_output=True, timeout=60)
+        check("a command under `taskhub run`: still checked", not other.leaked(), other.leaked())
+
     # ------------------------------------------------------------ where nothing can be checked it works as before
+    config(token=TOKEN, port=PORT + 1)
     with Listener() as other:
         env = dict(ENV, TASKHUB_URL=URL)
         r = notify(env)
-        check("TASKHUB_URL set: the user chose the address, no check", r.returncode == 0 and any(MARK in q["body"] for q in other.seen) and not any("hub-proof" in q["path"] for q in other.seen), (r, other.seen))
+        check("TASKHUB_URL with another address: the user chose it, no check", r.returncode == 0 and any(MARK in q["body"] for q in other.seen) and not any("hub-proof" in q["path"] for q in other.seen), (r, other.seen))
+    config(token=TOKEN)
     os.remove(KEY)
     with Listener() as other:
         r = hook()

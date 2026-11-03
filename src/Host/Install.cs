@@ -532,17 +532,17 @@ static class Install
         SetPath(dir, false);
         SetShortcut(false);
         SetUninstallEntry(false, dir);
-        RemoveOtherPortEntries();
+        RemoveOtherPortEntries(dir);
     }
 
     /// <summary>This copy's autostart entries for other ports ("TaskHub-PORT"), left from a hub once started with --port.</summary>
-    static void RemoveOtherPortEntries()
+    static void RemoveOtherPortEntries(string dir)
     {
         if (IsPackaged) return;
         using var k = Hkcu.CreateSubKey(RunKey);
         using var a = Hkcu.CreateSubKey(ApprovedKey);
         foreach (var name in k.GetValueNames().Where(n => System.Text.RegularExpressions.Regex.IsMatch(n, @"^TaskHub-\d+$")))
-            if (k.GetValue(name) is string v && v.Contains(HostExe, StringComparison.OrdinalIgnoreCase))
+            if (k.GetValue(name) is string v && v.Contains(Path.Combine(dir, HostExe), StringComparison.OrdinalIgnoreCase))
             {
                 k.DeleteValue(name, false);
                 a.DeleteValue(name, false);
@@ -675,6 +675,7 @@ static class Install
                 case "stop" when a.Length > 1 && int.TryParse(a[1], out var pid): StopHubs(p => p.Id == pid); return 0;
                 case "copy-missing" when a.Length > 2: CopyMissing(a[1], a[2]); return 0;
                 case "copy" when a.Length > 2: CopyFile(a[1], a[2], null); return 0;
+                case "tg-text" when a.Length > 2: File.WriteAllText(a[2], SettingsBridge.TgStateText(true, true, "", "test_bot", a[1])); return 0;
                 case "purge": PurgeData(s); return 0;
                 default: return 2;
             }

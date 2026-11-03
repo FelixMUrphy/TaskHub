@@ -285,6 +285,13 @@ n = len(calls)
 s2, r2 = call("POST", "/api/tasks/fake-run/controls/cancel", {})
 check("a task made over the API can't aim the token at a repository", not any("evil" in c[1] for c in calls[n:]), (s, s2, calls[n:]))
 call("DELETE", "/api/tasks/fake-run?force=1")
+s, r = call("POST", "/api/tasks", {"id": "fake-pr", "name": "fake", "source": "github", "meta": {"github_pr": {"kind": "pr", "repo": "evil/repo", "number": 7}, "mine": 1}})
+t = call("GET", "/api/tasks/fake-pr")[1]
+check("a task made over the API can't name a pull request to read with the token", "github_pr" not in t["meta"] and t["meta"].get("mine") == 1, t["meta"])
+call("POST", "/api/tasks/fake-pr/update", {"meta": {"github_pr": {"kind": "pr", "repo": "evil/repo", "number": 7}}})
+t = call("GET", "/api/tasks/fake-pr")[1]
+check("...nor through an update", "github_pr" not in t["meta"], t["meta"])
+call("DELETE", "/api/tasks/fake-pr?force=1")
 with lock:
     aimed["status"], aimed["conclusion"] = "completed", "cancelled"
     big["status"] = "completed"

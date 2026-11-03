@@ -228,10 +228,12 @@ sealed class Api
     static Task Json(HttpContext c, int code, JsonNode n) =>
         Raw(c, code, Encoding.UTF8.GetBytes(J.Dump(n)), "application/json; charset=utf-8");
 
-    /// <summary>meta.github says which run a task's Cancel and Re-run act on, with the user's token: only the connector sets it.</summary>
+    /// <summary>meta.github says which run a task's Cancel and Re-run act on, meta.github_pr which pull request is read, with the user's token:
+    /// only the connector sets them.</summary>
     static JsonObject NoRunReference(JsonObject b)
     {
         (b["meta"] as JsonObject)?.Remove("github");
+        (b["meta"] as JsonObject)?.Remove("github_pr");
         return b;
     }
 

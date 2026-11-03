@@ -83,8 +83,7 @@ sealed class SettingsBridge
             }
             catch (Exception e) { Log.W("settings", "qr: " + e.Message); }
         }
-        string state = linked ? L.T("tg_state_ok", bot) + (st == "connected" ? "" : "  (" + TgStatus(st) + ")")
-            : configured ? (link.Length > 0 ? L.T("tg_state_wait") : TgStatus(st)) : L.T("tg_state_off");
+        string state = TgStateText(linked, configured, link, bot, st);
         return new JsonObject
         {
             ["configured"] = configured, ["linked"] = linked, ["bot"] = J.C(t["bot"]), ["status"] = st,
@@ -134,6 +133,12 @@ sealed class SettingsBridge
     }
 
     /// <summary>TelegramBridge.Status (English, also in the API) in the UI language.</summary>
+    /// <summary>The line at the top of the Telegram page.</summary>
+    internal static string TgStateText(bool linked, bool configured, string link, string bot, string st)
+        => st == "blocked" ? TgStatus(st)
+            : linked ? L.T("tg_state_ok", bot) + (st == "connected" ? "" : "  (" + TgStatus(st) + ")")
+            : configured ? (link.Length > 0 ? L.T("tg_state_wait") : TgStatus(st)) : L.T("tg_state_off");
+
     static string TgStatus(string st) => st switch
     {
         "connecting" => L.T("tg_st_connecting"),

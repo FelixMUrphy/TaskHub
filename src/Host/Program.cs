@@ -232,13 +232,19 @@ static class Program
         if (!first || Running(S))
         {
             if (ToastNotificationManagerCompat.WasCurrentProcessToastActivated()) return 0;
-            try
+            if (ProvesHub(S))
             {
-                Native.AllowSetForegroundWindow(-1);
-                Post(S, "/api/ui/open", new JsonObject { ["task"] = string.IsNullOrEmpty(openTask) ? null : openTask });
+                try
+                {
+                    Native.AllowSetForegroundWindow(-1);
+                    Post(S, "/api/ui/open", new JsonObject { ["task"] = string.IsNullOrEmpty(openTask) ? null : openTask });
+                }
+                catch { }
+                return 0;
             }
-            catch { }
-            return 0;
+            // Whoever answers on the port isn't this hub, so it gets no token. With no hub of ours running, start as usual: if the port
+            // stays taken, the message below says so.
+            if (!first) return 0;
         }
 
         Log.DropStale();
@@ -474,6 +480,7 @@ static class Program
             }
             catch { }
         }
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME"))) return;   // no box on the screen from a test
         MessageBox.Show(text, "TaskHub");
     }
 
@@ -487,6 +494,19 @@ static class Program
         {
             var r = http.GetStringAsync(s.Url + "/api/health").GetAwaiter().GetResult();
             return J.Str((J.Parse(r) as JsonObject)?["app"]) == Settings.AppId;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Whoever answers on the port holds this hub's key (the CLI's check, see Client.ProveHub).</summary>
+    static bool ProvesHub(Settings s)
+    {
+        try
+        {
+            var nonce = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+            var r = http.GetStringAsync($"{s.Url}/api/hub-proof?nonce={nonce}").GetAwaiter().GetResult();
+            var good = System.Security.Cryptography.HMACSHA256.HashData(s.HubKey, Encoding.UTF8.GetBytes($"taskhub-hub-proof|{s.Port}|{nonce}"));
+            return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(Convert.FromHexString(J.Str((J.Parse(r) as JsonObject)?["proof"])), good);
         }
         catch { return false; }
     }

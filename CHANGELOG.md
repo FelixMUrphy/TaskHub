@@ -15,6 +15,7 @@ from here), followed by the list of commits.
 - The balance guard and idle stop of Runpod and Vast.ai change only in Settings, no longer through the local API (403): they stop your machines, so a script or an agent can't turn them on or off. Reading them still works.
 - Windows notifications: a list with more than 5 options keeps its current value among the 5 shown, so the button can't send another one.
 - Install: a quiet install no longer carries the downloaded file's Mark of the Web. Uninstall removes this copy's autostart entries for other ports. The Apps list shows the install date and a link; `taskhub:` links have an icon.
+- A TaskHub that starts while another program answers on its port no longer sends that program its token. A command under `taskhub run` makes the same check as `taskhub` itself.
 
 ## 3.1.0 — 2026-11-03
 

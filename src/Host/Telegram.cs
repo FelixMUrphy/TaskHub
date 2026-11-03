@@ -103,6 +103,7 @@ sealed class TelegramBridge
         if (Token.Length == 0) { Status = "off"; BotName = null; return; }
         cts = new CancellationTokenSource();
         var ct = cts.Token;
+        refused = false;
         Status = "connecting";
         _ = Task.Run(() => Loop(ct));
     }

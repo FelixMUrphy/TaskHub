@@ -22,7 +22,9 @@ sealed class Client
 
     public Client(string url)
     {
-        addressChosen = url != null || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TASKHUB_URL"));
+        // TaskHub itself gives TASKHUB_URL to the commands it starts: its own address isn't one the user chose
+        var env = Environment.GetEnvironmentVariable("TASKHUB_URL");
+        addressChosen = url != null || (!string.IsNullOrEmpty(env) && !string.Equals(env.TrimEnd('/'), OwnUrl(), StringComparison.OrdinalIgnoreCase));
         Url = (url ?? DefaultUrl()).TrimEnd('/');
         token = Environment.GetEnvironmentVariable("TASKHUB_TOKEN");
         // the agents' MCP server and hooks run this exe without TASKHUB_TOKEN: use the hub's own token
@@ -35,7 +37,11 @@ sealed class Client
     public static string DefaultUrl()
     {
         var env = Environment.GetEnvironmentVariable("TASKHUB_URL");
-        if (!string.IsNullOrEmpty(env)) return env;
+        return string.IsNullOrEmpty(env) ? OwnUrl() : env;
+    }
+
+    static string OwnUrl()
+    {
         foreach (var o in new[] { ExeSettings(), HubConfig() })
             if (o?["port"] is JsonValue pv && pv.TryGetValue<double>(out var port) && port is > 0 and < 65536)
                 return "http://127.0.0.1:" + (int)port;
