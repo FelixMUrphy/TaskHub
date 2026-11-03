@@ -446,8 +446,9 @@ with mock:
         with lock:
             regions_fault["on"] = (403, "AuthFailure")
         wait(lambda: state()["key_check"] == "revoked")
-        st = state()
-        check("key revoked: said so, how-to link back, tasks not declared gone", st["key_check"] == "revoked" and row()["key_check"] == "revoked" and task("aws-i-0a1")["state"] == before["state"], st)
+        st, rw, after = state(), row(), task("aws-i-0a1")
+        check("key revoked: said so, how-to link back, tasks not declared gone", st["key_check"] == "revoked" and rw["key_check"] == "revoked" and after["state"] == before["state"],
+              (st["key_check"], rw["key_check"], before["state"], after["state"], after.get("status")))
         time.sleep(0.5)
         mock.requests.clear()
         time.sleep(0.8)

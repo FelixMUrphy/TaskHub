@@ -8,7 +8,7 @@ it.
 - TaskHub keeps a diagnostic log there, `taskhub.log`, at most about 8 MB, with no automatic sending. It holds the version, Windows, .NET and WebView2 versions, the language, monitors, the port, the
   data and program folders, task states and ids (a hash if the id comes from a job's or instance's name), machine ids, and errors, whose text can contain a file path, a repository name or what a service replied. From TaskHub 3.1 notification text, task
   names and account balances are written only if you set `"log_level": "debug"` in `config.json` (a beta build does this by itself, keeps up to 80 MB, and the command-line tool adds `cli.log`, at most about 2 MB,
-  also written at that level). From TaskHub 3.1, before writing, TaskHub removes what looks like a token or key, and when it starts at the default level it deletes a log with those detailed lines, `cli.log` and a beta build's extra log files. Look through a log before you share it with anyone.
+  also written at that level). From TaskHub 3.1, before writing, TaskHub removes what looks like a token or key, and when it starts at the default level it deletes a log holding lines written at that debug level, `cli.log` and a beta build's extra log files. Look through a log before you share it with anyone.
 - Programs on the same PC talk to TaskHub over a local HTTP API on `127.0.0.1`, which other computers cannot reach.
 - If you turn on the Claude Code or Codex connection, TaskHub adds its entries to those programs' settings files in your
   user profile and removes them when you turn the connection off. The version installed from GitHub also removes them
