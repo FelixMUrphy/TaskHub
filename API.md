@@ -18,12 +18,12 @@ Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/
 
 **Rules for every client (scripts, Claude, ChatGPT/Codex, PowerShell, curl):**
 - Write requests (`POST`/`DELETE`) MUST send header `X-TaskHub: 1` (CSRF guard). Browser requests from other origins are rejected.
-- <a id="token"></a>If `config.json` has `"token"` (you set it there yourself, any text, then restart the hub), send `Authorization: Bearer <token>` on every request except
-  `GET /api/health` (without it: 401). `config.json` is `%APPDATA%\TaskHub\config.json` (Store edition:
+- <a id="token"></a>If `config.json` has `"token"` (you set it there yourself, any text, then restart the hub), send `Authorization: Bearer <token>` on every `/api/` request except
+  `GET /api/health` and `GET /api/hub-proof` (without it: 401). `config.json` is `%APPDATA%\TaskHub\config.json` (Store edition:
   `%LOCALAPPDATA%\Packages\<package family>\LocalCache\Roaming\TaskHub\config.json`). Env `TASKHUB_TOKEN` for the Python
-  client; the `taskhub` CLI and MCP server also read it from the hub's `config.json`. The token keeps out browsers and other users'
-  sessions; processes of your own account can read `config.json` (and the panel page) anyway.
-- `meta.github` is the connector's: over this API it is dropped from what you send.
+  client; the `taskhub` CLI and MCP server also read it from the hub's `config.json`. The token keeps out pages in a browser, which a foreign
+  `Origin` stops anyway. It is no wall against other programs on this PC: the panel's page `/ui` carries it and is served to anything local.
+- `meta.github` and `meta.github_pr` are the connector's: over this API they are dropped from what you send.
 - A request the hub can't honour gets a `400` that says why, never a `200` that does nothing ([Errors](#errors)). Check the status of what you send: the `error` text names the field.
 - Be fail-soft: if the hub is not reachable (`GET /api/health` fails), keep working without it.
 - Throttle updates to ≤ 2–4 per second. Chart points are appended per update, so batch them (see `chart`).
@@ -85,9 +85,9 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/tasks` | Registration (below) | create / re-register → `{id}` |
 | GET | `/api/tasks/{id}` | | full task ([fields](#task-fields)) |
 | POST | `/api/tasks/{id}/update` | Update (below) | progress, status, widgets… |
-| POST | `/api/tasks/{id}/log` | `{msg: str or [str], level?: info/warn/error, toast?}` (`message` or `lines` for `msg` work too) | append log; no text → 400 |
+| POST | `/api/tasks/{id}/log` | `{msg: str or [str], level?: info/warn/error, toast?}` (`message` or `lines` for `msg` work too) | append log, nothing else: other fields are ignored; no text → 400 |
 | POST | `/api/tasks/{id}/heartbeat` | | liveness only |
-| POST | `/api/tasks/{id}/finish` | `{state (required): done/failed/cancelled, message?, result?, widgets?, source?, agent_cwd?}` | `source` `claude`/`codex` with `agent_cwd` = its folder holds back that agent's next `Stop` toast ([rule](#claude-code-hooks)). finish + toast; a repeated finish overwrites state and message (and `result` if sent), with no second toast |
+| POST | `/api/tasks/{id}/finish` | `{state (required): done/failed/cancelled, message?, result?, widgets?, source?, agent_cwd?}` | `source` `claude`/`codex` with `agent_cwd` = its folder holds back that agent's next `Stop` toast ([rule](#claude-code-hooks)). finish + toast; the first end stands, a repeated finish changes nothing ([States](#states)); no second toast |
 | GET | `/api/tasks/{id}/commands` | `?wait=25` ([long-poll](#long-poll), max 60) | `{commands: [...], state}`: the queued signals for the process. Reading takes them off the queue: each command is returned once, also if you never ack it. Each: `{id, control, value, t, status: "pending", reply: null}`; in the task's `commands` history its status then goes `delivered`, and `ok` / `error` with `reply` after the ack |
 | POST | `/api/tasks/{id}/commands/{cmd}/ack` | `{ok: bool, message}`; `{cmd}` = the command's `id` | the process's reply, shown in the panel log (it does not remove or re-queue anything); a later ack replaces it; unknown `{cmd}` → 404 |
 | POST | `/api/tasks/{id}/controls/{cid}` | `{value?}` | trigger a control (same as panel button) |
@@ -131,7 +131,7 @@ Every error is JSON `{"error": "<text>"}` with one of these statuses:
 |---|---|
 | 400 | the body is not a JSON object (a raw `NaN` isn't JSON), or a field is invalid: a required one missing, a wrong type, a `level` or `state` that doesn't exist, a value for a widget the task doesn't have, an `update` with no known field in it. The `error` text says which; nothing has changed. A field not known yet beside known ones is no error |
 | 401 | a token is set and the request has none or a wrong one ([token](#token)) |
-| 403 | a write request without `X-TaskHub: 1`, a foreign `Host` / `Origin`, a control that works only in the panel |
+| 403 | a write request without `X-TaskHub: 1`, a foreign `Host` / `Origin`, a control that works only in the panel, a connector's setting that changes only in Settings |
 | 404 | unknown task, control, command, connector or route |
 | 409 | the task's state doesn't allow it: deleting an active task without `force`, a control not available in this state, a refused kill (also on a task with no `pid`) |
 | 413 | the body is larger than 2 MB |
@@ -197,7 +197,7 @@ What `GET /api/tasks/{id}` returns. Fields not listed here may change.
 | `milestones_hit`, `seen` | for the panel |
 
 Limits (longer text is cut, older lines dropped): `id` 64 characters of `[A-Za-z0-9_.-]`, `name` 200, `description`, `status` and `stage` 1000, `message` 2000,
-`project` 80, `attention` 300, `unit` 20, a metric's key 60 and text value 200, 40 widgets at registration, `max_points` of a chart 2000, the log 400 lines
+`project` 80, `attention` 300, `unit` 20, a metric's key 60 and text value 200, 40 widgets a task (more over `update` → 400), `max_points` of a chart 2000, the log 400 lines
 (`log_lines` in `config.json`).
 
 ## Widgets
@@ -414,7 +414,7 @@ overall progress when the frame range is known, widgets `blender_spf` (chart, s 
 task `cancelled`; pressed during the last frame: Blender ends by itself, `done`); after a stop / crash / error in an animation the message ends with `resume: -s N` and `run` prints the
 command to resume on stderr; Blender's `Error:` lines (except the leak detector's "Not freed memory blocks", logged as a warning) fail the task and `run` exits with 1 although Blender exits with 0; video frames ("Append frame N") and stereo view files count by frame; chosen by the command's file name
 unless `--progress-regex` / `--status-regex` / `--auto-progress` is given; the command may print `::progress 5/20`, `::percent 40`, `::status s`, `::stage s`, `::warn s`,
-`::error s`, `::toast s`, `::total n`, `::log s`, `::metric k=v`, `::widget id=value` lines; a `::widget` id not seen yet becomes a text widget). The command gets `TASKHUB_URL` and `TASKHUB_TASK_ID` in its environment. A wrong `--progress-regex` / `--status-regex` stops with exit code 2 before anything runs. `taskhub --help` lists all flags. Also `notify`, `list`, `show`, `register`, `update`,
+`::error s`, `::toast s`, `::total n`, `::log s`, `::metric k=v`, `::widget id=value` lines; a `::widget` id not seen yet becomes a text widget, up to 40; an id the hub wouldn't take makes it an ordinary line). The command gets `TASKHUB_URL` and `TASKHUB_TASK_ID` in its environment. A wrong `--progress-regex` / `--status-regex` stops with exit code 2 before anything runs. `taskhub --help` lists all flags. Also `notify`, `list`, `show`, `register`, `update`,
 `log`, `finish`, `control`, `commands`, `ack`, `wait ID` (blocks until finished; exit code 0 done, 1 failed or lost, 2 cancelled or a task it can't find, 124 its timeout), `panel`, `delete`,
 `mcp` ([MCP server](#mcp-server)), `hook claude|codex` (agent hooks), `statusline` ([plan limits](#plan-limits-claude-code)). `taskhub --help`.
 

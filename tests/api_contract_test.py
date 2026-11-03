@@ -244,6 +244,57 @@ try:
     confirm = [c for t in call("GET", "/api/tasks")[1]["tasks"] if t["name"] == "py net" for c in t["controls"] if c["id"] == "interrupt"]
     check("Python run: its Ctrl+C question is in English", confirm and "Надіслати" not in str(confirm[0].get("confirm")), confirm)
 
+    # ---- every route to an operation has the same protection: /log can only log
+    new_task("lg", source="github", widgets=[{"id": "w", "type": "text"}])
+    call("POST", "/api/tasks/lg/update", {"status": "kept"})
+    s, r = call("POST", "/api/tasks/lg/log", {"msg": "only this", "status": "changed", "progress": 0.9, "metrics": {"a": 1}, "widgets": {"w": "changed"},
+                                              "add_controls": [{"id": "sneak", "label": "x", "kind": "signal"}],
+                                              "meta": {"github": {"repo": "victim/other", "run_id": 999}, "github_pr": {"repo": "victim/other", "number": 1}}})
+    t = task("lg")
+    check("/log: the text is logged", s == 200 and logged("lg", "only this"), (s, r))
+    check("/log can't set meta.github or meta.github_pr", "github" not in t["meta"] and "github_pr" not in t["meta"], t["meta"])
+    check("/log changes nothing but the log", t["status"] == "kept" and t["progress"] is None and not t["metrics"] and t["widgets"][0].get("value") is None
+          and not any(c["id"] == "sneak" for c in t["controls"]), t)
+
+    # ---- bad shapes are a 400, and the answer stays short
+    s, r = call("POST", "/api/tasks/u/update", {"add_widgets": [1], "widgets": {"a": 1}})
+    check("add_widgets with a number beside values -> 400", s == 400, (s, r))
+    s, r = raw("POST", "/api/tasks/u/update", b'{"status": "a", "status": "b"}')
+    check("a key sent twice -> 400", s == 400, (s, r))
+    huge = "x" * 200000
+    for name, body in (("control id", {"name": "x", "controls": [{"id": huge, "label": "x"}]}), ("control kind", {"name": "x", "controls": [{"id": "c", "label": "x", "kind": huge}]}),
+                       ("widget id", {"name": "x", "widgets": [{"id": huge, "type": "text"}]}), ("widget type", {"name": "x", "widgets": [{"id": "w", "type": huge}]})):
+        s, r = call("POST", "/api/tasks", body)
+        check(f"a huge {name}: 400 with a short answer", s == 400 and len(r.get("error", "")) < 1000, (s, len(r.get("error", ""))))
+
+    # ---- widgets don't grow without end
+    new_task("many")
+    s, r = call("POST", "/api/tasks/many/update", {"add_widgets": [{"id": f"w{i}", "type": "text"} for i in range(50)]})
+    check("more than 40 widgets through update -> 400", s == 400 and "40" in r.get("error", "") and not task("many")["widgets"], (s, r))
+    s, r = call("POST", "/api/tasks/many/update", {"add_widgets": [{"id": f"w{i}", "type": "text"} for i in range(40)]})
+    check("40 widgets are fine", s == 200 and len(task("many")["widgets"]) == 40, (s, r))
+    check("replacing one of them isn't one more", call("POST", "/api/tasks/many/update", {"add_widgets": [{"id": "w0", "type": "stat"}]})[0] == 200)
+    check("the 41st isn't", call("POST", "/api/tasks/many/update", {"add_widgets": [{"id": "w40", "type": "text"}]})[0] == 400)
+    prog = "print('\\n'.join(f'::widget w{i}={i}' for i in range(60)) + '\\n::status after\\nlast plain', flush=True)"
+    r = subprocess.run([CLI, "run", "--name", "many", "--id", "rm", "--quiet", "--", sys.executable, "-c", prog], env=ENV, capture_output=True, text=True, timeout=60)
+    t = task("rm")
+    check("run: ::widget stops at 40 widgets, the rest isn't lost", len(t["widgets"]) == 40 and t["status"] == "after" and logged("rm", "last plain"), (len(t["widgets"]), t["status"]))
+
+    # ---- taskhub run: a ::widget the hub would refuse is an ordinary line, and costs nothing else
+    prog = "print('::widget a b=1\\n::status after bad\\n::widget good=2\\nplain', flush=True)"
+    r = subprocess.run([CLI, "run", "--name", "bad widget", "--id", "rb", "--quiet", "--", sys.executable, "-c", prog], env=ENV, capture_output=True, text=True, timeout=60)
+    t = task("rb")
+    w = {x["id"]: x for x in t["widgets"]}
+    check("run: a ::widget with a bad id loses nothing", t["status"] == "after bad" and logged("rb", "plain") and logged("rb", "::widget a b=1") and w.get("good", {}).get("value") == 2, (w.keys(), t["status"], t["log"]))
+
+    # ---- taskhub run: a regex that never ends can't hold up a command
+    try:
+        r = subprocess.run([CLI, "run", "--name", "slow regex", "--id", "rs", "--quiet", "--status-regex", "(a+)+$", "--", sys.executable, "-c", "print('a' * 60 + '!', flush=True)"],
+                           env=ENV, capture_output=True, text=True, timeout=40)
+        check("run: a catastrophic regex doesn't hang it", r.returncode == 0 and task("rs")["state"] == "done", (r.returncode, r.stderr[-200:]))
+    except subprocess.TimeoutExpired:
+        check("run: a catastrophic regex doesn't hang it", False, "still running after 40 s")
+
     # ---- the smaller answers
     new_task("sig", controls=[{"id": "go", "label": "Go", "kind": "signal"}, {"id": "kill2", "label": "Kill", "kind": "kill"}])
     s, r = call("POST", "/api/tasks/sig/commands/nope/ack", {"ok": True})

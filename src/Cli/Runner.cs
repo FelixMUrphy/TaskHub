@@ -24,7 +24,7 @@ static class Runner
         public JsonObject Widgets = new();
         public JsonObject Metrics = new();
         public string Toast;
-        public readonly HashSet<string> Declared = new() { "last" };   // the hub refuses a value for a widget it doesn't have
+        public readonly HashSet<string> Declared = new() { "last" };   // the hub refuses a value for a widget it doesn't have, and a batch with it
         public JsonArray NewWidgets = new();                           // ::widget with a new id: declared with its first value
     }
 
@@ -178,7 +178,7 @@ static class Runner
                 pending.Widgets["last"] = Cut(line, 300);
                 if (prog != null)
                 {
-                    var m = prog.Match(line);
+                    var m = MatchLine(prog, line);
                     if (m.Success)
                     {
                         if (m.Groups["pct"].Success && Num(m.Groups["pct"].Value) is double pct) pending.Fields["percent"] = pct;
@@ -189,7 +189,7 @@ static class Runner
                 }
                 if (stat != null)
                 {
-                    var m = stat.Match(line);
+                    var m = MatchLine(stat, line);
                     if (m.Success) pending.Fields["status"] = m.Groups.Count > 1 ? m.Groups[1].Value : m.Value;
                 }
             }
@@ -264,7 +264,16 @@ static class Runner
     /// <summary>::directive handling; returns true if the line was a directive.</summary>
     /// <summary>A regex given by the caller; Python's named groups, as in the docs of the Python client, work too.</summary>
     static Regex UserRegex(string pattern) =>
-        new(Regex.Replace(pattern.Replace("(?P<", "(?<"), @"\(\?P=(\w+)\)", @"\k<$1>"));
+        new(Regex.Replace(pattern.Replace("(?P<", "(?<"), @"\(\?P=(\w+)\)", @"\k<$1>"), RegexOptions.None, TimeSpan.FromSeconds(1));
+
+    /// <summary>A line of the command's output, against a regex that may be slow: it must not hold up the command.</summary>
+    static Match MatchLine(Regex r, string line)
+    {
+        try { return r.Match(Cut(line, 2000)); }
+        catch (RegexMatchTimeoutException) { return Match.Empty; }
+    }
+
+    const int MaxWidgets = 40;   // the hub's limit for a task
 
     static bool Directive(string line, Pending pd)
     {
@@ -309,7 +318,13 @@ static class Runner
                 var kv = arg.Split('=', 2);
                 if (kv.Length != 2) return false;
                 var wid = kv[0].Trim();
-                if (pd.Declared.Add(wid)) pd.NewWidgets.Add((JsonNode)new JsonObject { ["id"] = wid, ["type"] = "text", ["label"] = wid });
+                if (!Regex.IsMatch(wid, @"^[A-Za-z0-9_.:-]{1,48}$")) return false;   // the hub's rule: an ordinary line then
+                if (!pd.Declared.Contains(wid))
+                {
+                    if (pd.Declared.Count >= MaxWidgets) return true;
+                    pd.Declared.Add(wid);
+                    pd.NewWidgets.Add((JsonNode)new JsonObject { ["id"] = wid, ["type"] = "text", ["label"] = wid });
+                }
                 pd.Widgets[wid] = Program.ParseValue(kv[1].Trim());
                 return true;
             }
@@ -338,7 +353,7 @@ static class Runner
         var bodies = new List<JsonObject>();
         lock (pd.L)
         {
-            if (pd.Log.Count == 0 && pd.Fields.Count == 0 && pd.Widgets.Count == 0 && pd.Metrics.Count == 0 && pd.Toast == null) return;
+            if (pd.Log.Count == 0 && pd.Fields.Count == 0 && pd.Widgets.Count == 0 && pd.Metrics.Count == 0 && pd.NewWidgets.Count == 0 && pd.Toast == null) return;
             var info = new JsonArray();
             void FlushInfo()
             {
@@ -369,7 +384,12 @@ static class Runner
         foreach (var b in bodies)
         {
             try { c.Call("POST", $"/api/tasks/{tid}/update", b, 5); }
-            catch { /* fail-soft: the command keeps running even if the hub is gone */ }
+            catch
+            {
+                // fail-soft: the command keeps running even if the hub is gone. A new widget is asked for again, or its later values would fail too
+                if (b["add_widgets"] is JsonArray again)
+                    lock (pd.L) foreach (var w in again) pd.NewWidgets.Add(w.DeepClone());
+            }
         }
     }
 

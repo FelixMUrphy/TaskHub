@@ -12,6 +12,8 @@ sealed partial class Hub
         "expected_duration", "state", "controls", "add_controls", "remove_controls", "add_widgets", "remove_widgets", "widgets", "log", "level", "toast",
     };
 
+    const int MaxWidgets = 40;
+
     static ApiError Bad(string why) => new(400, why);
 
     static void CheckNumbers(JsonObject b, params string[] keys)
@@ -58,12 +60,13 @@ sealed partial class Hub
         CheckLevel(b);
         if (b["state"] != null && J.Str(b["state"]) is not ("running" or "paused"))
             throw Bad($"state can be running or paused here; POST /api/tasks/{tid}/finish ends a task");
-        if (b["widgets"] is JsonObject values)
+        if (b["widgets"] is JsonObject || b["add_widgets"] != null)
             lock (Lock)
             {
                 var known = (Get(tid)["widgets"] as JsonArray ?? new JsonArray()).Concat(b["add_widgets"] as JsonArray ?? new JsonArray())
-                    .Select(w => J.Str(w?["id"])).ToHashSet();
-                foreach (var (id, _) in values)
+                    .Select(w => J.Str((w as JsonObject)?["id"])).ToHashSet();
+                if (b["add_widgets"] != null && known.Count > MaxWidgets) throw Bad($"a task has at most {MaxWidgets} widgets");
+                foreach (var (id, _) in b["widgets"] as JsonObject ?? new JsonObject())
                     if (!known.Contains(id)) throw Bad($"unknown widget '{J.Cut(id, 64)}': declare it in widgets or add_widgets first");
             }
         return Update(tid, b);

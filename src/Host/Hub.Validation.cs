@@ -37,10 +37,10 @@ sealed partial class Hub
     {
         if (cn is not JsonObject c) throw new ApiError(400, "control must be an object");
         var cid = J.Str(c["id"]).Trim();
-        if (!CidRx.IsMatch(cid)) throw new ApiError(400, $"bad control id '{cid}'");
+        if (!CidRx.IsMatch(cid)) throw new ApiError(400, $"bad control id '{J.Cut(cid, 64)}'");
         var kind = J.Str(c["kind"], "signal");
         if (kind is not ("signal" or "shell" or "open" or "kill") && !(trusted && kind == "connector"))
-            throw new ApiError(400, $"bad control kind '{kind}'");
+            throw new ApiError(400, $"bad control kind '{J.Cut(kind, 64)}'");
         var statesN = c["states"];
         List<string> states;
         if (J.IsStr(statesN)) states = new() { J.Str(statesN) };
@@ -109,9 +109,9 @@ sealed partial class Hub
     {
         if (wn is not JsonObject w) throw new ApiError(400, "widget must be an object");
         var wid = J.Str(w["id"]).Trim();
-        if (!CidRx.IsMatch(wid)) throw new ApiError(400, $"bad widget id '{wid}'");
+        if (!CidRx.IsMatch(wid)) throw new ApiError(400, $"bad widget id '{J.Cut(wid, 64)}'");
         var typ = J.Str(w["type"], "text");
-        if (!WidgetTypes.Contains(typ)) throw new ApiError(400, $"bad widget type '{typ}'; one of {string.Join(", ", WidgetTypes)}");
+        if (!WidgetTypes.Contains(typ)) throw new ApiError(400, $"bad widget type '{J.Cut(typ, 64)}'; one of {string.Join(", ", WidgetTypes)}");
         JsonNode span = null;
         if (w.ContainsKey("span") || w.ContainsKey("wide"))
             span = (J.Num(w["span"]) == 2 || J.Truthy(w["wide"])) ? 2 : 1;

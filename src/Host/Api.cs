@@ -215,7 +215,10 @@ sealed class Api
         JsonNode n;
         try { n = J.Parse(text); }
         catch { throw new ApiError(400, "body must be JSON"); }
-        return n as JsonObject ?? throw new ApiError(400, "body must be a JSON object");
+        if (n is not JsonObject o) throw new ApiError(400, "body must be a JSON object");
+        try { _ = o.Count; }   // a key sent twice shows only when the object is first read
+        catch (ArgumentException) { throw new ApiError(400, "body has a key twice"); }
+        return o;
     }
 
     static async Task Raw(HttpContext c, int code, byte[] body, string ctype)

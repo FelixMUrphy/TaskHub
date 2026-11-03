@@ -239,14 +239,14 @@ sealed partial class Hub
 
     public JsonObject AddLogApi(string tid, JsonObject b)
     {
-        var c = (JsonObject)b.DeepClone();
         JsonNode msg = null;
         foreach (var k in new[] { "msg", "lines", "message" })
-            if (J.Truthy(c[k])) { msg = J.C(c[k]); break; }
+            if (J.Truthy(b[k])) { msg = J.C(b[k]); break; }
         if (msg == null) throw Bad("msg is required: a text or a list of texts");
         CheckLevel(b);
-        c.Remove("msg"); c.Remove("lines"); c.Remove("message");
-        c["log"] = msg;
+        // only what a log line needs: this route must not become a way around the checks and protections of /update
+        var c = new JsonObject { ["log"] = msg };
+        foreach (var k in new[] { "level", "toast" }) if (b[k] != null) c[k] = J.C(b[k]);
         return Update(tid, c);
     }
 
