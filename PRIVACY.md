@@ -79,6 +79,10 @@ it.
   notification (including Telegram or Discord when on). The last cost figures and the names of budgets over their limit stay in `config.json`, with the ids of the instances you marked as needed.
   The key is kept in the Windows Credential Manager, not in TaskHub's files. Nothing is changed in your AWS account. AWS's own privacy policy applies to these
   requests. Turning the connector off stops them (the key stays saved); *Remove* deletes the key.
+- **SSH connector** (TaskHub 3.2 and later; off by default, earlier versions don't have it). If you turn it on and add hosts, TaskHub runs Windows' own `ssh.exe` to those hosts only.
+  It sends what any ssh sends (your user name, your public keys) and a fixed read-only script. Your ssh config, agent and `known_hosts` are used by `ssh.exe`; TaskHub stores no key or password and doesn't write to them.
+  A `ProxyCommand` or `Match exec` in your ssh config runs on each connection. What comes back (load, memory, disk mount points, GPU figures, tmux session names, the name of a command running in tmux, the name of a process you asked to watch, ssh's own error line while a host has never connected, which can name its address)
+  becomes a task: kept in TaskHub's data folder and shown in notifications, including Telegram or Discord when on, as are the host names you added. `config.json` keeps the host names and the processes being watched. Process arguments are never read. Turning the connector off or removing a host ends the connection.
 - **Balance guard** (TaskHub 2.9 and later; off by default). If you turn it on for Runpod or Vast.ai, TaskHub uses the
   balance it already reads from that service; at your stop threshold it sends that service the same *stop* request as the
   Stop button (never delete), for the running machines you did not mark *Never auto-stop*. Auto-stop on GPU idle

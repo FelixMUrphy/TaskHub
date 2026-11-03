@@ -56,6 +56,8 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
 - **Vast.ai** *(from 2.9)*: your instances as tasks — the same as Runpod (GPU, location, image, $/h, spent, uptime, SSH, load
   charts with disk, *GPU idle*, balance / credit and runway, stop / start / reboot, delete only in the panel) — see
   [Vast.ai](#vastai).
+- **SSH** *(from 3.2; off until you turn it on; tested against a simulator, not yet on a real host)*: your own Linux hosts as tasks, read-only and with nothing installed on them:
+  load, disks, GPU, tmux sessions; a notification when a job ends, a disk fills up or the connection is lost. TaskHub keeps no key. [SSH](#ssh).
 - **AWS** *(from 3.1; off until you turn it on; built from AWS's documentation, not yet checked on a real account)*: EC2 instances as tasks with a *Forgotten?*
   reminder; SageMaker training jobs, AWS Batch jobs, this month's cost and forecast, and AWS Budgets, each behind its own switch. Read-only. [AWS](#aws).
 - **Balance guard** *(from 2.9, off until you turn it on)*: for Runpod and Vast.ai — a warning at your own balance threshold
@@ -234,6 +236,14 @@ training, so TaskHub shows none), **AWS Batch jobs** (real progress for array jo
 $0.01 per request; TaskHub makes 2 at most every 8 hours, about $1.80 a month, and a restart doesn't pay again) and **AWS Budgets** (one notification when a budget goes over its limit).
 Details: [API.md → Connectors](API.md#connectors-aws).
 *How to get a key:* [docs/keys/aws.md](docs/keys/aws.md) (step by step, minimum permissions, revoking; [українською](docs/keys/aws.uk.md)).
+
+### SSH
+*From version 3.2; off until you turn it on. Built from the OpenSSH documentation and tested against a simulator, not yet on a real host.*
+Settings → *Connectors* → *SSH*: add a host you already reach with `ssh` from a terminal. TaskHub runs Windows' own `ssh.exe` with your config, agent and `known_hosts`: it keeps no key,
+trusts no new host key by itself and installs nothing on the host. Linux hosts for now.
+Each host becomes a task with its CPU, memory, disks, GPU and tmux sessions. You get a notification when a disk fills up, the connection is lost, the host restarts, a tmux session or a command in it
+ends, or a process you named (*Watch a process*, by its number) ends. TaskHub says "ended", not "succeeded": it can't see an exit code. It reads, and changes nothing on the host.
+Details: [API.md → Connectors](API.md#connectors-ssh). *Setting up a host:* [docs/keys/ssh.md](docs/keys/ssh.md) ([українською](docs/keys/ssh.uk.md)).
 
 ### Balance guard
 *From version 2.9; off until you turn it on.* Settings → *Connectors* → *Runpod* / *Vast.ai* → *Auto-stop at low balance*.

@@ -281,6 +281,7 @@ static class Program
         connectors.Add(new RunpodConnector(S, hub));
         connectors.Add(new VastAiConnector(S, hub));
         connectors.Add(new AwsConnector(S, hub));
+        connectors.Add(new SshConnector(S, hub));
         var api = new Api(S, hub) { Telegram = telegram, Discord = discord, Conns = connectors };
         try { api.Start().GetAwaiter().GetResult(); }
         catch (Exception e)

@@ -68,7 +68,7 @@ static class Secrets
     const int ErrorNotFound = 1168;
 
     /// <summary>True for a hub with its own data folder (tests, demos): its names carry an "@tag".</summary>
-    static bool IsTagged(Settings s)
+    internal static bool IsTagged(Settings s)
     {
         var def = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Settings.AppId);
         return !string.Equals(Path.GetFullPath(s.DataDir).TrimEnd('\\'), Path.GetFullPath(def).TrimEnd('\\'),

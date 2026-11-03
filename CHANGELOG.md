@@ -17,6 +17,7 @@ from here), followed by the list of commits.
 - Install: a quiet install no longer carries the downloaded file's Mark of the Web. Uninstall removes this copy's autostart entries for other ports. The Apps list shows the install date and a link; `taskhub:` links have an icon.
 - A TaskHub that starts while another program answers on its port no longer sends that program its token. A command under `taskhub run` makes the same check as `taskhub` itself.
 - Install, update and uninstall stop only the TaskHub in their way (in the install folder or on its port), not a copy of yours running elsewhere on another port.
+- New connector, SSH (off until you turn it on): your own Linux hosts as tasks, read-only with nothing installed on them, with a notification when a job ends, a disk fills up or the connection is lost. TaskHub keeps no key: it runs Windows' `ssh` with your config and agent. Not yet tried on a real host.
 
 ## 3.1.0 — 2026-11-03
 
