@@ -318,7 +318,7 @@ check("panel settings: set", s == 200 and r.get("panel") == {"theme": "dark", "a
       "card_transparency": 55, "panel_group": "source", "panel_pinned": True, "panel_push_windows": False}, r)
 s, r = call("POST", "/api/settings", {"panel_push_windows": True})
 check("panel settings: moving other windows can't be turned on over HTTP", s == 200 and r["panel"]["panel_push_windows"] is False, (s, r))
-cfg_path = os.path.join(os.environ.get("TEMP", ""), "taskhub-tests", "config.json")
+cfg_path = os.path.join(os.environ.get("TASKHUB_DATA", os.path.join(os.environ.get("TEMP", ""), "taskhub-tests")), "config.json")
 if os.path.exists(cfg_path):
     with open(cfg_path, encoding="utf-8") as f:
         cfg = json.load(f)
