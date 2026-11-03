@@ -157,7 +157,10 @@ class Api(BaseHTTPRequestHandler):
                 if m == "GET" and sub == "":
                     return self.reply(200, {k: v for k, v in r.items() if k != "jobs"})
                 if m == "GET" and re.match(r"^attempts/\d+/jobs$", sub):
-                    return self.reply(200, {"total_count": len(r["jobs"]), "jobs": r["jobs"]})
+                    per, pg = min(int(q.get("per_page", 30)), 100), int(q.get("page", 1))
+                    more = len(r["jobs"]) > per * pg
+                    link = {"Link": f'<http://127.0.0.1:{PORT}{p}?per_page={per}&page={pg + 1}>; rel="next"'} if more else None
+                    return self.reply(200, {"total_count": len(r["jobs"]), "jobs": r["jobs"][per * (pg - 1):per * pg]}, link)
                 if m == "GET" and sub == "artifacts":
                     return self.reply(200, {"artifacts": [{"id": 5, "name": "setup-exe", "expired": False}]})
                 if m == "POST" and sub == "cancel":
@@ -252,6 +255,39 @@ if t:
 r = wait(lambda: (lambda c: c if c.get("repo_status", {}).get("o/missing") else None)(call("GET", "/api/connectors/github")[1])) or {}
 check("repo without access reported", r.get("repo_status", {}).get("o/missing") == "not found, or the token can't reach it: check the name, then the token's repository list and permissions", r)
 check("token expiry known (warning ahead)", abs((r.get("token_expires") or 0) - EXP) < 2, r.get("token_expires"))
+
+# ---- more than 100 jobs: the failed one on the second page is found
+with lock:
+    big = mkrun(130, "in_progress", started=time.time() - 30, title="Big matrix")
+    big["jobs"] = [{"id": 30000 + i, "name": f"m{i}", "status": "completed", "conclusion": "success", "steps": [step("Run", "completed", "success")]} for i in range(150)]
+check("big run shown", wait(lambda: task("gh-130")))
+time.sleep(1)
+with lock:
+    big["jobs"][140].update(conclusion="failure", steps=[step("Run", "completed", "failure")])
+    big["status"], big["conclusion"] = "completed", "failure"
+t = wait(lambda: (lambda x: x if x and x["state"] == "failed" else None)(task("gh-130")))
+check("a job on the second page counts", t and t["status"] == "jobs 150 / 150", t and t.get("status"))
+check("...and it is named as the one that failed", t and t["message"] == "m140 › Run", t and t.get("message"))
+
+# ---- which run a button acts on can't be changed from outside
+with lock:
+    aimed = mkrun(131, "in_progress", started=time.time() - 30, title="Aimed at")
+    aimed["jobs"] = []
+check("run shown", wait(lambda: task("gh-131")))
+s, r = call("POST", "/api/tasks/gh-131/update", {"meta": {"github": {"repo": "evil/repo", "run_id": 999}, "mine": 1}})
+t = task("gh-131")
+check("meta.github isn't changed over the API, other meta is", t["meta"]["github"]["run_id"] == 131 and t["meta"].get("mine") == 1, t["meta"])
+n = len(calls)
+s, r = call("POST", "/api/tasks/gh-131/controls/cancel", {})
+check("cancel goes to the task's own run", s == 200 and any(c[0] == "POST" and c[1].endswith("/runs/131/cancel") for c in calls[n:]) and not any("evil" in c[1] for c in calls[n:]), (s, calls[n:]))
+s, r = call("POST", "/api/tasks", {"id": "fake-run", "name": "fake", "source": "github", "meta": {"github": {"repo": "evil/repo", "run_id": 999}}, "controls": [{"id": "cancel", "label": "Cancel"}]})
+n = len(calls)
+s2, r2 = call("POST", "/api/tasks/fake-run/controls/cancel", {})
+check("a task made over the API can't aim the token at a repository", not any("evil" in c[1] for c in calls[n:]), (s, s2, calls[n:]))
+call("DELETE", "/api/tasks/fake-run?force=1")
+with lock:
+    aimed["status"], aimed["conclusion"] = "completed", "cancelled"
+    big["status"] = "completed"
 
 # ---- past the usual duration; no usual duration
 with lock:

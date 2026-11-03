@@ -8,6 +8,8 @@ from here), followed by the list of commits.
 - New: Discord. Your notifications, a live progress message, charts and the tasks' buttons as direct messages from your own bot, off until you connect it. Built from Discord's documentation, tested against a simulator and checked with a real bot.
 
 - Safer agent notifications: before sending anything, the `taskhub` command checks that it is really talking to TaskHub. With TaskHub closed, a program of another Windows account listening on its port gets neither an agent's message nor the token.
+- Telegram: a bot you blocked no longer shows as connected; the page says Telegram refuses to deliver. A bot's name no longer stays empty after one failed request at start.
+- GitHub Actions: a run with more than 100 jobs is counted in full, and a failed job past the first 100 is found. Borrowing Git's credentials never opens a password window, even if Git has an askpass program set. Over the local API, nothing can change which run a task's Cancel and Re-run act on.
 
 ## 3.1.0 — 2026-11-03
 

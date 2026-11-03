@@ -31,6 +31,7 @@ for %%D in ("%EXE%") do "%PYTHON%" blender_test.py "%%~dpDtaskhub.exe" || set RC
 "%PYTHON%" discord_test.py "%EXE%" || set RC=1
 "%PYTHON%" github_test.py || set RC=1
 "%PYTHON%" github_prs_test.py || set RC=1
+"%PYTHON%" github_askpass_test.py "%EXE%" || set RC=1
 "%PYTHON%" runpod_test.py || set RC=1
 "%PYTHON%" vastai_test.py || set RC=1
 "%PYTHON%" guard_test.py "%EXE%" || set RC=1

@@ -25,6 +25,7 @@ Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/
   sessions; processes of your own account can read `config.json` (and the panel page) anyway.
 - Features marked with a version (2.9, 2.9.2, …) exist from that TaskHub version on; check `version` from `GET /api/health`
   before relying on one.
+- `meta.github` is the connector's: over this API it is dropped from what you send (3.2).
 - Be fail-soft: if the hub is not reachable (`GET /api/health` fails), keep working without it.
 - Throttle updates to ≤ 2–4 per second. Chart points are appended per update, so batch them (see `chart`).
 - Always `finish` the task (done/failed/cancelled). If you pass `pid`, the hub marks the task `lost` when the process dies without finishing.

@@ -441,6 +441,7 @@ sealed partial class GitHubConnector : ISettingsConnector
                 RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
             };
             psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
+            psi.Environment["GIT_ASKPASS"] = "";   // git asks a program before core.askPass and SSH_ASKPASS; empty means no window (GIT_TERMINAL_PROMPT doesn't cover this)
             psi.Environment["GCM_INTERACTIVE"] = "never";
             using var p = Process.Start(psi);
             if (input != null) p.StandardInput.Write(input);
@@ -573,10 +574,30 @@ sealed partial class GitHubConnector : ISettingsConnector
             run.AwaitAttempt = 0;
         }
         if (attempt > run.Attempt) { run.Attempt = attempt; run.JobsEtag = null; run.Jobs = null; lock (gate) known[run.Id] = attempt; await Show(run, token, c, ct); }
-        var j = await Call(HttpMethod.Get, $"/repos/{run.Repo}/actions/runs/{run.Id}/attempts/{run.Attempt}/jobs?per_page=100", run.JobsEtag, token, ct);
+        var j = await Jobs(run, run.JobsEtag, token, ct);
         if (j.Code == 200) { run.JobsEtag = j.ETag; run.Jobs = j.Body?["jobs"] as JsonArray; }
         if (done) { await Finished(run, token, c, ct); return; }
         Try(() => hub.Update(Tid(run.Id), Progress(run)));
+    }
+
+    /// <summary>A run's jobs, every page (a big matrix has more than 100). With more than one page there is no tag to keep: a job on a
+    /// later page can change while the first page stays the same.</summary>
+    async Task<Resp> Jobs(Run run, string etag, string token, CancellationToken ct)
+    {
+        var first = await Call(HttpMethod.Get, $"/repos/{run.Repo}/actions/runs/{run.Id}/attempts/{run.Attempt}/jobs?per_page=100", etag, token, ct);
+        if (first.Code != 200 || first.Next == null) return first;
+        var all = (first.Body?["jobs"] as JsonArray ?? new JsonArray()).Select(x => J.C(x)).ToList();
+        var next = first.Next;
+        for (int pages = 1; next != null && pages < 10; pages++)
+        {
+            var r = await Send(HttpMethod.Get, next, null, token, ct);
+            if (r.Code != 200) break;
+            all.AddRange((r.Body?["jobs"] as JsonArray ?? new JsonArray()).Select(x => J.C(x)));
+            next = r.Next;
+        }
+        first.Body = new JsonObject { ["jobs"] = new JsonArray(all.ToArray()) };
+        first.ETag = null;
+        return first;
     }
 
     static string Tid(long runId) => "gh-" + runId;
@@ -686,7 +707,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         };
         if (run.Jobs == null)
         {
-            var jr = await Call(HttpMethod.Get, $"/repos/{run.Repo}/actions/runs/{run.Id}/attempts/{run.Attempt}/jobs?per_page=100", null, token, ct);
+            var jr = await Jobs(run, null, token, ct);
             if (jr.Code == 200) run.Jobs = jr.Body?["jobs"] as JsonArray;
         }
         var jobs = (run.Jobs ?? new JsonArray()).OfType<JsonObject>().ToList();

@@ -301,6 +301,17 @@ sealed class TelegramBridge
         return (code, r);
     }
 
+    /// <summary>Telegram refuses to deliver (the user blocked the bot): that isn't "connected". A message that gets through, or one from the
+    /// user, ends it.</summary>
+    void Refused(bool on)
+    {
+        if (refused == on) return;
+        refused = on;
+        if (on) { Status = "blocked"; Log.W("telegram", "can't deliver: blocked"); }
+        else if (Status == "blocked") Status = Linked ? "connected" : "waiting for /start";
+    }
+    volatile bool refused;
+
     void SendWorker()
     {
         foreach (var (method, m0, png) in outbox.GetConsumingEnumerable())
@@ -313,6 +324,8 @@ sealed class TelegramBridge
                 {
                     Pace();
                     var (code, r) = (png != null ? CallPhoto(m, png) : Call(method, m, 20)).GetAwaiter().GetResult();
+                    if (code == 403) Refused(true);
+                    else if (code == 200) Refused(false);
                     // too many requests: the same message again once Telegram allows (not dropped)
                     if (code == 429) { Throttled(r); if (++limited < 20) continue; Log.W("telegram", $"{method}: still limited, dropped"); break; }
                     if (ParseError(code, r) && m["parse_mode"] != null)
@@ -476,6 +489,7 @@ sealed class TelegramBridge
                 {
                     var (code, me) = await Call("getMe", null, 15);
                     if (code is 401 or 404) { Status = "invalid token"; Log.W("telegram", "token rejected"); return; }
+                    if (code != 200) throw new HttpRequestException("getMe: HTTP " + code);   // asked again; a name left empty would stay so
                     BotName = J.Str(me?["result"]?["username"]);
                     if (first)   // skip messages that arrived while TaskHub was not running
                     {
@@ -485,7 +499,7 @@ sealed class TelegramBridge
                         first = false;
                     }
                 }
-                Status = Linked ? "connected" : "waiting for /start";
+                Status = refused ? "blocked" : Linked ? "connected" : "waiting for /start";
                 var (c2, r) = await Call("getUpdates", new JsonObject
                 {
                     ["offset"] = offset, ["timeout"] = 50, ["allowed_updates"] = new JsonArray("message", "callback_query"),
@@ -496,6 +510,7 @@ sealed class TelegramBridge
                 foreach (var u in (r?["result"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
                 {
                     offset = Math.Max(offset, (long)(J.Num(u["update_id"]) ?? 0) + 1);
+                    if ((long)(J.Num((u["message"] ?? u["callback_query"]?["message"])?["chat"]?["id"]) ?? 0) == Chat) Refused(false);
                     try { Handle(u); } catch (Exception e) { Log.W("telegram", "update: " + e.Message); }
                 }
             }

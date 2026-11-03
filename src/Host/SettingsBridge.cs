@@ -139,6 +139,7 @@ sealed class SettingsBridge
         "connecting" => L.T("tg_st_connecting"),
         "invalid token" => L.T("tg_rejected"),
         "waiting for /start" => L.T("tg_state_wait"),
+        "blocked" => L.T("tg_st_blocked"),
         _ when st.StartsWith("another program") => L.T("tg_st_conflict"),
         _ when st.StartsWith("offline") => L.T("tg_st_offline"),
         _ => st,

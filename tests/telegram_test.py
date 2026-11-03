@@ -50,6 +50,9 @@ def check_vault(name, cond, extra=""):
         check(name, cond, extra)
 
 
+faults2 = {"get_me": 0, "forbidden": False}   # next N getMe answer 500; sendMessage answers 403 (the user blocked the bot)
+
+
 class Bot(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -68,6 +71,11 @@ class Bot(BaseHTTPRequestHandler):
         if not m or m.group(1) != TOKEN:
             return self.reply(401, {"ok": False, "description": "Unauthorized"})
         method = m.group(2)
+        if method == "getMe" and faults2["get_me"] > 0:
+            faults2["get_me"] -= 1
+            return self.reply(500, {"ok": False, "error_code": 500, "description": "Internal Server Error"})
+        if method == "sendMessage" and faults2["forbidden"]:
+            return self.reply(403, {"ok": False, "error_code": 403, "description": "Forbidden: bot was blocked by the user"})
         if method == "getMe":
             return self.reply(200, {"ok": True, "result": {"id": 1, "is_bot": True, "username": "test_bot"}})
         if method == "getUpdates":
@@ -455,6 +463,44 @@ if EXE:
     finally:
         hub4.kill()
         hub4.wait(10)
+
+# getMe that fails once is asked again; a bot the user blocked doesn't pass for connected
+if EXE:
+    faults2["get_me"] = 1
+    hub5, url5, data5, up = start_hub(47876, {"telegram_token": TOKEN, "telegram_chat": 888, "toast_rate": 0, "toast_task_gap": 0, "language": "en"})
+    try:
+        check("blocked-bot hub started", up)
+
+        def tg5(key, want, timeout=15):
+            end = time.time() + timeout
+            got = None
+            while time.time() < end:
+                got = call("GET", "/api/telegram", url=url5)[1].get(key)
+                if got == want:
+                    return True
+                time.sleep(0.2)
+            print("   got", repr(got))
+            return False
+
+        check("getMe that failed once: asked again, the bot's name comes", tg5("bot", "test_bot"))
+        check("...connected", tg5("status", "connected"))
+        faults2["forbidden"] = True
+        call("POST", "/api/notify", {"title": "to a blocked bot"}, url=url5)
+        check("the user blocked the bot: it says so, not connected", tg5("status", "blocked"))
+        faults2["forbidden"] = False
+        call("POST", "/api/notify", {"title": "unblocked"}, url=url5)
+        check("a message that gets through: connected again", tg5("status", "connected"))
+        faults2["forbidden"] = True
+        call("POST", "/api/notify", {"title": "blocked again"}, url=url5)
+        check("blocked again", tg5("status", "blocked"))
+        faults2["forbidden"] = False
+        push({"message": {"message_id": 1, "chat": {"id": 888}, "from": {"id": 888}, "text": "hello"}})
+        check("a message from the user: connected again", tg5("status", "connected"))
+        call("POST", "/api/telegram", {"disconnect": True}, url=url5)
+    finally:
+        faults2["forbidden"] = False
+        hub5.kill()
+        hub5.wait(10)
 
 # Credential Manager unavailable (TASKHUB_TEST_NO_VAULT, only honoured for a hub with its own data folder): the old token
 # stays in config.json, Telegram keeps working, Settings shows a warning; pairing keeps the new token there too.
