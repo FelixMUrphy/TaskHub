@@ -56,7 +56,7 @@ try:
     # what stops the user's machines is changed only on the settings page too, in both directions
     for cid in ("runpod", "vastai"):
         before = call("GET", f"/api/connectors/{cid}")[1]
-        for body in ({"guard": True}, {"guard": False}, {"guard_stop": 1}, {"guard_warn": 5}, {"guard_grace_min": 1}, {"guard_snooze_min": 5}, {"guard_exempt": ["x"]}, {"idle_stop_minutes": 5}):
+        for body in ({"guard": True}, {"guard": False}, {"guard_stop": 1}, {"guard_warn": 5}, {"guard_grace_min": 1}, {"guard_snooze_min": 5}, {"guard_exempt": ["x"]}, {"idle_stop_minutes": 5}, {"idle_util": 50}, {"idle_minutes": 1440}, {"billing_interval": 86400}, {"graphql_balance": False}):
             code, _ = call("POST", f"/api/connectors/{cid}", body)
             check(f"{cid}: {next(iter(body))} can't be changed over HTTP", code == 403, code)
         check(f"{cid}: nothing changed", call("GET", f"/api/connectors/{cid}")[1].get("guard") == before.get("guard"))

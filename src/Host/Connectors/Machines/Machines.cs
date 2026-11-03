@@ -175,11 +175,11 @@ abstract partial class MachineConnector : ISettingsConnector
     };
 
     /// <summary>Changes the settings (settings page / API); unknown keys are ignored, bad values rejected (nothing changed).</summary>
-    /// <summary>The local API's way in. The switches and limits of the balance guard and idle stop change only on the settings page, as with AWS's
+    /// <summary>The local API's way in. The switches and limits of the balance guard and idle stop, and what they go by (idle thresholds, how the balance is read), change only on the settings page, as with AWS's
     /// paid read. The other settings, the connector's own switch among them, stay open to the API. The simulator stops nothing.</summary>
     public JsonObject ConfigureHttp(JsonObject b)
     {
-        if (!Mock && b.Any(kv => kv.Key.StartsWith("guard") || kv.Key == "idle_stop_minutes"))
+        if (!Mock && b.Any(kv => kv.Key.StartsWith("guard") || kv.Key is "idle_stop_minutes" or "idle_minutes" or "idle_util" or "billing_interval" or "graphql_balance"))
             throw new ApiError(403, "the balance guard and idle stop can only be changed in Settings");
         return Configure(b);
     }

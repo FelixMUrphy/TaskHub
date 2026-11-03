@@ -12,7 +12,7 @@ from here), followed by the list of commits.
 - GitHub Actions: a run with more than 100 jobs is counted in full, and a failed job past the first 100 is found. Borrowing Git's credentials never opens a password window, even if Git has an askpass program set. Over the local API, nothing can change which run a task's Cancel and Re-run act on.
 - `taskhub run`: Ctrl+C from the panel ends the task as cancelled, not failed. When a command goes through `cmd`, an argument with `&` stays one argument instead of starting a second command.
 - Shell buttons: their output in the task log is readable in any language, whether the command writes UTF-8 or the console's code page.
-- The balance guard and idle stop of Runpod and Vast.ai change only in Settings, no longer through the local API (403): they stop your machines, so a script or an agent can't turn them on or off. Reading them still works.
+- The balance guard and idle stop of Runpod and Vast.ai change only in Settings, no longer through the local API (403), and so do what they go by: `idle_minutes`, `idle_util`, `billing_interval`, `graphql_balance`. They decide when your machines stop, so a script or an agent can't change that. Reading them still works.
 - Windows notifications: a list with more than 5 options keeps its current value among the 5 shown, so the button can't send another one.
 - Install: a quiet install no longer carries the downloaded file's Mark of the Web. Uninstall removes this copy's autostart entries for other ports. The Apps list shows the install date and a link; `taskhub:` links have an icon.
 - A TaskHub that starts while another program answers on its port no longer sends that program its token. A command under `taskhub run` makes the same check as `taskhub` itself.
