@@ -163,7 +163,7 @@ From 2.9 TaskHub keeps to Telegram's pace (about one message a second, and as lo
 requests*) instead of dropping messages, and long texts are shortened so they always arrive.
 
 ### Discord
-*From 3.2. Built from Discord's documentation and tested against a simulator, not yet with a real bot.*
+*From 3.2. Built from Discord's documentation, tested against a simulator and checked with a real bot.*
 
 Settings → *Discord*: create an application with a bot in the [Developer Portal](https://discord.com/developers/applications), paste the bot's token, press *Connect*, add the bot to a server of yours (a bot can't write to someone it shares no server with), press *Check again* and then the *Connect* button in the bot's direct message. Only the application's owner can be linked, and only that person's presses in that chat count. *Disconnect* removes the token from this PC.
 

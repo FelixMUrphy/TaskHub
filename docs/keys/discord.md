@@ -16,11 +16,19 @@
 
 ## Paste it into TaskHub
 1. TaskHub → **Settings** → **Discord**. Paste the token and click **Connect**. A token Discord refuses isn't saved.
-2. A bot can write only to someone it shares a server with. Click **Add the bot to a server** and pick a server of yours. It needs no permissions there.
+2. Add the bot to a server (next section). Discord lets a bot write only to someone it shares a server with, so until then TaskHub says the bot can't write to you yet.
 3. Click **Check again**. The bot sends you a direct message with a **Connect** button. Press it.
-4. If no message comes, allow direct messages from that server in its privacy settings and click **Check again**.
 
 Only the application's owner can be linked (for a team's application, the team's owner). Only that person's presses, in that chat, do anything.
+
+## Add the bot to a server
+1. In TaskHub, click **Add the bot to a server**. Discord's page opens in your browser.
+2. In the list of servers, pick one where you may add bots: you own it or have **Manage Server** there. The bot gets no permissions in it and doesn't read it; it only needs to share a server with you.
+3. Confirm on that page, then go back to TaskHub and click **Check again**.
+
+**No server of your own?** Creating one is free: in the Discord app, click **Add a Server** at the bottom of the left sidebar, choose **Create My Own**, then **For me and my friends**, enter a name and click **Create**. Then repeat the steps above.
+
+**Still no message?** Your privacy settings may block it: click the server's name, open **Privacy Settings**, turn on **Allow direct messages from server members**, and click **Check again**.
 
 ## Where the token is kept
 - Only in the Windows Credential Manager, never in `config.json`. If the Credential Manager is unavailable, TaskHub says so and doesn't connect.
@@ -37,6 +45,8 @@ Discord resets a bot's token after 1000 new connections in a day and emails the 
 ## Official docs
 - Getting started: <https://docs.discord.com/developers/quick-start/getting-started>
 - Bots and direct messages, mutual servers: <https://docs.discord.com/developers/interactions/application-commands>
+- Creating a server: <https://support.discord.com/hc/en-us/articles/204849977-How-do-I-create-a-server>
+- Direct messages from server members: <https://support.discord.com/hc/en-us/articles/217916488-Blocking-Privacy-Settings>
 - Who can add a bot (Public Bot): <https://docs.discord.com/developers/topics/oauth2>
 - Interactions Endpoint URL vs the gateway: <https://docs.discord.com/developers/interactions/receiving-and-responding>
 - Connection limits: <https://docs.discord.com/developers/events/gateway>
