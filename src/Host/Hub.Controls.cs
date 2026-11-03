@@ -67,7 +67,7 @@ sealed partial class Hub
                 if (ConnectorControl == null) throw new ApiError(503, "connectors not available");
                 return ConnectorControl(source, tid, cid, value, via);
             case "kill":
-                if (pid is not > 0) throw new ApiError(400, "task has no pid");
+                if (pid is not > 0) throw new ApiError(409, "task has no pid");
                 var kr = KillTree(pid.Value, ct, out var why);
                 if (kr == KillResult.Failed)
                 {
@@ -322,14 +322,11 @@ sealed partial class Hub
             var t = Get(tid);
             bool ok = !b.ContainsKey("ok") || J.Truthy(b["ok"]);
             var msg = J.Cut(J.Truthy(b["message"]) ? J.Str(b["message"]) : (ok ? "ok" : "failed"), 500);
-            foreach (var h in (t["commands"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
-            {
-                if (J.Str(h["id"]) != cmdId) continue;
-                h["status"] = ok ? "ok" : "error";
-                h["reply"] = msg;
-                AddLog(t, $"⇠ {J.Str(h["control"])}: {msg}", ok ? "cmd" : "error");
-                break;
-            }
+            var h = (t["commands"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().FirstOrDefault(x => J.Str(x["id"]) == cmdId)
+                ?? throw new ApiError(404, $"no command '{J.Cut(cmdId, 64)}' on this task");
+            h["status"] = ok ? "ok" : "error";
+            h["reply"] = msg;
+            AddLog(t, $"⇠ {J.Str(h["control"])}: {msg}", ok ? "cmd" : "error");
             Bump();
         }
         return new JsonObject { ["ok"] = true };

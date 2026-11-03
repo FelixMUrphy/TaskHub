@@ -60,7 +60,7 @@ sealed partial class Hub
                     : old == null || IsFinal(St(old)) ? now : J.C(old["started"]),
                 ["updated"] = now, ["last_seen"] = now, ["finished"] = null,
                 ["progress"] = null, ["current"] = null,
-                ["total"] = J.C(b["total"]), ["unit"] = J.Cut(J.Str(b["unit"]), 20),
+                ["total"] = NumNode(b["total"]), ["unit"] = J.Cut(J.Str(b["unit"]), 20),
                 ["status"] = "", ["stage"] = "",
                 ["metrics"] = old != null ? J.C(old["metrics"]) ?? new JsonObject() : new JsonObject(),
                 ["log"] = old != null ? J.C(old["log"]) ?? new JsonArray() : new JsonArray(),
@@ -124,16 +124,16 @@ sealed partial class Hub
                 t["state"] = "running";
                 AddLog(t, "alive again", "sys");
             }
-            if (b.ContainsKey("total")) t["total"] = J.C(b["total"]);
+            if (b.ContainsKey("total") && !J.NonFinite(b["total"])) t["total"] = NumNode(b["total"]);
             if (b.ContainsKey("unit")) t["unit"] = J.Cut(J.Str(b["unit"]), 20);
-            if (b.ContainsKey("current"))
+            if (b.ContainsKey("current") && !J.NonFinite(b["current"]))
             {
-                t["current"] = J.C(b["current"]);
+                t["current"] = NumNode(b["current"]);
                 if (J.Num(t["total"]) is double tot && tot != 0 && J.Num(b["current"]) is double cur)
                     t["progress"] = Clamp01(cur / tot);
             }
             if (J.Num(b["percent"]) is double pct) t["progress"] = Clamp01(pct / 100.0);
-            if (b.ContainsKey("progress"))
+            if (b.ContainsKey("progress") && !J.NonFinite(b["progress"]))
                 t["progress"] = J.Num(b["progress"]) is double pr ? Clamp01(pr) : null;
             foreach (var k in new[] { "status", "stage", "name", "description", "project", "attention" })
                 if (b[k] != null) t[k] = J.Cut(J.Str(b[k]), k == "project" ? 80 : k == "attention" ? 300 : 1000);
@@ -243,6 +243,8 @@ sealed partial class Hub
         JsonNode msg = null;
         foreach (var k in new[] { "msg", "lines", "message" })
             if (J.Truthy(c[k])) { msg = J.C(c[k]); break; }
+        if (msg == null) throw Bad("msg is required: a text or a list of texts");
+        CheckLevel(b);
         c.Remove("msg"); c.Remove("lines"); c.Remove("message");
         c["log"] = msg;
         return Update(tid, c);
@@ -320,7 +322,7 @@ sealed partial class Hub
             if (t["notify"] is not JsonObject told || !told.ContainsKey(said) || J.Truthy(told[said])) AgentHooks.AgentSpoke(b);
         }
         Log.I("hub", $"finish {Log.Id(tid)} {state}");
-        return new JsonObject { ["ok"] = true };
+        return new JsonObject { ["ok"] = true, ["state"] = state };
     }
 
     public JsonObject Heartbeat(string tid) => Update(tid, new JsonObject());

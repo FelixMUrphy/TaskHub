@@ -30,7 +30,11 @@ sealed partial class Hub
                     {
                         if (!IsActive(St(t))) continue;
                         if (J.Num(t["pid"]) is double pd && pd > 0 && !Native.PidAlive((int)pd, In(tid).Ct))
-                            lost.Add((tid, In(tid)));
+                        {
+                            // gone at two looks in a row: `taskhub run` needs a moment between the end of its process and its finish
+                            if (In(tid).PidGone) lost.Add((tid, In(tid)));
+                            In(tid).PidGone = true;
+                        }
                         else if (J.Num(t["heartbeat_timeout"]) is double hb && hb > 0 && St(t) == "running"
                                  && now - (J.Num(t["last_seen"]) ?? now) > hb)
                         {

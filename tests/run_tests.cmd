@@ -20,6 +20,7 @@ powershell -NoProfile -Command "for($i=0;$i -lt 60;$i++){ try{ Invoke-RestMethod
 set RC=0
 "%PYTHON%" api_test.py || set RC=1
 "%PYTHON%" validation_test.py || set RC=1
+"%PYTHON%" api_contract_test.py "%EXE%" || set RC=1
 "%PYTHON%" parallel_test.py 8 || set RC=1
 "%PYTHON%" integration_test.py "%EXE%" || set RC=1
 "%PYTHON%" install_test.py "%EXE%" || set RC=1

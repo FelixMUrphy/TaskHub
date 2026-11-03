@@ -86,7 +86,7 @@ def activity():
     code, r = call("POST", "/api/tasks", {"name": NAME})
     tid = r.get("id")
     call("POST", "/api/notify", {"title": "log test", "message": TEXT})
-    call("POST", f"/api/tasks/{tid}/finish", {"message": TEXT + "-finish"})
+    call("POST", f"/api/tasks/{tid}/finish", {"state": "done", "message": TEXT + "-finish"})
     call("POST", "/api/tasks", {"name": NAME, "id": NAMED_ID})
     call("POST", f"/api/tasks/{NAMED_ID}/finish", {"state": "failed", "message": TEXT + "-finish"})
     time.sleep(1.5)

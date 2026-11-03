@@ -86,13 +86,13 @@ sealed class Api
                 await hub.WaitChange(since, Math.Min(w, 55), c.RequestAborted);
             return hub.Snapshot(Flag(q, "active"), Flag(q, "brief"));
         });
-        R("POST", "/api/tasks", async (c, q, g) => hub.Register(NoRunReference(await Body(c))));
+        R("POST", "/api/tasks", async (c, q, g) => hub.RegisterApi(NoRunReference(await Body(c))));
         R("GET", $"/api/tasks/{Id}", (c, q, g) => V(hub.GetTask(g[0])));
         R("DELETE", $"/api/tasks/{Id}", (c, q, g) => V(hub.Delete(g[0], Flag(q, "force"))));
-        R("POST", $"/api/tasks/{Id}/update", async (c, q, g) => hub.Update(g[0], NoRunReference(await Body(c))));
+        R("POST", $"/api/tasks/{Id}/update", async (c, q, g) => hub.UpdateApi(g[0], NoRunReference(await Body(c))));
         R("POST", $"/api/tasks/{Id}/log", async (c, q, g) => hub.AddLogApi(g[0], await Body(c)));
         R("POST", $"/api/tasks/{Id}/heartbeat", async (c, q, g) => { await Body(c); return hub.Heartbeat(g[0]); });
-        R("POST", $"/api/tasks/{Id}/finish", async (c, q, g) => hub.Finish(g[0], await Body(c)));
+        R("POST", $"/api/tasks/{Id}/finish", async (c, q, g) => hub.FinishApi(g[0], await Body(c)));
         R("POST", $"/api/tasks/{Id}/controls/([A-Za-z0-9_.:-]+)", async (c, q, g) =>
         {
             var b = await Body(c);
@@ -106,7 +106,7 @@ sealed class Api
         });
         R("POST", $"/api/tasks/{Id}/commands/([A-Za-z0-9]+)/ack", async (c, q, g) => hub.Ack(g[0], g[1], await Body(c)));
         R("POST", "/api/clear", async (c, q, g) => { await Body(c); return hub.ClearFinished(); });
-        R("POST", "/api/notify", async (c, q, g) => { var b = await Body(c); var r = hub.Notify(b); AgentHooks.AgentSpoke(b); return r; });
+        R("POST", "/api/notify", async (c, q, g) => { var b = await Body(c); Hub.CheckNotify(b); var r = hub.Notify(b); AgentHooks.AgentSpoke(b); return r; });
         R("POST", "/api/hooks/(claude|codex)", async (c, q, g) => AgentHooks.Handle(hub, g[0], await Body(c)));
         R("POST", "/api/limits/(claude)", async (c, q, g) => hub.ReportLimits(g[0], await Body(c)));
         R("GET", "/api/limits", (c, q, g) => V(hub.LimitsView()));
@@ -199,7 +199,8 @@ sealed class Api
         });
     }
 
-    IConnector Conn(string id) => Conns?.Get(id) ?? throw new ApiError(503, $"connector '{id}' not available");
+    IConnector Conn(string id) => Conns == null ? throw new ApiError(503, "connectors not available")
+        : Conns.Get(id) ?? throw new ApiError(404, $"no connector '{id}'");
 
     static bool Flag(Dictionary<string, string> q, string k) => q.TryGetValue(k, out var v) && v is "1" or "true";
 

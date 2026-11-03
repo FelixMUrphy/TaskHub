@@ -24,6 +24,8 @@ static class Runner
         public JsonObject Widgets = new();
         public JsonObject Metrics = new();
         public string Toast;
+        public readonly HashSet<string> Declared = new() { "last" };   // the hub refuses a value for a widget it doesn't have
+        public JsonArray NewWidgets = new();                           // ::widget with a new id: declared with its first value
     }
 
     public static int Run(Client c, List<string> a)
@@ -58,8 +60,11 @@ static class Runner
             _ => new UTF8Encoding(false),
         };
 
-        Regex prog = progRx != null ? new Regex(progRx) : auto ? new Regex(@"(?<pct>\d{1,3}(?:\.\d+)?)\s?%|(?<cur>\d+)\s?/\s?(?<tot>\d+)") : null;
-        Regex stat = statRx != null ? new Regex(statRx) : null;
+        Regex prog, stat;
+        try { prog = progRx != null ? UserRegex(progRx) : auto ? new Regex(@"(?<pct>\d{1,3}(?:\.\d+)?)\s?%|(?<cur>\d+)\s?/\s?(?<tot>\d+)") : null; }
+        catch (ArgumentException e) { Console.Error.WriteLine("taskhub run: bad --progress-regex: " + e.Message); return 2; }
+        try { stat = statRx != null ? UserRegex(statRx) : null; }
+        catch (ArgumentException e) { Console.Error.WriteLine("taskhub run: bad --status-regex: " + e.Message); return 2; }
 
         // ---- start the process
         var psi = new ProcessStartInfo
@@ -97,11 +102,12 @@ static class Runner
 
         // ---- register
         var pending = new Pending();
+        foreach (var pw in preset?.Widgets ?? Enumerable.Empty<JsonObject>()) pending.Declared.Add(Program.S(pw["id"]));
         if (useHub)
         {
             var controls = new JsonArray
             {
-                (JsonNode)new JsonObject { ["id"] = "interrupt", ["label"] = "Ctrl+C", ["kind"] = "signal", ["confirm"] = "Надіслати Ctrl+C процесу?", ["toast"] = toastCtl },
+                (JsonNode)new JsonObject { ["id"] = "interrupt", ["label"] = "Ctrl+C", ["kind"] = "signal", ["confirm"] = "Send Ctrl+C to the process?", ["toast"] = toastCtl },
                 (JsonNode)new JsonObject { ["id"] = "stdin", ["label"] = "Send input", ["kind"] = "signal", ["input"] = new JsonObject { ["type"] = "text", ["label"] = "stdin" } },
             };
             foreach (var pc in preset?.Controls ?? Enumerable.Empty<JsonObject>()) controls.Add((JsonNode)pc);
@@ -256,6 +262,10 @@ static class Runner
     }
 
     /// <summary>::directive handling; returns true if the line was a directive.</summary>
+    /// <summary>A regex given by the caller; Python's named groups, as in the docs of the Python client, work too.</summary>
+    static Regex UserRegex(string pattern) =>
+        new(Regex.Replace(pattern.Replace("(?P<", "(?<"), @"\(\?P=(\w+)\)", @"\k<$1>"));
+
     static bool Directive(string line, Pending pd)
     {
         var m = Regex.Match(line, @"^::(\w+)\s*(.*)$");
@@ -298,7 +308,9 @@ static class Runner
             {
                 var kv = arg.Split('=', 2);
                 if (kv.Length != 2) return false;
-                pd.Widgets[kv[0].Trim()] = Program.ParseValue(kv[1].Trim());
+                var wid = kv[0].Trim();
+                if (pd.Declared.Add(wid)) pd.NewWidgets.Add((JsonNode)new JsonObject { ["id"] = wid, ["type"] = "text", ["label"] = wid });
+                pd.Widgets[wid] = Program.ParseValue(kv[1].Trim());
                 return true;
             }
         }
@@ -348,6 +360,7 @@ static class Runner
             if (bodies.Count == 0) bodies.Add(new JsonObject());
             var main = bodies[^1];
             foreach (var (k, v) in pd.Fields) main[k] = v?.DeepClone();
+            if (pd.NewWidgets.Count > 0) { main["add_widgets"] = pd.NewWidgets; pd.NewWidgets = new JsonArray(); }
             if (pd.Widgets.Count > 0) main["widgets"] = pd.Widgets.DeepClone();
             if (pd.Metrics.Count > 0) main["metrics"] = pd.Metrics.DeepClone();
             if (pd.Toast != null) main["toast"] = pd.Toast;

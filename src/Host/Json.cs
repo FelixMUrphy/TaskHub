@@ -62,6 +62,11 @@ static class J
     /// <summary>Finite number (JSON number or numeric string), else null: NaN / Infinity would break serialization.</summary>
     public static double? Num(JsonNode n) => RawNum(n) is double d && double.IsFinite(d) ? d : null;
 
+    /// <summary>NaN or Infinity, as a number or as text ("inf" too): "no value", unlike a text that is no number at all.</summary>
+    public static bool NonFinite(JsonNode n) =>
+        RawNum(n) is double d ? !double.IsFinite(d)
+        : IsStr(n) && Str(n).Trim().TrimStart('+', '-').ToLowerInvariant() is "inf" or "infinity" or "nan";
+
     static double? RawNum(JsonNode n)
     {
         if (n is not JsonValue v) return null;

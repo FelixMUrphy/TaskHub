@@ -5,6 +5,10 @@ from here), followed by the list of commits.
 
 ## Unreleased
 
+- The API now says when it can't do what was asked: a task without a name, an update with a wrong field, a wrong level or state, a finish without a state and a value for a widget that doesn't exist get an error that names the problem instead of a silent "ok". Scripts that send such requests need fixing; the `taskhub` command, the MCP tools and the Python client send valid ones.
+- A task's end stands: Kill on a `taskhub run` task stays "cancelled" instead of turning into "failed", and a second finish no longer overwrites the first. A process that has just ended is no longer called lost, with an error notification, while its finish is on the way.
+- API fixes: `NaN` and `Infinity` no longer clear a task's progress or show in widgets, the Python client no longer loses a whole update over one `NaN`, an LED takes `{state, text}` as documented, `taskhub run` takes the regex from the docs and says so when one is wrong, `::widget` can add a new widget.
+
 - New: Discord. Your notifications, a live progress message, charts and the tasks' buttons as direct messages from your own bot, off until you connect it. Built from Discord's documentation, tested against a simulator and checked with a real bot.
 
 - Safer agent notifications: before sending anything, the `taskhub` command checks that it is really talking to TaskHub. With TaskHub closed, a program of another Windows account listening on its port gets neither an agent's message nor the token.

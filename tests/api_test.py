@@ -77,8 +77,7 @@ if os.path.exists(cli):
 s, r = call("GET", "/api/nope")
 check("404 route", s == 404 and "error" in r, (s, r))
 s, r = call("POST", "/api/tasks", None, raw=False)
-check("register without name ok (defaults)", s == 200, (s, r))
-call("DELETE", f"/api/tasks/{r.get('id')}?force=1")
+check("register without name -> 400 (API.md: required)", s == 400 and "name" in r.get("error", ""), (s, r))
 
 # register with widgets + controls
 reg = {
@@ -240,7 +239,7 @@ check("health: Windows notification setting reported", r.get("notifications") in
 p2 = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1)"])
 call("POST", "/api/tasks", {"id": "t-lost", "name": "will be lost", "pid": p2.pid, "notify": {"fail": False}})
 p2.wait()
-time.sleep(4.5)
+time.sleep(7.5)   # gone at two looks of the watchdog in a row, 3 s apart
 s, t = call("GET", "/api/tasks/t-lost")
 check("watchdog -> lost", t["state"] == "lost", t["state"])
 

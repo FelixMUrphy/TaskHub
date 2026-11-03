@@ -179,6 +179,9 @@ sealed partial class Hub
         else w[k] = J.C(v);
     }
 
+    /// <summary>A finite number as it came, a numeric text as a number, anything else null.</summary>
+    static JsonNode NumNode(JsonNode x) => J.IsNum(x) && J.Num(x) != null ? J.C(x) : J.Num(x) is double d ? JsonValue.Create(d) : null;
+
     static JsonNode NumOrNull(JsonNode x) => J.IsNum(x) ? JsonValue.Create(J.Num(x).Value) : null;
 
     /// <summary>v: number | {series: number} | [number,...] (one per series) | list of such (batch).</summary>
@@ -225,16 +228,19 @@ sealed partial class Hub
         {
             if (!idx.TryGetValue(wid, out var w)) continue;
             var typ = J.Str(w["type"]);
+            bool numeric = typ is "progress" or "gauge" or "stat";
+            if (numeric && J.NonFinite(v)) continue;
             if (typ == "chart")
             {
                 if (v == null) w["points"] = new JsonArray();
                 else ChartAdd(w, v);
             }
             else if (v is JsonObject vo && typ is "progress" or "gauge" or "stat" or "led" or "text"
-                     && (vo.ContainsKey("value") || vo.ContainsKey("label") || vo.ContainsKey("text") || vo.ContainsKey("total")))
+                     && (vo.ContainsKey("value") || vo.ContainsKey("label") || vo.ContainsKey("text") || vo.ContainsKey("total") || typ == "led" && vo.ContainsKey("state")))
             {
+                if (typ == "led" && vo.ContainsKey("state")) w["value"] = J.C(vo["state"]);
                 foreach (var k in new[] { "value", "label", "text", "total", "unit", "max", "color" })
-                    if (vo.ContainsKey(k)) SetWidgetAttr(w, k, vo[k]);
+                    if (vo.ContainsKey(k) && !(numeric && J.NonFinite(vo[k]))) SetWidgetAttr(w, k, vo[k]);
             }
             else if (typ == "stat" && J.IsNum(v) && J.IsNum(w["value"]))
             {

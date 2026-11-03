@@ -291,7 +291,7 @@ install the setup shows the installed version and folder (the version is read fr
 - Silent: `TaskHub-<version>-setup.exe --install [--dir PATH] [--no-autostart] [--no-path] [--claude|--no-claude]
   [--codex|--no-codex] [--claude-mcp|--no-claude-mcp] [--codex-mcp|--no-codex-mcp] --quiet` (agent options not given stay unchanged)
 - Uninstall: *Apps & features* → TaskHub, or `TaskHubHost.exe --uninstall [--quiet] [--purge]`
-  (`--purge` also deletes the data in `%APPDATA%\TaskHub` and the Telegram token and the GitHub, Runpod, Vast.ai and AWS keys TaskHub saved in the
+  (`--purge` also deletes the data in `%APPDATA%\TaskHub`, the Telegram and Discord bot tokens and the GitHub, Runpod, Vast.ai and AWS keys TaskHub saved in the
   Windows Credential Manager; a plain uninstall keeps them for a reinstall). Also removes TaskHub's entries from the Claude Code / Codex settings.
 - Autostart restores itself if its entry is removed or changed, unless you turn it off in Settings → *System*.
   Turning it off in Task Manager / Settings → *Apps* → *Startup* is respected too (TaskHub's switch then shows it off);

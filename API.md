@@ -7,7 +7,7 @@ Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/
 - **Claude Code, Codex and other MCP clients: use the TaskHub MCP tools** (`task_start`, `task_update`, `task_finish`,
   `task_commands`, `task_wait`, `task_list`, `notify`). They need no HTTP, no headers and pass any language correctly.
 - **You are Claude Code or Codex but don't see these tools?** Don't fall back to `curl` / HTTP. Tell the user, in one short
-  message: *"Enable TaskHub tools (MCP): tray icon → AI agents → <Claude Code / Codex> — TaskHub tools (MCP), then start a new chat / session -
+  message: *"Enable TaskHub tools (MCP): TaskHub panel → Settings → AI agents → <Claude Code / Codex> — TaskHub tools (MCP), then start a new chat / session -
   MCP tools only appear in sessions started after that."* (Not installed yet: the setup dialog has the same option.)
   Meanwhile continue the user's actual work without TaskHub.
 - Only if the user explicitly wants TaskHub in this session anyway, or your client has no MCP (ChatGPT, plain scripts): use
@@ -18,15 +18,16 @@ Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/
 
 **Rules for every client (scripts, Claude, ChatGPT/Codex, PowerShell, curl):**
 - Write requests (`POST`/`DELETE`) MUST send header `X-TaskHub: 1` (CSRF guard). Browser requests from other origins are rejected.
-- <a id="token"></a>If `config.json` has `"token"`, send `Authorization: Bearer <token>` on every request except
+- <a id="token"></a>If `config.json` has `"token"` (you set it there yourself, any text, then restart the hub), send `Authorization: Bearer <token>` on every request except
   `GET /api/health` (without it: 401). `config.json` is `%APPDATA%\TaskHub\config.json` (Store edition:
   `%LOCALAPPDATA%\Packages\<package family>\LocalCache\Roaming\TaskHub\config.json`). Env `TASKHUB_TOKEN` for the Python
   client; the `taskhub` CLI and MCP server also read it from the hub's `config.json`. The token keeps out browsers and other users'
   sessions; processes of your own account can read `config.json` (and the panel page) anyway.
 - `meta.github` is the connector's: over this API it is dropped from what you send.
+- A request the hub can't honour gets a `400` that says why, never a `200` that does nothing ([Errors](#errors)). Check the status of what you send: the `error` text names the field.
 - Be fail-soft: if the hub is not reachable (`GET /api/health` fails), keep working without it.
 - Throttle updates to ≤ 2–4 per second. Chart points are appended per update, so batch them (see `chart`).
-- Always `finish` the task (done/failed/cancelled). If you pass `pid`, the hub marks the task `lost` when the process dies without finishing.
+- Always `finish` the task (done/failed/cancelled). If you pass `pid`, the hub marks the task `lost` when the process has been gone for two of its checks in a row (3-6 s) without finishing.
 
 ## Quick start
 
@@ -51,12 +52,12 @@ with Task("Train YOLO", total=100, unit="ep", source="claude",
 ```
 Other helpers: `t.set(gpu=71, lic="ok")` (widget values), `t.metric(k=v)`, `t.status("…")`, `t.pending()` (commands without handler → `cmd.ack(ok, msg)`), `t.heartbeat()`, `t.done()/fail()/cancel()`, `notify(title, msg)`.
 
-**Wrap any command with the Python client (equivalent of `taskhub run`):**
+**Wrap any command with the Python client (a simpler `taskhub run`, for machines without the CLI):**
 ```
 python taskhub_client.py run --name "Video export" --auto-progress --heartbeat 600 -- ffmpeg -i in.mov -c:v libx265 out.mp4
 python taskhub_client.py run --name build --progress-regex "\[(?P<cur>\d+)/(?P<tot>\d+)\]" -- ninja
 ```
-Streams output to the log (and echoes it), parses progress, adds Kill / Ctrl+C / "Send input" (stdin) controls, finishes with the exit code and returns it.
+Streams output to the log (and echoes it), parses progress, adds Kill / Ctrl+C / "Send input" (stdin) controls, finishes with the exit code and returns it. Unlike `taskhub run` it has no presets and treats `::progress`-style lines as ordinary output. A regex may name its groups `(?P<cur>...)` or `(?<cur>...)`, here and in `taskhub run`; a wrong one stops with a message before anything runs.
 
 **Other CLI:** `notify "Title" "msg" --level warn` · `list` · `show ID` · `control ID CID --value V` ·
 `register --name X [--pid N] [--json '{...}']` (prints id) · `update ID --percent 40 --status s --log l --toast --json '{...}'` ·
@@ -78,25 +79,26 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | Method | Path | Body / query | Purpose |
 |---|---|---|---|
 | GET | `/api/health` | | `{ok, app:"TaskHub", version, edition: "exe"\|"store", active, notifications, toast_queue}` — `notifications`: Windows' switch for TaskHub's notifications, `enabled` \| `disabled_app` \| `disabled_user` \| `disabled_policy` \| `disabled_manifest` \| `unknown` (when disabled, toasts vanish silently; failure notifications fall back to a tray balloon); `toast_queue`: notifications waiting for the rate limit (`toast_rate` per minute, one per task every `toast_task_gap` s; bursts fold into the latest) |
-| GET | `/api/hub-proof?nonce=<16-128 hex>` | | `{proof}` = hex of HMAC-SHA256 with the key in `hub.key` over `taskhub-hub-proof\|<port>\|<nonce>`; no token needed. Lets a client tell the hub from another program on its port. The `taskhub` CLI and MCP server check it before every request, unless `--url` is given, `TASKHUB_URL` is another address than the hub's own, or it cannot see the key |
+| GET | `/api/hub-proof?nonce=<16-128 hex>` | | `{proof}` = hex of HMAC-SHA256 with the key in `hub.key` (data folder, 64 hex characters: decode them to the 32 bytes) over `taskhub-hub-proof\|<port>\|<nonce>`; no token needed. Lets a client tell the hub from another program on its port. The `taskhub` CLI and MCP server check it before every request, unless `--url` is given, `TASKHUB_URL` is another address than the hub's own, or it cannot see the key |
 | GET | `/api/help` | | this document |
-| GET | `/api/tasks` | `?since=V&wait=25` ([long-poll](#long-poll)), `?active=1`, `?brief=1` | all tasks + `version` |
+| GET | `/api/tasks` | `?since=V&wait=25` ([long-poll](#long-poll)), `?active=1`, `?brief=1` | all tasks ([fields](#task-fields)) + `version`; `active=1`: only unfinished ones; `brief=1`: only the last 5 log lines of each |
 | POST | `/api/tasks` | Registration (below) | create / re-register → `{id}` |
-| GET | `/api/tasks/{id}` | | full task |
+| GET | `/api/tasks/{id}` | | full task ([fields](#task-fields)) |
 | POST | `/api/tasks/{id}/update` | Update (below) | progress, status, widgets… |
-| POST | `/api/tasks/{id}/log` | `{msg: str or [str], level?, toast?}` | append log |
+| POST | `/api/tasks/{id}/log` | `{msg: str or [str], level?: info/warn/error, toast?}` (`message` or `lines` for `msg` work too) | append log; no text → 400 |
 | POST | `/api/tasks/{id}/heartbeat` | | liveness only |
-| POST | `/api/tasks/{id}/finish` | `{state: done/failed/cancelled, message?, result?, widgets?, source?, agent_cwd?}` | `source` `claude`/`codex` with `agent_cwd` = its folder holds back that agent's next `Stop` toast ([rule](#claude-code-hooks)). finish + toast; a repeated finish overwrites state and message (and `result` if sent), with no second toast |
-| GET | `/api/tasks/{id}/commands` | `?wait=25` ([long-poll](#long-poll), max 60) | `{commands: [...], state}`: the queued signals for the process. Reading takes them off the queue (status `delivered`): each command is returned once, also if you never ack it |
-| POST | `/api/tasks/{id}/commands/{cmd}/ack` | `{ok: bool, message}`; `{cmd}` = the command's `id` | the process's reply, shown in the panel log (it does not remove or re-queue anything) |
+| POST | `/api/tasks/{id}/finish` | `{state (required): done/failed/cancelled, message?, result?, widgets?, source?, agent_cwd?}` | `source` `claude`/`codex` with `agent_cwd` = its folder holds back that agent's next `Stop` toast ([rule](#claude-code-hooks)). finish + toast; a repeated finish overwrites state and message (and `result` if sent), with no second toast |
+| GET | `/api/tasks/{id}/commands` | `?wait=25` ([long-poll](#long-poll), max 60) | `{commands: [...], state}`: the queued signals for the process. Reading takes them off the queue: each command is returned once, also if you never ack it. Each: `{id, control, value, t, status: "pending", reply: null}`; in the task's `commands` history its status then goes `delivered`, and `ok` / `error` with `reply` after the ack |
+| POST | `/api/tasks/{id}/commands/{cmd}/ack` | `{ok: bool, message}`; `{cmd}` = the command's `id` | the process's reply, shown in the panel log (it does not remove or re-queue anything); a later ack replaces it; unknown `{cmd}` → 404 |
 | POST | `/api/tasks/{id}/controls/{cid}` | `{value?}` | trigger a control (same as panel button) |
 | DELETE | `/api/tasks/{id}` | `?force=1` for active | remove (an active task without `force` → 409) |
-| POST | `/api/notify` | `{title, message, level: info/warn/error, task?, source?, agent_cwd?}` | one-off toast; `source` and `agent_cwd` as for finish |
-| POST | `/api/hooks/claude`, `/api/hooks/codex` | agent hook input (as sent, from `taskhub hook`) | `Stop` / `Notification` / `PermissionRequest` → toast; always `{}` (below) |
+| POST | `/api/notify` | `{title, message, level: info/warn/error, task?, source?, agent_cwd?}` | one-off toast; `title` or `message` is required (a missing title shows as TaskHub); `source` and `agent_cwd` as for finish |
+| POST | `/api/hooks/claude`, `/api/hooks/codex` | agent hook input (as sent, from `taskhub hook`) | `Stop` / `Notification` / `PermissionRequest` → toast; `{}` for any JSON object (below), 400 only when the body isn't one |
 | GET | `/api/telegram` | | Telegram bridge state `{configured, linked, bot, status, away_only, progress, link, storage, warning}` — `storage`: where the bot token is kept, `vault` (Windows Credential Manager) \| `config` (`config.json`, only when the Credential Manager is unavailable) \| null; `warning`: text for Settings, or null |
 | POST | `/api/telegram` | `{token}` (start pairing, returns the t.me `link`) · `{test: true}` · `{relink: true}` (new code for another chat, same bot) · `{away_only: bool}` · `{progress: bool}` (live progress bar + charts at the end) · `{disconnect: true}` | Telegram setup |
 | GET | `/api/discord` | | Discord bridge state `{configured, linked, bot, status, phase, away_only, progress, invite, endpoint_set, cannot_write, warning}`; `status`: `off` / `connecting` / `connected` / `offline` / `on hold` / `invalid token` / `closed <code>`; `phase` until linked: `server` (no shared server, or its direct messages are off) / `confirm` (the button was sent) / `retry` (Discord failed or is out of reach) / `again` (restarted before the button was pressed). `invite` has the application's id, as any invite link does; never the token or other ids. Setting it up is only on the settings page, not over HTTP |
-| GET | `/api/connectors`, `/api/connectors/github` | | connector state: `{enabled, repos, interval, notify_success, logs, auth, token_set, token_check, token_check_text, login, token_expires, status, repo_status, rate_remaining, active_runs, pr_reviews, pr_dependabot, prs}` (the token itself is never returned); `repo_status` = `{repo: "ok" or a line in the UI language or "HTTP n"}`, for showing: don't compare the text |
+| GET | `/api/connectors` | | every connector's state: `{<connector id>: {...}}`, each as below |
+| GET | `/api/connectors/github` | | connector state: `{enabled, repos, interval, notify_success, logs, auth, token_set, token_check, token_check_text, login, token_expires, status, repo_status, rate_remaining, active_runs, pr_reviews, pr_dependabot, prs}` (the token itself is never returned); `repo_status` = `{repo: "ok" or a line in the UI language or "HTTP n"}`, for showing: don't compare the text |
 | GET | `/api/connectors?view=settings` | | the rows of the settings page's Connectors section: `{connectors: [{id, name, kind, enabled, uses_key, key_set, key_check, summary, help_url, thresholds?, fields?, guard?, setup?, key_parts?, list?, switches?, notes?, help_needed?}], lang}` - `key_parts` = a key entered in several fields, sent joined with `:`; `key_check` = the last verdict on the saved key (`ok` / `revoked` / `denied` / `clock` / `network` / `unavailable` / null), `summary` = the state line in the UI language ("Connected, balance $X", "Connected as @login · 3 repositories"...), `help_url` = the "how to get a key" page (`docs/keys/<id>.md`, or `<id>.<lang>.md` when that language exists); `fields` = the connector's number inputs as the page draws them: `[{key, label, min, max, step, value, empty_ok?}]` (`label` = a key of the panel's translations; `thresholds` is there as well); never a key |
 | POST | `/api/connectors/github` | `{enabled?, repos?: ["owner/repo"], interval?: 15-3600, notify_success?, logs?, auth?: "token"\|"gcm", token?, forget_token?, pr_reviews?, pr_dependabot?}` | GitHub Actions connector (below) |
 | GET | `/api/connectors/runpod` | | `{enabled, key_set, key_check, key_check_text, status, can_act, probed_at, machines: [{id, name, state, task}], running, balance: {amount, spend_per_hr, spend_limit, runway_hours, raw, at}, low, idle_minutes, idle_util, low_runway_hours, low_balance, graphql_balance, summary}` (the key is never returned) |
@@ -107,7 +109,7 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | GET | `/api/connectors/ssh` | | SSH connector (below): `{enabled, client, interval, disk_warn, tmux_notify, hosts: [{host, state, text}]}` |
 | POST | `/api/connectors/ssh` | | 403: Settings only; an empty body changes nothing and gives the state |
 | POST | `/api/connectors/aws` | `{enabled?, key?: "id:secret", forget_key?, regions?: [..], forgotten_hours?: 0-8760, list_interval?: 300-3600, sagemaker?: bool, batch?: bool, job_interval?: 120-3600, cost?: bool, budgets?: bool}` | changes the settings; a key AWS rejects -> 400, nothing saved; `cost: true` -> 403, it goes on only in Settings because it costs money (`cost: false` works) |
-| POST | `/api/connectors/runpod`, `/api/connectors/vastai` | `{guard?: bool, guard_warn?: $\|null, guard_stop?: $\|null, guard_grace_min?: 1-120, guard_snooze_min?: 5-240, guard_exempt?: [machine id], idle_stop_minutes?: 0\|5-1440}` | balance guard ([below](#balance-guard)); `guard_warn` must be above `guard_stop` (>= 0), else 400 and nothing changes; a threshold you don't send is compared as saved. These fields can go in one request with the connector's own: any invalid value → 400 and nothing is saved; `idle_stop_minutes`: auto-stop on GPU idle, 0 = off |
+| POST | `/api/connectors/runpod`, `/api/connectors/vastai` | the connector's own fields ([Runpod](#connectors-runpod), [Vast.ai](#connectors-vastai)) | changes its settings; any invalid value → 400 and nothing is saved. The [balance guard](#balance-guard)'s fields and `idle_stop_minutes` are refused here (403): they change only in Settings |
 | GET | `/api/guard/log` | `?provider=runpod\|vastai&limit=1-200` (50) | what the balance guard stopped, newest first: `{entries: [{t, provider, machine_id, name, trigger: "auto"\|"stop_now"\|"idle", balance, threshold, idle_minutes, burn_per_hr, spent, spent_estimated, result: "stopped"\|"failed", error, storage_per_day, storage_note, storage_approx}]}` |
 | GET | `/api/limits` | | plan limits as last reported: `{claude: {five_hour: {used_percentage, resets_at, at}, seven_day: {...}}, codex: {...}}`, only agents with their switch on; also `limits` and `limits_warn` in `GET /api/tasks`; empty while the switch is off |
 | POST | `/api/limits/claude` | `{five_hour?: {used_percentage, resets_at?}, seven_day?: {...}}` | a reading, from `taskhub statusline`; only these numbers are kept; ignored while the switch is off (`{ok: true, ignored: true}`); a `resets_at` further off than its window's length counts as none; a body with no limit window → 400 |
@@ -127,13 +129,13 @@ Every error is JSON `{"error": "<text>"}` with one of these statuses:
 
 | Status | When |
 |---|---|
-| 400 | the body is not a JSON object, or a field value is invalid |
+| 400 | the body is not a JSON object (a raw `NaN` isn't JSON), or a field is invalid: a required one missing, a wrong type, a `level` or `state` that doesn't exist, a value for a widget the task doesn't have, an `update` with no known field in it. The `error` text says which; nothing has changed. A field not known yet beside known ones is no error |
 | 401 | a token is set and the request has none or a wrong one ([token](#token)) |
 | 403 | a write request without `X-TaskHub: 1`, a foreign `Host` / `Origin`, a control that works only in the panel |
-| 404 | unknown task, control or route |
-| 409 | the task's state doesn't allow it: deleting an active task without `force`, a control not available in this state, a refused kill |
+| 404 | unknown task, control, command, connector or route |
+| 409 | the task's state doesn't allow it: deleting an active task without `force`, a control not available in this state, a refused kill (also on a task with no `pid`) |
 | 413 | the body is larger than 2 MB |
-| 503 | a feature that is not available right now (the Telegram bridge, a connector) |
+| 503 | a feature that is not available right now (the Telegram bridge, connectors in a hub started without them) |
 | 500 | anything else (also a kill that didn't stop the process) |
 
 ## Registration `POST /api/tasks`
@@ -171,8 +173,32 @@ task is active and starts anew when it had finished. Signals the process hasn't 
 `links` (register and update): a list of URLs or `{"label", "url"}`. Only `http`, `https`, `mailto` and `file` URLs or an absolute
 path (`E:/proj/out`, `\\server\share\x`) - anything else is rejected with 400. The panel opens web links in the browser and shows
 a file or folder link in Explorer (a folder opens, a file is selected in its folder) - it never runs a linked program.
-An update with an invalid entry in `controls` / `add_controls` / `add_widgets` / `links` is rejected as a whole (400, nothing changed). Numbers must be finite:
-`NaN` / `Infinity` (also as strings) are ignored.
+An update with an invalid field is rejected as a whole (400, nothing changed): an invalid entry in `controls` / `add_controls` / `add_widgets` / `links`, a text in
+`progress` / `percent` / `current` / `total`, a `state` other than running/paused (`finish` ends a task), a value for a widget not declared. A number sent as text
+(`"40"`) is taken as the number. `NaN` / `Infinity` (also as text, `"inf"`) in those fields and in numeric widgets mean "no value": they are ignored, the rest of the
+update applies and what was there stays. The Python client leaves them out before sending, because a raw `NaN` isn't JSON. A finished task keeps its state:
+an update can still change its other fields.
+
+## Task fields
+What `GET /api/tasks/{id}` returns. Fields not listed here may change.
+
+| Field | Meaning |
+|---|---|
+| `id`, `name`, `source`, `description`, `project`, `unit`, `pid`, `cwd`, `host`, `meta`, `links`, `notify`, `heartbeat_timeout`, `expected_duration`, `progress_toast` | as registered |
+| `state` | see [States](#states) |
+| `created`, `started`, `updated`, `last_seen`, `finished` | Unix time in seconds; `finished` is null until the end |
+| `progress` | 0..1 or null; `current`, `total`: numbers or null |
+| `status`, `stage`, `attention`, `message`, `result` | as last sent; `message`, `result`: from `finish` |
+| `rate`, `eta_at` | pace and expected end, once the hub can tell; gone at the end |
+| `metrics` | `{key: value}` |
+| `log` | `[{t, level, msg}]`, newest last; the hub's own lines have level `sys`, button presses `cmd` |
+| `controls`, `widgets` | as declared, with `last_value` / `value` and for charts `points` |
+| `commands` | the history of button presses, see `GET /commands` |
+| `milestones_hit`, `seen` | for the panel |
+
+Limits (longer text is cut, older lines dropped): `id` 64 characters of `[A-Za-z0-9_.-]`, `name` 200, `description`, `status` and `stage` 1000, `message` 2000,
+`project` 80, `attention` 300, `unit` 20, a metric's key 60 and text value 200, 40 widgets at registration, `max_points` of a chart 2000, the log 400 lines
+(`log_lines` in `config.json`).
 
 ## Widgets
 Declared in `widgets[]` (or `add_widgets`), values via `update.widgets`. Common fields: `id`, `type`, `label`, `unit`,
@@ -188,7 +214,7 @@ Thresholds: `warn`, `crit` (value ≥ → amber/red; `invert: true` → value �
 | `progress` | `total` | without `total`: up to 1 is a fraction (1 = 100 %), above 1 is a percentage; with `total`: a count; also `{value, total, label}` |
 | `gauge` | `min`, `max`, `warn`, `crit`, `invert` | number (half-circle) |
 | `stat` | `warn`, `crit`, `invert` | number; shows ▲▼ delta vs previous |
-| `led` | `text` | `"ok"`/`"warn"`/`"error"`/`"busy"`/`"off"`, bool, or `{state, text}` |
+| `led` | `text` | `"ok"`/`"warn"`/`"error"`/`"busy"`/`"off"`, bool, or `{state, text}` (`{value, text}` too) |
 | `kv` | | object `{key: value}` |
 | `table` | `columns` | list of rows (lists or dicts); replaces table |
 | `chart` | `series: [names]`, `kind: line/area/bar`, `max_points` (120), `y_min`, `y_max`, `warn`, `crit`, `height` (px, 20–400) | **appends**: number · `{series: v}` · `[v1, v2]` · batch `[{"t": unix_ts, "train": 0.4}, …]`; `null` clears |
@@ -233,11 +259,16 @@ and the toast input with it.
 - list `command`: each item is one argument (quoted for the program). `{value}` can't be in the first item (the program), and a
   `.bat` / `.cmd` program can't take `{value}` in a list (cmd.exe would parse it) - both rejected with 400.
 
-Command delivered to the process: `{"id": "a1b2c3", "control": "lr", "value": 0.001, "t": 1793240199.6}`.
+Command delivered to the process: `{"id": "a1b2c3", "control": "lr", "value": 0.001, "t": 1793240199.6, "status": "pending", "reply": null}`. A control with `input` pressed without a value sends `null`.
 Python client built-ins: `stop` → `t.stop_requested`; `pause`/`resume` (`pausable=True`) → `t.paused`, `t.wait_if_paused()`.
 
+### Ask the user and read the answer
+Over HTTP, without MCP: (1) `POST /update` with `attention` (the question, puts the task on top of the panel) and `add_controls` with a `signal` control with `input`, `"toast": true` if a
+notification should say so; (2) read `GET /commands?wait=25` in a loop until the command comes; its `value` is the answer; (3) `POST /commands/{id}/ack`, then `POST /update` with
+`"attention": ""` and `remove_controls`. The user may answer from the panel, Telegram or Discord: it arrives the same way.
+
 ## States
-`running` · `paused` · `stale` (no `update`, `log` or `heartbeat` for `heartbeat_timeout`; any of them brings the task back to `running`) · `done` · `failed` · `cancelled` · `lost` (pid died without finish).
+`running` · `paused` · `stale` (no `update`, `log` or `heartbeat` for `heartbeat_timeout`; any of them brings the task back to `running`) · `done` · `failed` · `cancelled` · `lost` (pid gone without finish). The first real end stands: a second `finish` over this API changes nothing and answers `{ok: true, state: <what stands>, already_finished: true}`, so a process's "exit code -1" after a Kill leaves the task `cancelled`. Only `lost` gives way, when the process reports after all; `lost` itself is the hub's and can't be sent. Registering the same `id` again starts anew.
 Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in update/log, `/api/notify`. Global mute in tray or panel.
 
 ## Local log
@@ -383,8 +414,8 @@ overall progress when the frame range is known, widgets `blender_spf` (chart, s 
 task `cancelled`; pressed during the last frame: Blender ends by itself, `done`); after a stop / crash / error in an animation the message ends with `resume: -s N` and `run` prints the
 command to resume on stderr; Blender's `Error:` lines (except the leak detector's "Not freed memory blocks", logged as a warning) fail the task and `run` exits with 1 although Blender exits with 0; video frames ("Append frame N") and stereo view files count by frame; chosen by the command's file name
 unless `--progress-regex` / `--status-regex` / `--auto-progress` is given; the command may print `::progress 5/20`, `::percent 40`, `::status s`, `::stage s`, `::warn s`,
-`::error s`, `::toast s`, `::metric k=v`, `::widget id=value` lines). Also `notify`, `list`, `show`, `register`, `update`,
-`log`, `finish`, `control`, `commands`, `ack`, `wait ID` (blocks until finished), `panel`, `delete`,
+`::error s`, `::toast s`, `::total n`, `::log s`, `::metric k=v`, `::widget id=value` lines; a `::widget` id not seen yet becomes a text widget). The command gets `TASKHUB_URL` and `TASKHUB_TASK_ID` in its environment. A wrong `--progress-regex` / `--status-regex` stops with exit code 2 before anything runs. `taskhub --help` lists all flags. Also `notify`, `list`, `show`, `register`, `update`,
+`log`, `finish`, `control`, `commands`, `ack`, `wait ID` (blocks until finished; exit code 0 done, 1 failed or lost, 2 cancelled or a task it can't find, 124 its timeout), `panel`, `delete`,
 `mcp` ([MCP server](#mcp-server)), `hook claude|codex` (agent hooks), `statusline` ([plan limits](#plan-limits-claude-code)). `taskhub --help`.
 
 ## Claude Code hooks

@@ -61,6 +61,7 @@ sealed partial class Hub
         public List<JsonObject> CmdQ = new();
         public long? Ct;
         public double LastProgressToast;
+        public bool PidGone;   // the watchdog's last look found the process gone
         public readonly List<(double T, double? Cur, double? P)> Pace = new();   // recent progress samples (rate / ETA)
     }
 

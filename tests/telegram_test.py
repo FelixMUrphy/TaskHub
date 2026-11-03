@@ -305,7 +305,7 @@ check("progress message has the task's buttons", pm is not None and
       [b["text"] for row in pm.get("reply_markup", {}).get("inline_keyboard", []) for b in row] == ["Halt"], pm)
 for i, v in enumerate([0.9, 0.7, 0.5]):
     call("POST", f"/api/tasks/{ptid}/update", {"current": 4 + i, "widgets": {"loss": [v, v + 0.2]}})
-call("POST", f"/api/tasks/{ptid}/finish", {"message": "ok"})
+call("POST", f"/api/tasks/{ptid}/finish", {"state": "done", "message": "ok"})
 end = time.time() + 10
 while time.time() < end and not (photos and any("Train run" in e.get("text", "") and "100%" in e.get("text", "") for e in edits)):
     time.sleep(0.2)
