@@ -12,6 +12,7 @@ from here), followed by the list of commits.
 - Plan limits for Claude Code, off until you turn them on: how much of the 5-hour and weekly limits is used, in the panel, yellow with a warning from 75%, red with a warning from 90%. Your own status line keeps working unchanged. Also by script: `TaskHubHost.exe --integrations claude-limits=on` (Codex: with TaskHub closed).
 - Plan limits for Codex too, off until you turn them on: TaskHub asks Codex every 10 minutes while it is running, with no model requests. Each row says how much is used. In the panel each agent's limits sit under its own name, and the bars take the Windows accent colour.
 - The About page says in a few words what TaskHub does.
+- Fixed: a button in a Telegram message sent before TaskHub restarted could run a button of a different task. Such a button now says it has expired.
 - A path naming another machine in an agent's message is no longer looked up, so TaskHub makes no connection there and doesn't stall. A reset time no limit window can have counts as no reset time.
 - On battery the panel and settings appear and go at once, without the slide, which could leave text running over the panel or onto the next monitor.
 - Vast.ai: the balance shows again, and with it the low-balance warnings and the balance guard. Vast.ai had started redirecting the address TaskHub asked.

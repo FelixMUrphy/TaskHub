@@ -27,6 +27,8 @@ sealed class TelegramBridge
     readonly Dictionary<long, (string tid, string cid)> asks = new();   // "reply with a value" prompt message -> control
     (string tid, string cid, double t)? lastAsk;
     int cbSeq;
+    // A message outlives the process: a key of an earlier run must be unknown, never another task's button.
+    readonly string cbRun = Convert.ToHexString(RandomNumberGenerator.GetBytes(6)).ToLowerInvariant();
     CancellationTokenSource cts;
     public string BotName { get; private set; }
     public string PairCode { get; private set; }
@@ -227,10 +229,10 @@ sealed class TelegramBridge
         {
             if (!cbIndex.TryGetValue(sig, out key) || !callbacks.ContainsKey(key))
             {
-                key = "k" + (++cbSeq);
+                key = "k" + cbRun + "." + (++cbSeq);
                 callbacks[key] = new Cb { Tid = tid, Cid = cid, Value = value, Ask = ask, Confirmed = confirmed, Sig = sig };
                 cbIndex[sig] = key;
-                if (callbacks.Remove("k" + (cbSeq - 1000), out var old)) cbIndex.Remove(old.Sig);
+                if (callbacks.Remove("k" + cbRun + "." + (cbSeq - 1000), out var old)) cbIndex.Remove(old.Sig);
             }
         }
         return new JsonObject { ["text"] = text, ["callback_data"] = key };

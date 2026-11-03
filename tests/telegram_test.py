@@ -418,6 +418,44 @@ if EXE:
         hub2.kill()
         hub2.wait(10)
 
+# a button in a message from before a restart acts on nothing made after it (a message outlives the process)
+if EXE:
+    hub4, url4, data4, up = start_hub(47879, {"telegram_token": TOKEN, "telegram_chat": 888, "toast_rate": 0, "toast_task_gap": 0, "language": "en"})
+    try:
+        check("restart hub started", up)
+
+        def button_task(name, cid):
+            r = call("POST", "/api/tasks", {"name": name, "notify": {"start": True}, "controls": [{"id": cid, "label": cid, "kind": "signal", "toast": True}]}, url=url4)[1]
+            m = wait_sent(lambda m: name in m["text"] and "reply_markup" in m)
+            return r.get("id"), m["reply_markup"]["inline_keyboard"][0][0]["callback_data"] if m else None
+
+        _, old_key = button_task("Before restart", "first")
+        hub4.kill()
+        hub4.wait(10)
+        hub4 = subprocess.Popen([EXE, "--port", "47879", "--data", data4, "--no-tray"])
+        for _ in range(60):
+            try:
+                if call("GET", "/api/health", url=url4)[0] == 200:
+                    break
+            except OSError:
+                pass
+            time.sleep(0.5)
+        new_tid, new_key = button_task("After restart", "second")
+        check("a button after a restart has an id never used before", new_key and new_key != old_key, (old_key, new_key))
+        push({"callback_query": {"id": "cb-old", "from": {"id": 888}, "message": {"message_id": 9, "chat": {"id": 888}}, "data": old_key}})
+        deadline = time.time() + 8
+        while time.time() < deadline and not any(x.get("callback_query_id") == "cb-old" for x in answers):
+            time.sleep(0.1)
+        got = call("GET", f"/api/tasks/{new_tid}/commands?wait=2", url=url4)[1].get("commands", [])
+        check("an old button after a restart: answered, the new task isn't touched", any(x.get("callback_query_id") == "cb-old" for x in answers) and not got, got)
+        push({"callback_query": {"id": "cb-new", "from": {"id": 888}, "message": {"message_id": 9, "chat": {"id": 888}}, "data": new_key}})
+        got = call("GET", f"/api/tasks/{new_tid}/commands?wait=5", url=url4)[1].get("commands", [])
+        check("...its own button works", len(got) == 1 and got[0].get("control") == "second", got)
+        call("POST", "/api/telegram", {"disconnect": True}, url=url4)
+    finally:
+        hub4.kill()
+        hub4.wait(10)
+
 # Credential Manager unavailable (TASKHUB_TEST_NO_VAULT, only honoured for a hub with its own data folder): the old token
 # stays in config.json, Telegram keeps working, Settings shows a warning; pairing keeps the new token there too.
 # The same hub has the default notification limits ("toast_rate": "abc" -> the default 10 per minute): a burst of 50.
