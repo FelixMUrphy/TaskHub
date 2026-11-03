@@ -65,6 +65,14 @@ sealed class Api
                 ["toast_queue"] = hub.Notifier?.QueueLength ?? 0,  // notifications waiting for the rate limit (2.9)
             });
         });
+        R("GET", "/api/hub-proof", (c, q, g) =>
+        {
+            // taskhub.exe asks this before it sends anything; the port is signed too, so a proof can't be passed on from another port
+            var nonce = q.TryGetValue("nonce", out var nv) ? nv : "";
+            if (nonce.Length is < 16 or > 128 || !nonce.All(Uri.IsHexDigit)) throw new ApiError(400, "nonce: 16-128 hex characters");
+            var mac = System.Security.Cryptography.HMACSHA256.HashData(S.HubKey, System.Text.Encoding.UTF8.GetBytes($"taskhub-hub-proof|{S.Port}|{nonce}"));
+            return V(new JsonObject { ["proof"] = Convert.ToHexString(mac).ToLowerInvariant() });
+        });
         R("GET", "/api/help", async (c, q, g) =>
         {
             await Raw(c, 200, Res.Read("API.md") ?? Array.Empty<byte>(), "text/markdown; charset=utf-8");
@@ -234,7 +242,7 @@ sealed class Api
         }
         if (!path.StartsWith("/api/")) return;
         var tok = S.Token;
-        if (!string.IsNullOrEmpty(tok) && c.Request.Headers.Authorization.ToString() != "Bearer " + tok && path != "/api/health")
+        if (!string.IsNullOrEmpty(tok) && c.Request.Headers.Authorization.ToString() != "Bearer " + tok && path is not ("/api/health" or "/api/hub-proof"))
             throw new ApiError(401, "token required");
         if (method is "POST" or "DELETE" or "PUT" or "PATCH" && string.IsNullOrEmpty(c.Request.Headers["X-TaskHub"].ToString()))
             throw new ApiError(403, "header 'X-TaskHub: 1' required on write requests");   // CSRF guard

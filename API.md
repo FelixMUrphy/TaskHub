@@ -79,7 +79,7 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | Method | Path | Body / query | Purpose |
 |---|---|---|---|
 | GET | `/api/health` | | `{ok, app:"TaskHub", version, edition: "exe"\|"store", active, notifications, toast_queue}` — `notifications` (2.9): Windows' switch for TaskHub's notifications, `enabled` \| `disabled_app` \| `disabled_user` \| `disabled_policy` \| `disabled_manifest` \| `unknown` (when disabled, toasts vanish silently; failure notifications fall back to a tray balloon); `toast_queue` (2.9): notifications waiting for the rate limit (`toast_rate` per minute, one per task every `toast_task_gap` s; bursts fold into the latest) |
-| GET | `/api/help` | | this document |
+| GET | `/api/hub-proof?nonce=<16-128 hex>` | | (3.2) `{proof}` = hex of HMAC-SHA256 with the key in `hub.key` over `taskhub-hub-proof\|<port>\|<nonce>`; no token needed. Lets a client tell the hub from another program on its port. The `taskhub` CLI and MCP server check it before every request, unless `--url` or `TASKHUB_URL` is set or it cannot see the key | | this document |
 | GET | `/api/tasks` | `?since=V&wait=25` ([long-poll](#long-poll)), `?active=1`, `?brief=1` | all tasks + `version` |
 | POST | `/api/tasks` | Registration (below) | create / re-register → `{id}` |
 | GET | `/api/tasks/{id}` | | full task |

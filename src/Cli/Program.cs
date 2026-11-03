@@ -18,9 +18,11 @@ sealed class Client
     public readonly string Url;
     readonly string token;
     readonly HttpClient http;
+    readonly bool addressChosen;
 
     public Client(string url)
     {
+        addressChosen = url != null || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TASKHUB_URL"));
         Url = (url ?? DefaultUrl()).TrimEnd('/');
         token = Environment.GetEnvironmentVariable("TASKHUB_TOKEN");
         // the agents' MCP server and hooks run this exe without TASKHUB_TOKEN: use the hub's own token
@@ -57,10 +59,45 @@ sealed class Client
         : ExeSettings()?["data"] is JsonValue dv && dv.TryGetValue<string>(out var d) ? Environment.ExpandEnvironmentVariables(d)
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaskHub");
 
+    /// <summary>With TaskHub closed, another program can listen on its port: before any token or data leaves, whoever answers must show it
+    /// holds the hub's key. Skipped for an address the user chose, and where the key can't be seen (an edition whose copy of the CLI doesn't
+    /// share the hub's folder): another user's program can't remove the file, so that works as before.</summary>
+    void ProveHub(CancellationToken ct)
+    {
+        if (addressChosen) return;
+        byte[] key;
+        try
+        {
+            var text = File.ReadAllText(Path.Combine(DataFolder(), "hub.key")).Trim();
+            if (text.Length != 64) return;
+            key = Convert.FromHexString(text);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException) { return; }
+        var nonce = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        string answer = null;
+        using var req = new HttpRequestMessage(HttpMethod.Get, Url + "/api/hub-proof?nonce=" + nonce);
+        HttpResponseMessage r;
+        try { r = http.Send(req, ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception e) { throw new HubError(0, $"hub not reachable at {Url}: {e.GetBaseException().Message}"); }
+        using (r)
+            if (r.IsSuccessStatusCode)
+                try { answer = Program.S((JsonNode.Parse(r.Content.ReadAsStringAsync(ct).GetAwaiter().GetResult()) as JsonObject)?["proof"]); }
+                catch (Exception e) when (e is JsonException or HttpRequestException or InvalidOperationException) { }
+        var port = new Uri(Url).Port;
+        var good = System.Security.Cryptography.HMACSHA256.HashData(key, Encoding.UTF8.GetBytes($"taskhub-hub-proof|{port}|{nonce}"));
+        byte[] got = null;
+        try { got = Convert.FromHexString(answer ?? ""); } catch (FormatException) { }
+        if (got == null || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(got, good))
+            throw new HubError(0, $"the program at {Url} isn't TaskHub (it can't prove it): nothing was sent. Close it or restart TaskHub.");
+    }
+
     public JsonNode Call(string method, string path, JsonNode body = null, double timeoutSec = 10, CancellationToken ct = default)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(timeoutSec));
+        try { ProveHub(cts.Token); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { throw new HubError(0, $"hub not reachable at {Url}: no answer"); }
         var req = new HttpRequestMessage(new HttpMethod(method), Url + path);
         if (method != "GET")
         {

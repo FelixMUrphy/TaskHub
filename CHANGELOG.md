@@ -5,7 +5,9 @@ from here), followed by the list of commits.
 
 ## Unreleased
 
-- New: Discord. Your notifications, a live progress message, charts and the tasks' buttons as direct messages from your own bot, off until you connect it. Built from Discord's documentation and tested against a simulator, not yet with a real bot.
+- New: Discord. Your notifications, a live progress message, charts and the tasks' buttons as direct messages from your own bot, off until you connect it. Built from Discord's documentation, tested against a simulator and checked with a real bot.
+
+- Safer agent notifications: before sending anything, the `taskhub` command checks that it is really talking to TaskHub. With TaskHub closed, a program of another Windows account listening on its port gets neither an agent's message nor the token.
 
 ## 3.1.0 — 2026-11-03
 

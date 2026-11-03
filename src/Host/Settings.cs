@@ -246,4 +246,37 @@ sealed class Settings
     public int Int(string k, int def) => J.Num(Get(k)) is double d ? (int)d : def;
     public string Url => $"http://127.0.0.1:{Port}";
     public string File_(string name) => System.IO.Path.Combine(DataDir, name);
+
+    /// <summary>The key taskhub.exe uses to tell this hub from another program on its port (hub.key in the data folder, this user only).
+    /// It is never sent: the hub only signs what the CLI asks with it.</summary>
+    public byte[] HubKey => hubKey ??= LoadHubKey();
+    byte[] hubKey;
+
+    byte[] LoadHubKey()
+    {
+        var path = File_("hub.key");
+        try { if (HexKey(File.ReadAllText(path)) is { } saved) return saved; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        var key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        var text = System.Text.Encoding.ASCII.GetBytes(Convert.ToHexString(key));
+        try
+        {
+            File.Delete(path);
+            var acl = new System.Security.AccessControl.FileSecurity();
+            acl.SetAccessRuleProtection(true, false);
+            acl.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(System.Security.Principal.WindowsIdentity.GetCurrent().User,
+                System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+            using var f = new FileInfo(path).Create(FileMode.CreateNew, System.Security.AccessControl.FileSystemRights.Write, FileShare.None, 4096, FileOptions.None, acl);
+            f.Write(text);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException) { Log.W("hubkey", "not saved: " + e.GetType().Name); }
+        return key;
+    }
+
+    static byte[] HexKey(string s)
+    {
+        s = s.Trim();
+        if (s.Length != 64 || !s.All(Uri.IsHexDigit)) return null;
+        return Convert.FromHexString(s);
+    }
 }

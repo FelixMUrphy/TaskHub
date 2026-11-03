@@ -242,6 +242,7 @@ static class Program
         }
 
         Log.DropStale();
+        _ = S.HubKey;   // before the API opens: the CLI must find it from the first request on
         StartHeader(S, args);
         if (S.Bool("autostart", true)) Install.EnsureAutostart(S);
         Install.EnsurePayload();
