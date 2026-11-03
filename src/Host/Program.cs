@@ -241,6 +241,7 @@ static class Program
             return 0;
         }
 
+        Log.DropStale();
         StartHeader(S, args);
         if (S.Bool("autostart", true)) Install.EnsureAutostart(S);
         Install.EnsurePayload();

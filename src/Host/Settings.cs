@@ -60,6 +60,28 @@ static class Log
         catch { }
     }
 
+    /// <summary>At the default level, what an earlier beta build or debug level wrote doesn't stay: its extra rotated files, the CLI's log,
+    /// and a log holding debug lines (notification text, task names). Call once at start, after the level is known.</summary>
+    public static void DropStale()
+    {
+        if (Path == null || Settings.IsBeta || Min == Level.Debug) return;
+        static void Drop(string p) { try { File.Delete(p); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } }
+        static bool HasDebug(string p)
+        {
+            try { return File.Exists(p) && File.ReadLines(p).Any(l => l.Length > 28 && string.CompareOrdinal(l, 23, " DBG ", 0, 5) == 0); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+        }
+        lock (L)
+        {
+            for (int i = Keep + 1; i <= 3; i++) Drop(Path + "." + i);
+            foreach (var p in new[] { Path, Path + ".1" })
+                if (HasDebug(p)) Drop(p);
+            var cli = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Path)!, "cli.log");
+            Drop(cli);
+            Drop(cli + ".1");
+        }
+    }
+
     static void Rotate()
     {
         for (int i = Keep; i > 1; i--)

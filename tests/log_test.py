@@ -50,13 +50,17 @@ def empty():
 class Hub:
     """A hub on an empty log with this config."""
 
-    def __init__(self, **cfg):
+    def __init__(self, seed=None, **cfg):
         self.cfg = cfg
+        self.seed = seed or {}
 
     def __enter__(self):
         empty()
         with open(os.path.join(data, "config.json"), "w", encoding="utf-8") as f:
             json.dump({"toasts": False, "autostart": False, "toast_rate": 0, "update_check": False, **self.cfg}, f)
+        for name, text in self.seed.items():
+            with open(os.path.join(data, name), "w", encoding="utf-8") as f:
+                f.write(text)
         self.p = subprocess.Popen([EXE, "--port", str(PORT), "--data", data], env=ENV)
         end = time.time() + 30
         while time.time() < end:
@@ -125,6 +129,19 @@ try:
         log = read()
         check("an unknown level keeps the default", " DBG " not in log and TEXT not in log)
         check("an unknown level changes nothing else", "edition=" in log)
+
+    # what an earlier beta build or debug level wrote doesn't outlive it
+    INFO = "2026-01-01 10:00:00.000 INF start    kept-info-line\n"
+    DEBUG = "2026-01-01 10:00:00.000 DBG toast    secret-task-name\n"
+    STALE = {"taskhub.log": INFO + DEBUG, "taskhub.log.1": DEBUG, "taskhub.log.2": DEBUG, "taskhub.log.3": DEBUG, "cli.log": "x\n", "cli.log.1": "x\n"}
+    with Hub(seed=STALE):
+        check("debug lines are gone from the log at the default level", "secret-task-name" not in read() and "edition=" in read(), read()[:300])
+        for name in ("taskhub.log.1", "taskhub.log.2", "taskhub.log.3", "cli.log", "cli.log.1"):
+            check("gone at the default level: " + name, not os.path.exists(os.path.join(data, name)))
+    with Hub(seed={"taskhub.log": INFO, "taskhub.log.1": INFO}):
+        check("an ordinary log stays", "kept-info-line" in read() and "kept-info-line" in read(LOG + ".1"), read()[:300])
+    with Hub(seed=STALE, log_level="debug"):
+        check("at debug level nothing is removed", all(os.path.exists(os.path.join(data, n)) for n in STALE) and "secret-task-name" in read(), read()[:300])
 
     # masking and rotation: the same code path as every other line
     empty()

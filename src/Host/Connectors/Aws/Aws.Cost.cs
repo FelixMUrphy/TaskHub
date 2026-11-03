@@ -35,6 +35,14 @@ sealed partial class AwsConnector
     double BudgetInterval => Mock && J.Num(Cfg["budget_interval"]) is double d ? d : BudgetEvery;
     JsonObject CostCache => Cfg["cost_cache"] as JsonObject ?? new JsonObject();
 
+    /// <summary>The local API's way in. The switch that costs money goes on only from the settings page: a script or an agent mustn't
+    /// start spending the user's money unasked. Off is always allowed. The simulator costs nothing.</summary>
+    public JsonObject ConfigureHttp(JsonObject b)
+    {
+        if (J.Truthy(b["cost"]) && !Mock) throw new ApiError(403, "cost can only be turned on in Settings");
+        return Configure(b);
+    }
+
     void ConfigureMoney(JsonObject b, JsonObject c)
     {
         foreach (var k in new[] { "cost_interval", "budget_interval" })

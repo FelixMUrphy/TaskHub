@@ -13,16 +13,17 @@ Um programa ou script informa o próprio progresso ao TaskHub por uma API HTTP l
 
 "taskhub run -- <comando>" envolve qualquer linha de comando: a saída vai para o log da tarefa, o progresso é lido dela e são adicionados os botões Parar e Encerrar.
 
-Configurações no painel
-Tudo se configura em uma única página: o botão ⚙ do painel (ou Configurações no menu da bandeja) abre aparência, notificações e Telegram, conectores, agentes de IA, inicialização automática e a referência da API. O menu da bandeja mantém as ações rápidas: abrir o painel, silenciar, configurações, apoiar, sair.
+Configurações
+O botão ⚙ do painel (ou Configurações no menu da bandeja) abre as configurações ao lado do painel, com abas para aparência, notificações e Telegram, conectores, agentes de IA, inicialização automática e a referência da API. O menu da bandeja mantém as ações rápidas: abrir o painel, silenciar, configurações, apoiar, sair.
 
 Claude Code e Codex
-Em Configurações → Agentes de IA você conecta o TaskHub ao Claude Code e ao Codex. O agente recebe as ferramentas do TaskHub (MCP) para informar suas tarefas demoradas, e você recebe uma notificação quando o agente termina uma resposta ou precisa da sua permissão. O TaskHub adiciona as próprias entradas aos arquivos de configuração dos agentes e as remove quando você desativa a opção.
+Em Configurações → Agentes de IA você conecta o TaskHub ao Claude Code e ao Codex. O agente recebe as ferramentas do TaskHub (MCP) para informar suas tarefas demoradas, e você recebe uma notificação quando o agente termina uma resposta ou precisa da sua permissão. O TaskHub adiciona as próprias entradas aos arquivos de configuração dos agentes e as remove quando você desativa a opção. Você também pode ativar os limites do plano: quanto já usou dos limites do seu plano do Claude Code e do Codex, no painel, com avisos em 75% e 90%.
 
 Conectores (opcionais, desativados por padrão)
 • GitHub Actions: as execuções de workflows dos repositórios que você indicar, como tarefas: progresso por jobs e etapas, a etapa que falhou e o fim do log dela, botões para cancelar e executar de novo.
 • Runpod e Vast.ai: suas máquinas GPU como tarefas: GPU, preço por hora, gasto até agora, tempo ligada, SSH, gráficos de carga, aviso de "GPU ociosa", saldo e autonomia com aviso de saldo baixo, parar / iniciar / reiniciar (excluir só no painel, depois de digitar o nome da máquina).
-Cada conector só funciona depois que você o ativa e informa sua própria chave de API. A chave fica guardada apenas no Gerenciador de Credenciais do Windows, e o conector fala somente com a API do próprio serviço (api.github.com, api.runpod.io, console.vast.ai).
+• AWS: instâncias EC2, trabalhos de treinamento do SageMaker e trabalhos do AWS Batch como tarefas, custo e previsão do mês e AWS Budgets, cada um com sua própria chave. Somente leitura. O Cost Explorer é cobrado pela AWS (US$ 0,01 por solicitação, no máximo cerca de US$ 1,80 por mês).
+Cada conector só funciona depois que você o ativa e informa sua própria chave de API. A chave fica guardada apenas no Gerenciador de Credenciais do Windows, e o conector fala somente com a API do próprio serviço (api.github.com, api.runpod.io, console.vast.ai, *.amazonaws.com).
 
 Proteção de saldo (opcional, desativada até você ativá-la)
 Para Runpod e Vast.ai: um aviso no seu próprio limite de saldo e, no limite de parada, as máquinas ligadas são paradas depois de uma notificação com Parar agora e Adiar. Ela só para as máquinas e nunca as exclui; se não conseguir ler o saldo, não para nada.
@@ -31,7 +32,7 @@ Telegram (opcional)
 Conecte seu próprio bot do Telegram para receber no celular as mesmas notificações e uma mensagem de progresso ao vivo por tarefa, e tocar nos botões das tarefas por lá. O token do bot fica no Gerenciador de Credenciais do Windows, e as mensagens vão do seu PC direto para a Bot API do Telegram.
 
 Privacidade
-Sem conta, sem telemetria. A API escuta somente em 127.0.0.1, e suas tarefas e configurações ficam em %APPDATA%\TaskHub. Nada sai do seu PC a menos que você ative o Telegram ou um conector.
+Sem conta, sem telemetria. A API escuta somente em 127.0.0.1, e suas tarefas e configurações ficam em %APPDATA%\TaskHub. Nada sai do seu PC a menos que você ative o Telegram, um conector ou os limites do plano do Codex.
 
 Bom saber
 • As atualizações chegam pela Microsoft Store.
@@ -42,14 +43,14 @@ Bom saber
 
 ## What's new in this version
 
-TaskHub 2.9
-• Página de configurações no painel (⚙): tudo em um só lugar; o menu da bandeja mantém as ações rápidas, no estilo do Windows 11.
-• Novos conectores, desativados por padrão: GitHub Actions (execuções de workflows com cancelar e executar de novo), Runpod e Vast.ai (máquinas GPU, gasto, saldo, aviso de GPU ociosa, parar e iniciar). Suas chaves de API ficam apenas no Gerenciador de Credenciais do Windows.
-• Proteção de saldo para Runpod e Vast.ai, desativada até você ativá-la: um aviso no seu limite e, no limite de parada, as máquinas ligadas são paradas, nunca excluídas.
-• Telegram: o token do bot passa para o Gerenciador de Credenciais do Windows; o TaskHub respeita o ritmo de mensagens do Telegram em vez de perder mensagens.
-• Ajuste de transparência dos cartões; links para arquivos e pastas são mostrados no Explorador, nunca executados.
-• 2.9.1: valores em dinheiro com duas casas decimais, custo de armazenamento dos network volumes do Runpod.
-• Agora requer Windows 10 versão 2004 ou posterior.
+TaskHub 3.1
+• Conector da AWS, desativado por padrão e somente leitura: instâncias EC2, trabalhos do SageMaker e do Batch, custo do mês, Budgets.
+• Limites do plano para Claude Code e Codex, desativados até você ativá-los: quanto já usou, com avisos em 75% e 90%.
+• As configurações abrem ao lado do painel, com abas.
+• As notificações do Claude Code e do Codex são oferecidas no painel quando um agente é encontrado, e não chegam mais duas notificações pela mesma coisa.
+• Um registro local mais claro: o texto das notificações e os nomes das tarefas só são gravados no nível debug.
+• Funciona no .NET 10. O painel fixado mantém sua borda da tela.
+• Corrigido: o saldo do Vast.ai; um botão do Telegram de antes de uma reinicialização podia acionar o botão de outra tarefa.
 
 ## Product features
 
@@ -58,10 +59,12 @@ TaskHub 2.9
 - Botões e campos declarados pela própria tarefa: pausar, parar, alterar um parâmetro, encerrar
 - Notificações do Windows ao concluir, falhar ou travar, com os botões da tarefa
 - API HTTP local, comando taskhub e cliente Python; "taskhub run" envolve qualquer comando
-- Todas as configurações em uma página do painel (⚙); ações rápidas no menu da bandeja
+- Configurações ao lado do painel (⚙), com abas; ações rápidas no menu da bandeja
 - Claude Code e Codex: ferramentas do TaskHub (MCP) e notificações, ativadas nas configurações
+- Limites do plano do Claude Code e do Codex opcionais: quanto já usou, avisos em 75% e 90%
 - Conector opcional do GitHub Actions: execuções de workflows como tarefas, com cancelar e executar de novo
 - Conectores opcionais do Runpod e Vast.ai: máquinas GPU, gasto, saldo, aviso de GPU ociosa, parar e iniciar
+- Conector da AWS opcional, somente leitura: instâncias EC2, trabalhos do SageMaker e do Batch, custo, Budgets
 - Proteção de saldo opcional: avisa com saldo baixo e para (nunca exclui) as máquinas ligadas
 - Bot do Telegram opcional: notificações, progresso e botões da tarefa no celular
 - Sem conta, sem telemetria; chaves de API só no Gerenciador de Credenciais do Windows; a API escuta somente em 127.0.0.1
@@ -69,4 +72,4 @@ TaskHub 2.9
 
 ## Short description
 
-Acompanhe e controle as tarefas demoradas do seu PC: progresso, gráficos, notificações e os botões de cada tarefa. Funciona com qualquer script por uma API local ou pelo comando taskhub, com Claude Code e Codex e, se quiser, com GitHub Actions, Runpod e Vast.ai.
+Acompanhe e controle as tarefas demoradas do seu PC: progresso, gráficos, notificações e os botões de cada tarefa. Funciona com qualquer script por uma API local ou pelo comando taskhub, com Claude Code e Codex e, se quiser, com GitHub Actions, Runpod, Vast.ai e AWS.
