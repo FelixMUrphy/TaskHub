@@ -40,10 +40,10 @@ c = load(claude)
 check("claude: other settings kept", c.get("model") == "opus" and c.get("permissions") == original["permissions"], c)
 stop = c["hooks"]["Stop"]
 check("claude: user's own Stop hook kept + ours added", len(stop) == 2 and stop[0] == original["hooks"]["Stop"][0]
-      and stop[1]["hooks"][0]["type"] == "http" and stop[1]["hooks"][0]["url"].endswith("/api/hooks/claude"), stop)
+      and stop[1]["hooks"][0]["type"] == "command" and stop[1]["hooks"][0]["args"] == ["hook", "claude"], stop)
 notif = c["hooks"].get("Notification", [])
 check("claude: Notification hook with matcher", len(notif) == 1 and notif[0].get("matcher") == "permission_prompt|elicitation_dialog"
-      and notif[0]["hooks"][0]["headers"] == {"X-TaskHub": "1"}, notif)
+      and notif[0]["hooks"][0]["args"] == ["hook", "claude"], notif)
 check("claude: backup of the original", load(claude + ".taskhub.bak") == original)
 x = load(codex)
 cmds = [g["hooks"][0]["command"] for ev in ("Stop", "PermissionRequest") for g in x["hooks"].get(ev, [])]

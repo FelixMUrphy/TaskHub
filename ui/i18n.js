@@ -18,7 +18,8 @@ function applyLang(){
   sel.innerHTML = `<option value="auto">🌐 ${esc(T("auto"))}</option>` + Object.entries(LANGS).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join("");
   sel.value = LANG_SETTING; sel.title = T("language");
   $("#cfg").title = T("settings"); $("#cfg").setAttribute("aria-label", T("settings"));
-  $("#setback").title = T("back"); $("#setback").setAttribute("aria-label", T("back"));
+  $("#setclose").title = T("close_settings"); $("#setclose").setAttribute("aria-label", T("close_settings"));
+  $("#rail").setAttribute("aria-label", T("settings_tabs"));
   if (typeof renderSet==="function") renderSet();
   $("#theme").innerHTML = ["system","light","dark"].map(v=>`<option value="${v}">${esc(T("th_"+v))}</option>`).join("");
   $("#accent").innerHTML = ["system","taskhub"].map(v=>`<option value="${v}">${esc(T("acc_"+v))}</option>`).join("");

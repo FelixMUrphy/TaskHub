@@ -125,7 +125,13 @@ class Api(BaseHTTPRequestHandler):
                 more = start + 2 < len(charges)
                 return self.reply(200, {"results": charges[start:start + 2], "count": 2, "total": len(charges),
                                         "next_token": f"t{start + 2}" if more else None})
-            if m == "GET" and p == "/api/v0/users/current":
+            if m == "GET" and p == "/api/v0/users/current":   # as the real API answers (checked 2026-11-02): only with the slash
+                self.send_response(301)
+                self.send_header("Location", "https://console.vast.ai/api/v0/users/current/")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if m == "GET" and p == "/api/v0/users/current/":
                 return self.reply(200, dict(user))
             mr = re.match(r"^/api/v0/instances/reboot/(\d+)/$", p)
             if mr and m == "PUT":

@@ -32,6 +32,13 @@ requests only in the repositories it was given and in public ones.
 Prefer this token over TaskHub's other option (the token the Git Credential Manager already has), which has
 access to all your repositories.
 
+## Watching one more repository later
+With **Only select repositories** the token reaches only the repositories you picked. If TaskHub says a repository is
+*not found, or the token can't reach it*: check the name, then open the token on GitHub (**Settings** → **Developer settings** →
+**Personal access tokens** → **Fine-grained tokens**) and add the repository under **Repository access**. GitHub answers the same way for
+a wrong name, a repository the token wasn't given and, on some requests, a missing permission, so TaskHub can't tell you which one it is.
+[GitHub: 404 for an existing resource](https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api)
+
 ## Paste it into TaskHub
 1. TaskHub → **Settings** → **Connectors** → **GitHub Actions**.
 2. Turn it on, choose **My own fine-grained token (recommended)**, paste the token, list the repositories

@@ -39,7 +39,7 @@ sealed class Connectors
     public T Add<T>(T c) where T : IConnector { all.Add(c.Id, c); order.Add(c); return c; }
     public IConnector Get(string id) => all.TryGetValue(id, out var c) ? c : null;
     public IEnumerable<IConnector> All => order;
-    public void StartAll() { foreach (var c in order) try { c.Start(); } catch (Exception e) { Log.W($"connector {c.Id}: " + e.Message); } }
+    public void StartAll() { foreach (var c in order) try { c.Start(); } catch (Exception e) { Log.W("connector", $"connector {c.Id}: " + e.Message); } }
     public void StopAll() { foreach (var c in order) try { c.Stop(); } catch { } }
 
     JsonObject Route(string source, string tid, string cid, JsonNode value, string via) =>
@@ -49,11 +49,12 @@ sealed class Connectors
     public static JsonObject Config(Settings s, string id) =>
         (s.Get("connectors") as JsonObject)?[id] as JsonObject ?? new JsonObject();
 
-    public static void SetConfig(Settings s, string id, JsonObject cfg)
+    /// <summary>False: it couldn't be written to disk.</summary>
+    public static bool SetConfig(Settings s, string id, JsonObject cfg)
     {
         var all = s.Get("connectors") as JsonObject ?? new JsonObject();
         all[id] = cfg.DeepClone();
-        s.Set(("connectors", all));
+        return s.Set(("connectors", all));
     }
 }
 
@@ -62,7 +63,7 @@ sealed class Connectors
 static class Secrets
 {
     /// <summary>Every name TaskHub saves a secret under (connectors, Telegram bot): deleted by uninstall --purge.</summary>
-    public static readonly string[] Names = { "github", "telegram", "runpod", "vastai" };
+    public static readonly string[] Names = { "github", "telegram", "runpod", "vastai", "aws" };
 
     const int ErrorNotFound = 1168;
 
@@ -153,7 +154,7 @@ static class Secrets
         if (CredDelete(Target(s, name), 1, 0)) return true;
         var err = Marshal.GetLastWin32Error();
         if (err == ErrorNotFound) return true;
-        Log.W($"credential {name}: not deleted (error {err})");
+        Log.W("connector", $"credential {name}: not deleted (error {err})");
         return false;
     }
 

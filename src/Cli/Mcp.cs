@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using TaskHub;
 
 namespace TaskHubCli;
 
@@ -26,6 +27,26 @@ static class Mcp
         "Add controls (buttons/inputs) only when the user may want to steer the job; read their clicks with task_commands. " +
         "To wait for a task to end (e.g. a command started with `taskhub run`), call task_wait instead of polling with sleep. " +
         "If TaskHub is unavailable, continue the user's work without it.";
+
+    /// <summary>Only with TaskHub's hooks on for this agent: otherwise the agent's own notify is the only one the user gets.</summary>
+    const string HooksInstruction =
+        " TaskHub already notifies the user by itself when you finish a response or need a permission: do not call notify just to say that you are done.";
+
+    /// <summary>The agent's own file, so that the hub needs no starting for this; a new session reads it again. Any doubt: not on.</summary>
+    static bool HooksOn(string source)
+    {
+        try
+        {
+            var home = Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 } h ? h : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            return source switch
+            {
+                "claude" => AgentFiles.HasHooks(AgentFiles.LoadJson(Path.Combine(home, ".claude", "settings.json")), true),
+                "codex" => File.ReadAllText(Path.Combine(home, ".codex", "hooks.json")).Contains(" hook codex"),
+                _ => false,
+            };
+        }
+        catch { return false; }
+    }
 
     static readonly JsonSerializerOptions Compact = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -73,7 +94,7 @@ static class Mcp
                     }
                     catch (OperationCanceledException) when (cts.IsCancellationRequested) { }   // cancelled: no answer (MCP)
                     catch (McpError e) { Out(Error(id, e.Code, e.Message)); }
-                    catch (Exception e) { Console.Error.WriteLine("taskhub mcp: " + e); Out(Error(id, -32603, e.Message)); }
+                    catch (Exception e) { CliLog.W("mcp", e.ToString()); Console.Error.WriteLine("taskhub mcp: " + e); Out(Error(id, -32603, e.Message)); }
                     finally { running.TryRemove(key, out _); cts.Dispose(); }
                 });
                 continue;
@@ -87,7 +108,7 @@ static class Mcp
                         ["protocolVersion"] = Program.S(req["params"]?["protocolVersion"]) is { Length: > 0 } pv ? pv : Proto,
                         ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
                         ["serverInfo"] = new JsonObject { ["name"] = "taskhub", ["title"] = "TaskHub", ["version"] = Program.Version },
-                        ["instructions"] = Instructions,
+                        ["instructions"] = Instructions + (HooksOn(source) ? HooksInstruction : ""),
                     },
                     "ping" => new JsonObject(),
                     "tools/list" => new JsonObject { ["tools"] = Tools() },
@@ -96,7 +117,7 @@ static class Mcp
                 Out(new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result });
             }
             catch (McpError e) { Out(Error(id, e.Code, e.Message)); }
-            catch (Exception e) { Console.Error.WriteLine("taskhub mcp: " + e); Out(Error(id, -32603, e.Message)); }
+            catch (Exception e) { CliLog.W("mcp", e.ToString()); Console.Error.WriteLine("taskhub mcp: " + e); Out(Error(id, -32603, e.Message)); }
         }
         return 0;   // stdin closed: the client is gone (calls still waiting end with the process)
     }
@@ -219,6 +240,7 @@ static class Mcp
                     c.Call("POST", "/api/notify", new JsonObject
                     {
                         ["title"] = a["title"]?.DeepClone(), ["message"] = a["message"]?.DeepClone() ?? "", ["level"] = a["level"]?.DeepClone() ?? "info",
+                        ["source"] = source, ["agent_cwd"] = Directory.GetCurrentDirectory(),
                     });
                     return Text("shown");
                 case "task_start":
@@ -246,6 +268,7 @@ static class Mcp
                     c.Call("POST", $"/api/tasks/{Id()}/finish", new JsonObject
                     {
                         ["state"] = a["state"]?.DeepClone() ?? "done", ["message"] = a["message"]?.DeepClone() ?? "",
+                        ["source"] = source, ["agent_cwd"] = Directory.GetCurrentDirectory(),
                     });
                     return Text("finished");
                 case "task_commands":
@@ -305,6 +328,6 @@ static class Mcp
                 default: throw new McpError(-32602, "unknown tool: " + name);
             }
         }
-        catch (HubError e) { return Text("TaskHub: " + e.Message, true); }
+        catch (HubError e) { CliLog.W("mcp", e.Message); return Text("TaskHub: " + e.Message, true); }
     }
 }

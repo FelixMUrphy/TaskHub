@@ -50,12 +50,12 @@ sealed class Client
     static JsonObject ExeSettings() => ReadJson(Path.Combine(AppContext.BaseDirectory, "TaskHubHost.settings.json"));
 
     /// <summary>The hub's config.json (data folder from TaskHubHost.settings.json, else %APPDATA%\TaskHub).</summary>
-    static JsonObject HubConfig()
-    {
-        var data = ExeSettings()?["data"] is JsonValue dv && dv.TryGetValue<string>(out var d) ? Environment.ExpandEnvironmentVariables(d)
+    internal static JsonObject HubConfig() => ReadJson(Path.Combine(DataFolder(), "config.json"));
+
+    internal static string DataFolder() =>
+        Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 } testHome ? Path.Combine(testHome, "TaskHub")
+        : ExeSettings()?["data"] is JsonValue dv && dv.TryGetValue<string>(out var d) ? Environment.ExpandEnvironmentVariables(d)
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaskHub");
-        return ReadJson(Path.Combine(data, "config.json"));
-    }
 
     public JsonNode Call(string method, string path, JsonNode body = null, double timeoutSec = 10, CancellationToken ct = default)
     {
@@ -122,6 +122,8 @@ http://127.0.0.1:47800; env TASKHUB_URL / TASKHUB_TOKEN override them)
                                                     task_commands, task_list; starts the hub on first use)
   taskhub hook claude|codex                        (agent hook: event JSON on stdin or as the last argument -> toast;
                                                     prints nothing, always exits 0, never starts the hub)
+  taskhub statusline                               (Claude Code status line, added by the ""plan limits"" switch: runs your own
+                                                    status line unchanged, gives the hub only limit percentages and reset times)
   taskhub run [--name N] [--id ID] [--source S] [--description D] [--cwd DIR] [--heartbeat SEC]
               [--auto-progress] [--progress-regex RX] [--status-regex RX] [--milestones 25,50,75]
               [--progress-toast] [--toast-controls] [--encoding utf8|oem|ansi] [--preset blender|none] [--quiet]
@@ -149,6 +151,7 @@ Global option: --url URL";
         if (args.Count == 0 || args[0] is "-h" or "--help" or "help" or "/?") { Console.WriteLine(Help); return 0; }
         var cmd = args[0];
         args.RemoveAt(0);
+        if (cmd == "statusline") return StatusLine.Run(() => new Client(url));
         // the agents start these: if this is the Store edition's copy and TaskHub was uninstalled, clean up instead
         if (cmd is "hook" or "mcp" && StoreCleanup.Run())
         {
@@ -299,6 +302,7 @@ Global option: --url URL";
         }
         catch (HubError e)
         {
+            CliLog.W("cli", cmd + ": " + e.Message);
             Console.Error.WriteLine("taskhub: " + e.Message);
             return e.Code == 0 ? 3 : 1;
         }
@@ -324,7 +328,7 @@ Global option: --url URL";
             if (string.IsNullOrWhiteSpace(text)) return 0;
             if (JsonNode.Parse(text) is JsonObject body) c.Call("POST", "/api/hooks/" + agent, body, 3);
         }
-        catch { }
+        catch (Exception e) { CliLog.W("hook", e.GetType().Name + ": " + e.Message); }
         return 0;
     }
 

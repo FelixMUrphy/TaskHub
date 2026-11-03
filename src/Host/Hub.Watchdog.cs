@@ -15,6 +15,8 @@ sealed partial class Hub
         while (!ct.IsCancellationRequested)
         {
             try { await Task.Delay(3000, ct); } catch { break; }
+            if (watchTicks % 20 == 0) _ = Task.Run(RefreshHookOffer);   // first tick, then every minute: agents' files and PATH, which can be slow
+            TickCodexLimits();
             if (++watchTicks % 200 == 0)   // ~10 min: history older than history_days
                 lock (Lock) if (Prune()) Bump();
             try
@@ -45,7 +47,7 @@ sealed partial class Hub
                     ToastFor(t, "⚠ " + J.Str(t["name"]), L.T("no_updates", FmtDur(J.Num(t["heartbeat_timeout"]) ?? 0)), "warn", "stale");
                 Save();
             }
-            catch (Exception e) { Log.W("watchdog error " + e); }
+            catch (Exception e) { Log.E("hub", "watchdog error " + e); }
         }
         Save();
     }

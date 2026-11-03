@@ -129,6 +129,46 @@ function layout(){
   for (const el of out) if (/^[rt]-/.test(el.id)) seenIO.observe(el);
   return out;
 }
+// plan limits as last reported: past the reset the old percentage says nothing any more, an old reading says how old it is
+function renderLimits(){
+  const box=$("#limits"), names={claude:"Claude Code",codex:"Codex"}, groups=[], t=now(), th=data.limits_warn||[];
+  const when=r=>{ const d=new Date(r*1000), today=d.toDateString()===new Date().toDateString();
+    return d.toLocaleString(LANG, today? {hour:"2-digit",minute:"2-digit"} : {weekday:"short",hour:"2-digit",minute:"2-digit"}); };
+  // each agent under its own name, always in the same order, so two agents' limits don't read as one list
+  const prob=data.limits_problem||{};
+  for (const agent of [...new Set([...Object.keys(data.limits||{}),...Object.keys(prob)])].sort()){
+    const ws=(data.limits||{})[agent]||{}, rows=[];
+    for (const [w,k] of [["five_hour","limit_5h"],["seven_day","limit_7d"]]){
+      const x=ws[w]; if (!x || x.used_percentage==null) continue;
+      const done=x.resets_at && t>=x.resets_at, p=Math.floor(x.used_percentage), old=t-x.at>900, up=x.used_percentage, lvl=done||!th.length?"":up>=th[th.length-1]?"bad":up>=th[0]?"warn":"";
+      const val=done? T("limit_reset_done")
+        : [T("limit_used",p), x.resets_at? T("limit_resets",when(x.resets_at)) : "", old? T("limit_updated",ago(t-x.at)) : ""].filter(Boolean).join(" · ");
+      rows.push(`<div class="lim${old||done?" old":""}"${lvl?` data-l="${lvl}"`:""}><div class="lt"><span>${esc(T(k))}</span><span class="lv">${esc(val)}</span></div><div class="lb" aria-hidden="true"><i style="width:${done?0:p}%"></i></div></div>`);
+    }
+    if (!rows.length && prob[agent]) rows.push(`<div class="limn">${esc(T("limit_p_"+prob[agent]))}</div>`);   // on, but no numbers: say why
+    const name=esc(names[agent]||agent);
+    if (rows.length) groups.push(`<div class="limg" role="group" aria-label="${name}"><div class="limh">${name}</div>${rows.join("")}</div>`);
+  }
+  const h=groups.join("");
+  if (box.__h!==h){ box.innerHTML=h; box.__h=h; box.classList.toggle("on",groups.length>0); }
+}
+// an agent's hooks, offered once: nothing is written before a click, and a click needs the native panel (never HTTP)
+function renderHookOffer(){
+  if (!data) return;
+  const box=$("#hookoffer"), rows=NATIVE? data.hooks_offer||[] : [], title=T("hooks_offer_t",rows.map(r=>r.name).join(", "));
+  const h=!rows.length? "" : `<div class="ht">${esc(title)}</div><div class="hd">${esc(T("hooks_offer_d"))}</div>`
+    +(data.hooks_offer_tg? `<div class="hd">${esc(T("hooks_offer_tg"))}</div>` : "")
+    +`<div class="ctl"><button class="btn primary" data-connect="1">${esc(T("hooks_offer_yes"))}</button><button class="btn" data-connect="">${esc(T("hooks_offer_no"))}</button></div>`;
+  if (box.__h===h) return;
+  const had=box.__clicked||box.contains(document.activeElement);
+  box.__clicked=false; box.innerHTML=h; box.__h=h; box.classList.toggle("on",rows.length>0);
+  box.setAttribute("role","group"); box.setAttribute("aria-label",title);
+  box.__agents=rows.map(r=>r.agent);
+  if (had) (rows.length? box.querySelector("button") : $("#list")).focus({preventScroll:true});   // the keyboard stays where it was
+}
+$("#hookoffer").addEventListener("click",e=>{ const b=e.target.closest("button"), box=$("#hookoffer"); if (!b || b.disabled) return;
+  box.__clicked=true; box.querySelectorAll("button").forEach(x=>{ x.disabled=true; });   // one answer: two writes of one file would collide
+  host({settings:"do",what:"hooks_offer",connect:!!b.dataset.connect,agents:box.__agents}); });
 function render(){
   if (!data) return;
   if ((data.lang && data.lang!==LANG) || (data.language && data.language!==LANG_SETTING)){ LANG=data.lang||LANG; LANG_SETTING=data.language||"auto"; applyLang(); }
@@ -136,10 +176,13 @@ function render(){
     if (document.activeElement===$("#ctransp")) data.panel.card_transparency=PANEL.card_transparency; PANEL=data.panel; applyLook(); }
   const list=$("#list");
   const nAct=data.tasks.filter(t=>ACTIVE.has(t.state)).length;
-  $("#cnt").textContent = T("counts",nAct,data.tasks.length);
+  const cnt=$("#cnt"), cntFull=T("counts",nAct,data.tasks.length);
+  cnt.textContent = nAct+" / "+data.tasks.length; cnt.title=cntFull; cnt.setAttribute("aria-label",cntFull);
   $("#mute i").textContent = data.muted ? "\uE7ED" : "\uEA8F";   // bell crossed out = muted
   $("#mute").title = data.muted ? T("notif_off") : T("notif_on");
   renderSet();
+  renderHookOffer();
+  renderLimits();
   place(list, layout());
   requestAnimationFrame(sbUpd);
   // focus request (tray/toast click)

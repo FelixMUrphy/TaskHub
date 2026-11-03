@@ -162,7 +162,7 @@ static class Install
             if (string.IsNullOrEmpty(pfn) || Directory.Exists(Path.Combine(local, "Packages", pfn))) return;
             Directory.Delete(StoreCliDir, true);
         }
-        catch (Exception e) { Log.W("Store edition leftover: " + e.Message); }
+        catch (Exception e) { Log.W("install", "Store edition leftover: " + e.Message); }
     }
 
     /// <summary>Version of the installed copy: the installed exe's file version (the uninstall entry's DisplayVersion can be
@@ -200,7 +200,7 @@ static class Install
         if (IsPackaged)
         {
             try { return PackageStartup().State is StartupTaskState.Enabled or StartupTaskState.EnabledByPolicy; }
-            catch (Exception e) { Log.W("startup task: " + e.Message); return false; }
+            catch (Exception e) { Log.W("install", "startup task: " + e.Message); return false; }
         }
         using var k = Hkcu.OpenSubKey(RunKey);
         var v = k?.GetValue(RunValueName(s)) as string;
@@ -253,16 +253,16 @@ static class Install
             if (DisabledInTaskManager(s))
             {
                 s.Set(("autostart", false));
-                Log.W("autostart turned off in Windows: left off");
+                Log.I("install", "autostart turned off in Windows: left off");
                 return;
             }
             using var k = Hkcu.OpenSubKey(RunKey);
             var v = k?.GetValue(RunValueName(s)) as string;
             if (v == RunCommand) return;
             SetAutostart(true, s);
-            Log.W("autostart entry restored");
+            Log.I("install", "autostart entry restored");
         }
-        catch (Exception e) { Log.W("autostart check failed: " + e.Message); }
+        catch (Exception e) { Log.W("install", "autostart check failed: " + e.Message); }
     }
 
     // ------------------------------------------------------------ protocol
@@ -313,7 +313,7 @@ static class Install
         var lnk = StartMenuLink;
         if (!on)
         {
-            try { File.Delete(lnk); } catch (Exception e) { Log.W("shortcut not deleted: " + e.Message); }
+            try { File.Delete(lnk); } catch (Exception e) { Log.W("install", "shortcut not deleted: " + e.Message); }
             return;
         }
         try
@@ -330,7 +330,7 @@ static class Install
             }
             finally { Marshal.FinalReleaseComObject(link); }
         }
-        catch (Exception e) { Log.W("Start-menu shortcut not created: " + e.Message); }   // the install itself still works
+        catch (Exception e) { Log.W("install", "Start-menu shortcut not created: " + e.Message); }   // the install itself still works
     }
 
     [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
@@ -423,9 +423,9 @@ static class Install
                     if (p.HasExited) continue;
                     p.Kill(false);
                     p.WaitForExit(5000);
-                    Log.W($"hub {p.Id} did not quit: ended");
+                    Log.W("install", $"hub {p.Id} did not quit: ended");
                 }
-                catch (Exception e) { Log.W($"hub {p.Id} not stopped: " + e.Message); }
+                catch (Exception e) { Log.W("install", $"hub {p.Id} not stopped: " + e.Message); }
         }
         finally { foreach (var p in hubs) p.Dispose(); }
     }
@@ -506,7 +506,7 @@ static class Install
         {
             if (IsInstalledCopy && !File.Exists(Path.Combine(ExeDir, "taskhub.exe"))) Res.Extract(ExeDir);
         }
-        catch (Exception e) { Log.W("payload check failed: " + e.Message); }
+        catch (Exception e) { Log.W("install", "payload check failed: " + e.Message); }
     }
 
     /// <summary>Registration done by the installed copy itself (from its own folder).</summary>
@@ -535,9 +535,9 @@ static class Install
     public static void PurgeData(Settings s)
     {
         foreach (var name in Secrets.Names)
-            try { if (!Secrets.Delete(s, name)) Log.W($"purge: {name} token not deleted"); }
-            catch (Exception e) { Log.W($"purge: {name} token: " + e.Message); }
-        try { Directory.Delete(s.DataDir, true); } catch (Exception e) { Log.W("purge: " + e.Message); }
+            try { if (!Secrets.Delete(s, name)) Log.W("install", $"purge: {name} token not deleted"); }
+            catch (Exception e) { Log.W("install", $"purge: {name} token: " + e.Message); }
+        try { Directory.Delete(s.DataDir, true); } catch (Exception e) { Log.W("install", "purge: " + e.Message); }
     }
 
     // ------------------------------------------------------------ the other edition (setup exe <-> Microsoft Store)
@@ -563,7 +563,7 @@ static class Install
         RemoveFiles(dir);
         // a taskhub.exe still running (an agent's MCP server) cannot be deleted yet: retried on later starts
         if (Directory.Exists(dir)) s.Set(("exe_leftover", dir));
-        Log.W("setup-exe edition removed from " + dir);
+        Log.I("install", "setup-exe edition removed from " + dir);
     }
 
     /// <summary>Store edition: delete what RemoveExeEdition could not (files that were in use then).</summary>
@@ -596,7 +596,7 @@ static class Install
                 catch { }
             }
         }
-        catch (Exception e) { Log.W("package lookup failed: " + e.Message); }
+        catch (Exception e) { Log.W("install", "package lookup failed: " + e.Message); }
         return null;
     }
 
@@ -612,7 +612,7 @@ static class Install
             CopyMissing(src, s.DataDir);
         var r = new Windows.Management.Deployment.PackageManager().RemovePackageAsync(pkg.FullName).AsTask().GetAwaiter().GetResult();
         if (r.ExtendedErrorCode != null) throw new IOException(r.ErrorText);
-        Log.W($"Store edition {pkg.Version} removed");
+        Log.I("install", $"Store edition {pkg.Version} removed");
     }
 
     /// <summary>Copy the files of src that dst does not have yet: the real data folder may be newer than the package's
@@ -659,7 +659,7 @@ static class Install
                 default: return 2;
             }
         }
-        catch (Exception e) { Log.W("selftest: " + e); return 1; }
+        catch (Exception e) { Log.E("install", "selftest: " + e); return 1; }
         finally { testRoot.Dispose(); testRoot = null; testHome = null; }
     }
 

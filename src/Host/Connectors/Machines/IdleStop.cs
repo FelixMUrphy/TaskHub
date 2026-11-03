@@ -54,7 +54,7 @@ abstract partial class MachineConnector
         var text = L.T("g_idle_pending", m.Name ?? m.Id, Math.Max(1, (int)Math.Round(c.IdleStopMinutes)), When(p.Deadline));
         ShowPending(p, g, text, register: true);
         GuardNotify(text, "warn", withButtons: true);
-        Log.W($"{Id}: idle stop #{p.Seq} pending for {m.Id} at {p.Deadline:0}");
+        Log.I(Id, $"idle stop #{p.Seq} pending for {m.Id} at {p.Deadline:0}");
     }
 
     /// <summary>The deadline of a pending idle stop: stopped if the machine still runs idle, else cancelled.</summary>

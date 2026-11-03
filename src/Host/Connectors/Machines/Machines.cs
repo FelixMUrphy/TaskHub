@@ -224,7 +224,7 @@ abstract partial class MachineConnector : ISettingsConnector
         Resp r = null;
         try { r = CheckKey(key, CancellationToken.None).GetAwaiter().GetResult(); }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException)
-        { Log.W($"{Id}: key not checked: " + e.GetBaseException().Message); }
+        { Log.W(Id, $"key not checked: " + e.GetBaseException().Message); }
         if (r?.Code is 401 or 403) throw new ApiError(400, $"{Title} rejected the key");
         try { Secrets.Write(S, Id, key); }
         catch (Exception e) { throw new ApiError(500, "the key was not saved: " + e.Message); }
@@ -237,7 +237,7 @@ abstract partial class MachineConnector : ISettingsConnector
         {
             if (FetchBalance(key, CancellationToken.None).GetAwaiter().GetResult() is { Error: null } bal) { balance = bal; balanceAt = J.Now(); }
         }
-        catch (Exception e) { Log.W($"{Id}: balance after the key: " + e.GetBaseException().Message); }
+        catch (Exception e) { Log.W(Id, $"balance after the key: " + e.GetBaseException().Message); }
     }
 
     protected void SetCheck(string verdict, int code = 0) { keyCheck = verdict; keyCheckCode = code; }
@@ -260,7 +260,7 @@ abstract partial class MachineConnector : ISettingsConnector
     bool KeySet()
     {
         try { return Secrets.Read(S, Id) is { Length: > 0 }; }
-        catch (Exception e) { Log.W($"{Id}: key not read: " + e.Message); return false; }
+        catch (Exception e) { Log.W(Id, $"key not read: " + e.Message); return false; }
     }
 
     // ------------------------------------------------------------ settings page row
@@ -398,8 +398,8 @@ abstract partial class MachineConnector : ISettingsConnector
             catch (Exception e)
             {
                 status = "offline: " + e.GetBaseException().Message;
-                Log.W($"{Id}: " + e.GetBaseException().Message);
-                try { GuardMissFromError(e.GetBaseException().Message); } catch (Exception e2) { Log.W($"{Id}: guard: " + e2.Message); }
+                Log.W(Id, e.GetBaseException().Message);
+                try { GuardMissFromError(e.GetBaseException().Message); } catch (Exception e2) { Log.W(Id, $"guard: " + e2.Message); }
                 try { await Task.Delay(Mock ? 2000 : 15000, ct); } catch { return; }
             }
             try { await Task.Delay(Mock ? 300 : 1000, ct); } catch { return; }
@@ -530,7 +530,7 @@ abstract partial class MachineConnector : ISettingsConnector
             _ => was,   // can't tell (network, 5xx, rate limit): keep what we knew
         };
         if (r.Code is not (400 or 401 or 403 or 404 or 405 or 409 or 422)) probedAt = J.Now() - 86400 + 600;   // again in 10 min
-        Log.W($"{Id}: action probe -> HTTP {r.Code}, actions {(canAct == true ? "allowed" : canAct == false ? "not allowed" : "unknown")}");
+        Log.W(Id, $"action probe -> HTTP {r.Code}, actions {(canAct == true ? "allowed" : canAct == false ? "not allowed" : "unknown")}");
         if (was != canAct)
         {
             List<Track> all;
@@ -648,7 +648,7 @@ abstract partial class MachineConnector : ISettingsConnector
             ["widgets"] = Widgets(),
         };
         try { hub.Register(b, trusted: true); }
-        catch (Exception e) { Log.W($"{Id}: register {tid}: " + e.Message); return; }
+        catch (Exception e) { Log.I(Id, $"register {Log.Id(tid)}: " + e.Message); return; }
         t.LastSig = null;
         Show(t, c, true);
     }
@@ -708,7 +708,7 @@ abstract partial class MachineConnector : ISettingsConnector
 
     static string Money(double? v) => Usd.Money(v);
 
-    static string Hours(double h) =>
+    internal static string Hours(double h) =>
         h >= 48 ? L.T("m_days", ((int)(h / 24)).ToString(CultureInfo.InvariantCulture))
         : h >= 1 ? L.T("m_hours", ((int)Math.Floor(h)).ToString(CultureInfo.InvariantCulture))
         : L.T("m_minutes", Math.Max(0, (int)(h * 60)).ToString(CultureInfo.InvariantCulture));
@@ -747,7 +747,7 @@ abstract partial class MachineConnector : ISettingsConnector
             var msg = L.T("m_low", Title, Money(a), rw is double h2 ? Hours(h2) : "—");
             if (ZeroBalanceNote.Length > 0) msg += " " + ZeroBalanceNote;
             hub.Notify(new JsonObject { ["title"] = "TaskHub · " + Title, ["level"] = "warn", ["message"] = msg, ["click"] = "dismiss" });
-            Log.W($"{Id}: low balance {a} (runway {rw})");
+            Log.W(Id, "low balance"); Log.D(Id, $"balance {a}, runway {rw}");
         }
         low = now;
     }
@@ -914,7 +914,7 @@ abstract partial class MachineConnector : ISettingsConnector
         else { backoff = backoff <= 0 ? 60 : Math.Min(backoff * 2, 1800); wait = backoff; }
         pausedUntil = Math.Max(pausedUntil, J.Now() + wait);
         status = "rate limit, waiting until " + DateTimeOffset.FromUnixTimeSeconds((long)pausedUntil).ToLocalTime().ToString("HH:mm:ss");
-        Log.W($"{Id}: {status} ({why})");
+        Log.W(Id, $"{status} ({why})");
     }
 
     protected Task<Resp> Call(HttpMethod m, string pathAndQuery, JsonNode body, string key, CancellationToken ct)
@@ -954,6 +954,6 @@ abstract partial class MachineConnector : ISettingsConnector
 
     protected void Try(Action a)
     {
-        try { a(); } catch (Exception e) { Log.W($"{Id}: " + e.Message); }
+        try { a(); } catch (Exception e) { Log.W(Id, e.Message); }
     }
 }

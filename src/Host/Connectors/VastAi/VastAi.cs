@@ -154,7 +154,7 @@ sealed class VastAiConnector : MachineConnector
         {
             var r = await Call(HttpMethod.Get, "/api/v0/charges/?limit=100&select_filters=" + Uri.EscapeDataString(filters.ToJsonString()) +
                 (after != null ? "&after_token=" + Uri.EscapeDataString(after) : ""), null, key, ct);
-            if (r.Code != 200) { if (r.Code != 429) Log.W($"vastai: charges HTTP {r.Code}"); return page == 0 ? null : d; }
+            if (r.Code != 200) { if (r.Code != 429) Log.W("vastai", $"charges HTTP {r.Code}"); return page == 0 ? null : d; }
             foreach (var rec in (r.Body?["results"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
             {
                 var mm = Regex.Match(J.Str(rec["source"]), @"^instance-(\d{1,20})$");
@@ -175,8 +175,8 @@ sealed class VastAiConnector : MachineConnector
     /// it only warns (see .ai/gotchas.md).</summary>
     protected override async Task<Balance> FetchBalance(string key, CancellationToken ct)
     {
-        var r = await Call(HttpMethod.Get, "/api/v0/users/current", null, key, ct);
-        if (r.Code != 200 || r.Body is not JsonObject u) { if (r.Code != 429) Log.W($"vastai: balance HTTP {r.Code}"); return Balance.Failed(r.Code); }
+        var r = await Call(HttpMethod.Get, "/api/v0/users/current/", null, key, ct);   // no slash: a 301, which isn't followed
+        if (r.Code != 200 || r.Body is not JsonObject u) { if (r.Code != 429) Log.W("vastai", $"balance HTTP {r.Code}"); return Balance.Failed(r.Code); }
         double? bal = Num(u["balance"]), credit = Num(u["credit"]);
         if (bal == null && credit == null) return new Balance { Error = "no balance in the answer", Code = 200 };
         var b = new Balance { Amount = credit ?? bal };

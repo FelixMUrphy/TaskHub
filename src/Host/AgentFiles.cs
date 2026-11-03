@@ -20,14 +20,20 @@ static class AgentFiles
     public static string ClaudeMcp => Path.Combine(Home, ".claude.json");
     public static string CodexHooks => Path.Combine(Home, ".codex", "hooks.json");
     public static string CodexMcp => Path.Combine(Home, ".codex", "config.toml");
+    /// <summary>The user's own "statusLine" entry while TaskHub's wraps it: outside settings.json (an unknown field there may not be
+    /// accepted) and outside TaskHub's data folder (the CLI must find it in both editions, also after an uninstall).</summary>
+    public static string ClaudeWrapped => Path.Combine(Home, ".claude", "statusline.taskhub.json");
 
     static string Str(JsonNode n) => n is JsonValue v && v.TryGetValue<string>(out var s) ? s : "";
 
     // ------------------------------------------------------------ hooks (JSON)
     public static bool IsOurHook(bool claude, JsonObject h)
     {
-        if (claude) return Str(h["type"]) == "http" && Str(h["url"]).Contains("/api/hooks/claude");
         var c = Str(h["command"]);
+        if (claude)
+            return Str(h["type"]) == "http" ? Str(h["url"]).Contains("/api/hooks/claude")   // before 3.1
+                : Str(h["type"]) == "command" && c.Contains("taskhub", StringComparison.OrdinalIgnoreCase)
+                  && h["args"] is JsonArray a && a.Count == 2 && Str(a[0]) == "hook" && Str(a[1]) == "claude";
         return Str(h["type"]) == "command" && c.Contains("hook codex") && c.Contains("taskhub", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -62,6 +68,47 @@ static class AgentFiles
         StripHooks(root, claude);
         SaveJson(path, root);
         return true;
+    }
+
+    // ------------------------------------------------------------ status line: Claude Code (~/.claude/settings.json)
+    // The whole command, nothing around it: there is one slot, and a line of the user's that merely mentions these words is theirs.
+    static readonly Regex OurStatusLine = new(@"^\s*(?:""[^""]*[\\/]taskhub(?:\.exe)?""|(?:[^\s""';&|]*[\\/])?taskhub(?:\.exe)?)\s+statusline\s*$", RegexOptions.IgnoreCase);
+
+    public static bool IsOurStatusLine(JsonObject sl) => sl != null && Str(sl["type"]) == "command" && OurStatusLine.IsMatch(Str(sl["command"]));
+
+    /// <summary>The user's entry kept while ours is in place, or null.</summary>
+    public static JsonObject WrappedStatusLine() =>
+        File.Exists(ClaudeWrapped) ? LoadJson(ClaudeWrapped)["statusLine"] as JsonObject : null;
+
+    public static void SaveWrappedStatusLine(JsonObject entry)
+    {
+        if (entry == null) { DeleteWrapped(); return; }
+        WriteAtomic(ClaudeWrapped, new JsonObject { ["statusLine"] = entry.DeepClone() }.ToJsonString(Pretty) + "\n");
+    }
+
+    /// <summary>Takes TaskHub's status line out and puts the user's own back exactly as it was. An entry that isn't ours stays:
+    /// the user has changed it since.</summary>
+    public static bool RemoveStatusLine()
+    {
+        bool changed = false;
+        if (File.Exists(ClaudeHooks))
+        {
+            var root = LoadJson(ClaudeHooks);
+            if (IsOurStatusLine(root["statusLine"] as JsonObject))
+            {
+                if (WrappedStatusLine() is { } own) root["statusLine"] = own.DeepClone();
+                else root.Remove("statusLine");
+                SaveJson(ClaudeHooks, root);
+                changed = true;
+            }
+        }
+        DeleteWrapped();
+        return changed;
+    }
+
+    static void DeleteWrapped()
+    {
+        if (File.Exists(ClaudeWrapped)) File.Delete(ClaudeWrapped);   // File.Delete throws when the folder isn't there
     }
 
     // ------------------------------------------------------------ MCP: Claude Code (~/.claude.json)
@@ -139,6 +186,7 @@ static class AgentFiles
         var errors = new List<string>();
         foreach (var (name, remove) in new (string, Func<bool>)[]
                  {
+                     (ClaudeHooks, RemoveStatusLine),
                      (ClaudeHooks, () => RemoveHooks(true)), (CodexHooks, () => RemoveHooks(false)),
                      (ClaudeMcp, RemoveClaudeMcp), (CodexMcp, RemoveCodexMcp),
                  })

@@ -5,7 +5,7 @@ namespace TaskHub;
 
 /// <summary>
 /// Adapters for AI-agent hook payloads, posted as-is:
-///   POST /api/hooks/claude  - Claude Code HTTP hooks (Stop, Notification, PermissionRequest)
+///   POST /api/hooks/claude  - Claude Code via `taskhub hook claude` (Stop, Notification), HTTP entries from before 3.1 and the plugin
 ///   POST /api/hooks/codex   - Codex hooks via `taskhub hook codex` (Stop, PermissionRequest) and the legacy
 ///                             `notify` payload ({"type": "agent-turn-complete", "last-assistant-message": ...})
 /// Each becomes an informational toast (a click only dismisses it). Always answers {} so the agent never
@@ -30,6 +30,44 @@ static class AgentHooks
         }
     }
 
+    // ------------------------------------------------------------ the agent said it itself
+    // An agent that has just notified or finished a task through MCP would get "response ready" on top of it when its turn ends.
+    // A session is not known on the MCP side, so: the same agent and project folder, once, within this time. Two sessions in
+    // one folder can cost one "response ready"; a session that moved to a subfolder gets both. Only Stop is ever held back.
+    static readonly TimeSpan SpokeFor = TimeSpan.FromSeconds(30);
+    static readonly Dictionary<string, DateTime> spoke = new();
+
+    /// <summary>One folder, one key: GetFullPath expands an 8.3 name (the MCP server reports the long one, an agent what it was started with).</summary>
+    static string SpokeKey(string agent, string cwd)
+    {
+        var path = cwd.Trim();
+        // not for a path on another machine: GetFullPath asks the file system about a name with `~`, which would connect there (measured: 42 s on an address that doesn't answer)
+        if (!path.StartsWith(@"\\") && !path.StartsWith("//") && !path.StartsWith(@"\/") && !path.StartsWith(@"/\"))
+        try { path = Path.GetFullPath(path); } catch (Exception e) when (e is ArgumentException or IOException or NotSupportedException or System.Security.SecurityException) { }
+        return agent + "|" + path.TrimEnd('\\', '/').ToLowerInvariant();
+    }
+
+    /// <summary>A notification or a finished task from TaskHub's MCP server: "source" is the agent, "agent_cwd" the folder it runs in.</summary>
+    public static void AgentSpoke(JsonObject b)
+    {
+        var agent = J.Str(b["source"]);
+        var cwd = J.Str(b["agent_cwd"]);
+        if (agent is not ("claude" or "codex") || cwd.Trim().Length == 0 || cwd.Length > 1024) return;
+        lock (spoke)
+        {
+            var now = DateTime.UtcNow;
+            foreach (var k in spoke.Where(kv => now - kv.Value > SpokeFor).Select(kv => kv.Key).ToList()) spoke.Remove(k);
+            spoke[SpokeKey(agent, cwd)] = now;
+        }
+    }
+
+    static bool JustSpoke(string agent, string cwd)
+    {
+        if (cwd.Trim().Length == 0) return false;
+        var key = SpokeKey(agent, cwd);
+        lock (spoke) return spoke.Remove(key, out var at) && DateTime.UtcNow - at <= SpokeFor;
+    }
+
     public static JsonObject Handle(Hub hub, string agent, JsonObject b)
     {
         try
@@ -44,6 +82,7 @@ static class AgentHooks
             {
                 case "Stop":
                 {
+                    if (JustSpoke(agent, J.Str(b["cwd"]))) { Log.D("agents", name + " Stop: no toast, the agent has just notified from this folder"); break; }
                     var last = Plain(J.Str(b["last_assistant_message"] ?? b["last-assistant-message"]));
                     Toast(hub, title + " — " + L.T("agent_done"), last.Length > 0 ? J.Cut(last, 200) : L.T("agent_done"), "info");
                     break;
@@ -64,7 +103,7 @@ static class AgentHooks
                 }
             }
         }
-        catch (Exception e) { Log.W(agent + " hook: " + e.Message); }
+        catch (Exception e) { Log.W("agents", agent + " hook: " + e.Message); }
         return new JsonObject();
     }
 

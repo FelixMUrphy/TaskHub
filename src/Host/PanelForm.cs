@@ -10,10 +10,15 @@ namespace TaskHub;
 /// The panel: a frameless, top-most WebView2 window docked to the right edge of the work area of the monitor with the
 /// tray / cursor, full height, like the Windows 11 notification center. Slides in from the right; width is changed by
 /// dragging its left edge (config panel_width); hides on focus loss (unless pinned), Esc, or tray click.
+/// While settings are open the same window (one page, one WebView2) reaches further left: the panel keeps its place and width,
+/// the settings part lies over whatever is there and reserves nothing (the AppBar strip stays the panel's own width). The WebView2 is
+/// always as wide as both, its left part cut off by the window while settings are closed: resizing it would show its last frame,
+/// cut in the wrong place, until it had drawn a new one (measured: the whole panel in the settings' colours for a frame).
 /// Acrylic blur of the windows behind a transparent WebView2; the page sets its background alpha (panel_transparency). Light / dark theme and accent colour follow Windows unless set in the panel.
 /// </summary>
 sealed class PanelForm : Form
 {
+    int uiErrors;
     readonly Settings S;
     readonly Hub hub;
     WebView2 web;                        // replaced when the WebView2 browser process dies (Recreate)
@@ -23,6 +28,12 @@ sealed class PanelForm : Form
     const int Grip = 6;                  // resize edge (px at 96 dpi)
     const int MinWidth = 320, MaxWidth = 960;
     const double SlideMs = 180;
+    const int SettingsDip = 560, SettingsMinDip = 360;
+    bool settingsWanted;                 // what the page asked for
+    bool settingsSliding;                // the window's left edge moves, the panel stays where it is
+    int settingsExtra;                   // px the window reaches left of the panel's strip (0 = settings closed)
+    int settingsW;                       // px of the settings part: more than settingsExtra if it has to overlap the panel
+    int webExtra;                        // px the WebView2 reaches left of the panel's strip, settings open or not
     bool ready;
     string pendingTask;
     bool allowClose;
@@ -70,9 +81,9 @@ sealed class PanelForm : Form
             // Transparency effects switched in Settings -> Personalization -> Colors (fires on a worker thread)
             uiSettings.AdvancedEffectsEnabledChanged += (_, _) => { if (IsHandleCreated) BeginInvoke(ApplyLook); };
         }
-        catch (Exception e) { Log.W("UISettings unavailable: " + e.Message); }
+        catch (Exception e) { Log.W("panel", "UISettings unavailable: " + e.Message); }
         try { Windows.System.Power.PowerManager.EnergySaverStatusChanged += (_, _) => { if (IsHandleCreated) BeginInvoke(ApplyLook); }; }
-        catch (Exception e) { Log.W("energy saver status unavailable: " + e.Message); }
+        catch (Exception e) { Log.W("panel", "energy saver status unavailable: " + e.Message); }
     }
 
     protected override CreateParams CreateParams
@@ -216,7 +227,7 @@ sealed class PanelForm : Form
     /// `width` in physical px: the current panel width by default.</summary>
     void UpdateBar(int width = 0)
     {
-        if (bar == null) return;
+        if (bar == null || settingsSliding) return;   // called again when that slide ends
         try
         {
             bool push = S.Bool("panel_push_windows", false), pushNow = push && !lastPush;
@@ -229,15 +240,15 @@ sealed class PanelForm : Form
                 TopMost = S.Bool("panel_topmost", true);
                 return;
             }
-            var r = bar.Reserve(width > 0 ? width : target.Width > 0 ? target.Width : Width, push, pushNow);
+            var r = bar.Reserve(width > 0 ? width : (target.Width > 0 ? target.Width : Width) - settingsExtra, push, pushNow);
             if (push) _ = SettleLater();
             if (r.Width <= 0 || r.Height <= 0) return;
-            target = r;
-            shownPx = r.Width;
-            if (Bounds != r) Native.SetWindowPos(Handle, IntPtr.Zero, r.X, r.Y, r.Width, r.Height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
-            web.Dock = DockStyle.Fill;
+            target = WithSettings(r);
+            shownPx = target.Width;
+            if (Bounds != target) Native.SetWindowPos(Handle, IntPtr.Zero, target.X, target.Y, target.Width, target.Height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+            FitWeb();
         }
-        catch (Exception e) { Log.W("appbar: " + e.Message); }
+        catch (Exception e) { Log.W("panel", "appbar: " + e.Message); }
     }
 
     protected override void WndProc(ref Message m)
@@ -278,6 +289,10 @@ sealed class PanelForm : Form
             case WM_DISPLAYCHANGE:   // monitors added / removed / resolution: re-place on the monitor we're on
                 base.WndProc(ref m);
                 if (bar?.Registered == true) BeginInvoke(() => UpdateBar(Px(Math.Clamp(S.Int("panel_width", 480), MinWidth, MaxWidth))));
+                else BeginInvoke(() =>   // unpinned and open: only if it no longer fits where it is
+                {
+                    if (Visible && !hiding && !sliding && !animating && !Screen.FromHandle(Handle).WorkingArea.Contains(Bounds)) { Place(); ShowFull(); }
+                });
                 return;
             case Native.WM_NCCALCSIZE when m.WParam != IntPtr.Zero:
                 m.Result = IntPtr.Zero;    // client area = whole window -> no visible frame / caption
@@ -297,7 +312,7 @@ sealed class PanelForm : Form
             {
                 long lp = (long)m.LParam;
                 var p = PointToClient(new Point((short)(lp & 0xFFFF), (short)((lp >> 16) & 0xFFFF)));
-                m.Result = (IntPtr)(p.X < Px(Grip) ? Native.HTLEFT : Native.HTCLIENT);   // only the left edge resizes
+                m.Result = (IntPtr)(settingsExtra == 0 && p.X < Px(Grip) ? Native.HTLEFT : Native.HTCLIENT);   // only the panel's left edge resizes, with settings closed
                 return;
             }
             case Native.WM_GETMINMAXINFO:
@@ -307,7 +322,7 @@ sealed class PanelForm : Form
                     var mmi = System.Runtime.InteropServices.Marshal.PtrToStructure<Native.MINMAXINFO>(m.LParam);
                     // while sliding the window is as narrow as 1 px (the system minimum of ~20 px would reach past the edge)
                     mmi.ptMinTrackSize = new Point(sliding ? 1 : Px(MinWidth), target.Height);
-                    mmi.ptMaxTrackSize = new Point(sliding ? target.Width : MaxPx(), target.Height);
+                    mmi.ptMaxTrackSize = new Point(sliding ? target.Width : Math.Max(MaxPx(), target.Width), target.Height);
                     System.Runtime.InteropServices.Marshal.StructureToPtr(mmi, m.LParam, false);
                 }
                 return;
@@ -351,7 +366,20 @@ sealed class PanelForm : Form
 
     const int WM_ACTIVATE = 0x06, WM_WINDOWPOSCHANGED = 0x47, WM_DISPLAYCHANGE = 0x7E;
 
-    WebView2 NewWeb() => new() { Dock = DockStyle.Fill, DefaultBackgroundColor = BackColor };   // undocked (fixed size) while sliding
+    WebView2 NewWeb() => new() { DefaultBackgroundColor = BackColor };   // placed by FitWeb, by hand: wider than the window
+
+    /// <summary>The WebView2 for the window as it is: the panel's part flush right, the settings' part left of it, inside the window or not.</summary>
+    void FitWeb()
+    {
+        var c = ClientSize;
+        web.SetBounds(settingsExtra - webExtra, 0, c.Width - settingsExtra + webExtra, c.Height);
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        if (!sliding) FitWeb();   // also while the panel's edge is dragged
+    }
 
     /// <summary>The installed WebView2 Runtime's version, null if there is none (Windows 10 doesn't always have it).</summary>
     public static string RuntimeVersion()
@@ -369,7 +397,7 @@ sealed class PanelForm : Form
         if (RuntimeVersion() == null)
         {
             RuntimeMissing = true;
-            Log.W("WebView2 Runtime not installed: the panel can't open");
+            Log.E("panel", "WebView2 Runtime not installed: the panel can't open");
             return false;
         }
         RuntimeMissing = false;
@@ -401,20 +429,27 @@ sealed class PanelForm : Form
             {
                 e.Cancel = true;
                 cancelledNavs.Add(e.NavigationId);
-                Log.W("panel: navigation away cancelled");
+                Log.I("panel", "navigation away cancelled");
                 SafeOpen(e.Uri, false);
                 return;
             }
             ready = false; lookSent = null;
+            settingsWanted = false;   // a new page has settings closed: the window follows when it has loaded
         };
         cw.FrameNavigationStarting += (_, e) => { e.Cancel = true; };
         cw.NavigationCompleted += (_, e) =>
         {
             if (cancelledNavs.Remove(e.NavigationId)) return;   // a navigation cancelled above: the page stays as it was
             ready = e.IsSuccess;
-            if (!e.IsSuccess) { Log.W("panel navigation failed: " + e.WebErrorStatus); ReloadSoon(); return; }
+            if (!e.IsSuccess) { Log.W("panel", "panel navigation failed: " + e.WebErrorStatus); ReloadSoon(); return; }
             ApplyLook();
             if (PanelVisible) PostShown(true);
+            // a new page knows nothing yet about the room left for settings
+            if (Visible) WithSettings(new Rectangle(target.X + settingsExtra, target.Y, target.Width - settingsExtra, target.Height));
+            else ComputeTarget();
+            if (!sliding) FitWeb();
+            PostSettingsSize();
+            _ = SyncSettings();
             if (pendingTask != null) { hub.SetFocus(pendingTask); pendingTask = null; }
         };
         cw.ProcessFailed += (_, e) => OnProcessFailed(e.ProcessFailedKind);
@@ -426,7 +461,7 @@ sealed class PanelForm : Form
     /// (renderer) that died or hangs is reloaded; GPU / utility processes come back by themselves.</summary>
     void OnProcessFailed(CoreWebView2ProcessFailedKind kind)
     {
-        Log.W("webview process failed: " + kind);
+        Log.E("panel", "webview process failed: " + kind);
         switch (kind)
         {
             case CoreWebView2ProcessFailedKind.BrowserProcessExited:
@@ -454,18 +489,18 @@ sealed class PanelForm : Form
                 painted?.TrySetResult(false);
                 var old = web;
                 web = NewWeb();
-                if (old.Dock == DockStyle.None) { web.Dock = DockStyle.None; web.Bounds = old.Bounds; }   // mid-slide
+                web.Bounds = old.Bounds;
                 Controls.Add(web);
                 Controls.Remove(old);
-                try { old.Dispose(); } catch (Exception e) { Log.W("old webview: " + e.Message); }
+                try { old.Dispose(); } catch (Exception e) { Log.W("panel", "old webview: " + e.Message); }
                 await Task.Delay(1000 * i);
                 try
                 {
                     await InitAsync();
-                    if (web.CoreWebView2 != null) { Log.W("panel: WebView2 re-created"); return; }
+                    if (web.CoreWebView2 != null) { Log.I("panel", "WebView2 re-created"); return; }
                     if (RuntimeMissing) return;
                 }
-                catch (Exception e) { Log.W($"panel re-create ({i}): " + e.Message); }
+                catch (Exception e) { Log.W("panel", $"panel re-create ({i}): " + e.Message); }
             }
         }
         finally { recreating = false; }
@@ -475,7 +510,7 @@ sealed class PanelForm : Form
     async Task RetryInit(string task)
     {
         try { await InitAsync(); }
-        catch (Exception e) { Log.W("panel unavailable: " + e.Message); }
+        catch (Exception e) { Log.E("panel", "panel unavailable: " + e.Message); }
         if (web.CoreWebView2 != null) { ShowPanel(task); return; }
         if (RuntimeMissing) AskRuntime();
     }
@@ -490,7 +525,7 @@ sealed class PanelForm : Form
             if (SetupForm.Ask(S, L.T("webview2_missing"), L.T("webview2_download"), L.T("setup_close")) == true)
                 Hub.OpenTarget(RuntimeUrl);
         }
-        catch (Exception e) { Log.W("runtime question: " + e.Message); }
+        catch (Exception e) { Log.W("panel", "runtime question: " + e.Message); }
         finally { asking = false; }
     }
 
@@ -518,22 +553,22 @@ sealed class PanelForm : Form
     {
         try
         {
-            if (!Hub.LinkOk(url, out var u)) { Log.W("refused to open " + J.Cut(url ?? "", 200)); return; }
+            if (!Hub.LinkOk(url, out var u)) { Log.W("panel", "refused to open " + (Uri.TryCreate(url, UriKind.Absolute, out var refused) ? refused.Scheme + "://" + refused.Host : "a malformed address")); return; }
             if (!u.IsFile)
             {
                 Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true })?.Dispose();
                 return;
             }
-            if (!local) { Log.W("refused to open a local path from a page"); return; }
+            if (!local) { Log.W("panel", "refused to open a local path from a page"); return; }
             var path = u.LocalPath;
             if (Directory.Exists(path))
                 Process.Start(new ProcessStartInfo(Explorer, "\"" + Path.TrimEndingDirectorySeparator(path) + "\"")
                     { UseShellExecute = false })?.Dispose();
             else if (File.Exists(path))
                 Process.Start(new ProcessStartInfo(Explorer, "/select,\"" + path + "\"") { UseShellExecute = false })?.Dispose();
-            else Log.W("open: path not found");
+            else Log.W("panel", "open: path not found");
         }
-        catch (Exception e) { Log.W("open failed: " + e.Message); }
+        catch (Exception e) { Log.W("panel", "open failed: " + e.Message); }
     }
 
     public SettingsBridge SettingsPage;
@@ -572,7 +607,7 @@ sealed class PanelForm : Form
         // every message only from our own page (navigation elsewhere is cancelled, but be sure)
         string src;
         try { src = e.Source; } catch { src = null; }
-        if (!IsPanelUrl(src)) { Log.W("panel: message from another page ignored"); return; }
+        if (!IsPanelUrl(src)) { Log.W("panel", "message from another page ignored"); return; }
         string msg;
         try { msg = e.TryGetWebMessageAsString(); } catch { msg = null; }
         if (msg == null)
@@ -580,7 +615,9 @@ sealed class PanelForm : Form
             try
             {
                 var o = J.Parse(e.WebMessageAsJson) as JsonObject;
+                if (o?["ui_error"] != null && ++uiErrors <= 50) Log.E("ui", J.Cut(J.Str(o["ui_error"]), 1000));   // a recurring error must not rotate the rest away
                 if (o?["open"] != null) SafeOpen(J.Str(o["open"]), true);
+                if (o?["settings_window"] != null) { settingsWanted = J.Str(o["settings_window"]) == "open"; _ = SyncSettings(); }
                 if (o?["settings"] != null && SettingsPage != null)
                     _ = ReplySettings(o);
                 if (o?["control"] is JsonObject ctl) _ = PanelControl(ctl);
@@ -591,6 +628,7 @@ sealed class PanelForm : Form
         switch (msg)
         {
             case "resize":   // the page's left-edge grip
+                if (settingsExtra > 0) break;
                 Native.ReleaseCapture();
                 Native.SendMessage(Handle, Native.WM_NCLBUTTONDOWN, (IntPtr)Native.HTLEFT, IntPtr.Zero);
                 break;
@@ -639,7 +677,82 @@ sealed class PanelForm : Form
         int dip = Math.Clamp(S.Int("panel_width", 480), MinWidth, MaxWidth);
         int w = Math.Min((int)Math.Round(dip * scale), wa.Width * 7 / 10);
         w = Math.Max(Math.Min((int)Math.Round(MinWidth * scale), wa.Width), w);
-        return new Rectangle(wa.Right - w, wa.Top, w, wa.Height);
+        return WithSettings(new Rectangle(wa.Right - w, wa.Top, w, wa.Height));
+    }
+
+    // ------------------------------------------------------------ settings: the same window, reaching further left
+    /// <summary>The window for the panel's strip: the strip itself, or with settings open also the room left of it. The room is
+    /// recounted (the monitor or its DPI may have changed), and the page told when it changes. Less than the settings' width free:
+    /// as much as there is, and below the minimum the settings part overlaps the panel.</summary>
+    Rectangle WithSettings(Rectangle strip)
+    {
+        var (extra, w) = SettingsSize(strip);
+        if (extra != webExtra || w != settingsW) { webExtra = extra; settingsW = w; PostSettingsSize(); }
+        if (settingsExtra == 0) return strip;
+        settingsExtra = extra;
+        return new Rectangle(strip.X - extra, strip.Y, strip.Width + extra, strip.Height);
+    }
+
+    (int extra, int w) SettingsSize(Rectangle strip)
+    {
+        var wa = Screen.FromRectangle(strip).WorkingArea;
+        int extra = Math.Clamp(Px(SettingsDip), 1, Math.Max(1, strip.Left - wa.Left));
+        return (extra, Math.Max(extra, Math.Min(Px(SettingsMinDip), extra + strip.Width)));
+    }
+
+    void PostSettingsSize()
+    {
+        if (!ready) return;
+        try { web.CoreWebView2?.PostWebMessageAsJson(new JsonObject { ["settings_size"] = new JsonObject { ["set"] = settingsW, ["room"] = webExtra, ["over"] = settingsW > webExtra } }.ToJsonString()); } catch { }
+    }
+
+    void PostSettingsGone()
+    {
+        if (!ready) return;
+        try { web.CoreWebView2?.PostWebMessageAsJson("{\"settings_gone\":1}"); } catch { }
+    }
+
+    /// <summary>Brings the window to what the page asked for (UI thread). Waits for a running slide: each slide calls it again at
+    /// its end. The window's left edge moves one step per frame while the WebView2 stays where it is on the screen, so nothing
+    /// on the page lays out again.</summary>
+    async Task SyncSettings()
+    {
+        try
+        {
+            if (!Visible || hiding || sliding || animating) return;
+            if (settingsWanted == (settingsExtra > 0))
+            {
+                if (settingsWanted) PostSettingsSize(); else PostSettingsGone();   // said again: closed and reopened mid-slide, the page ignored the first
+                return;
+            }
+            if (settingsExtra == 0 && bar?.Registered != true) target = Bounds;   // where it really is: the work area may have changed since it was placed
+            var strip = new Rectangle(target.X + settingsExtra, target.Y, target.Width - settingsExtra, target.Height);
+            if (settingsWanted)
+            {
+                WithSettings(strip);
+                FitWeb();
+                PostSettingsSize();
+                settingsExtra = webExtra;
+                target = new Rectangle(strip.X - settingsExtra, strip.Y, strip.Width + settingsExtra, strip.Height);
+                sliding = settingsSliding = true;
+                shownPx = slideW = strip.Width;
+                await WaitPainted();
+                if (!settingsSliding) return;   // the panel is being hidden
+                if (!await Slide(true)) return;
+            }
+            else
+            {
+                sliding = settingsSliding = true;
+                shownPx = slideW = target.Width;
+                if (!await Slide(false, strip.Width)) return;
+            }
+            settingsSliding = false;
+            if (!settingsWanted) { settingsExtra = settingsW = 0; target = strip; }
+            ShowFull();
+            UpdateBar();
+            _ = SyncSettings();   // what the page wants now: it may have changed its mind meanwhile
+        }
+        catch (Exception e) { Log.W("panel", "settings window: " + e.Message); }
     }
 
     void Place()
@@ -650,7 +763,7 @@ sealed class PanelForm : Form
 
     void SaveWidth()
     {
-        if (animating || !Visible) return;
+        if (animating || !Visible || settingsExtra > 0) return;
         if (bar?.Registered == true)
         {
             int d = Math.Clamp((int)Math.Round(Width * 96.0 / DeviceDpi), MinWidth, MaxWidth);
@@ -660,17 +773,28 @@ sealed class PanelForm : Form
         }
         var wa = Screen.FromControl(this).WorkingArea;
         int dip = Math.Clamp((int)Math.Round(Width * 96.0 / DeviceDpi), MinWidth, MaxWidth);
-        target = new Rectangle(wa.Right - Width, wa.Top, Width, wa.Height);
+        target = WithSettings(new Rectangle(wa.Right - Width, wa.Top, Width, wa.Height));
+        FitWeb();
         shownPx = Width;
         if (S.Int("panel_width", 480) != dip) S.Set(("panel_width", dip));
         if (Bounds != target) Native.SetWindowPos(Handle, IntPtr.Zero, target.X, target.Y, target.Width, target.Height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
     }
 
     // ------------------------------------------------------------ slide animation
+    /// <summary>Off also on battery: Windows doesn't promise that a window and a WebView2 inside it move in the same frame, and on battery the
+    /// frames are visibly apart (the settings' text over the panel, text on the next monitor, a jerk). Asked at each slide: the charger comes and goes.</summary>
     static bool AnimationsOn()
     {
+        if (OnBattery()) return false;
         try { return Native.SystemParametersInfo(Native.SPI_GETCLIENTAREAANIMATION, 0, out var on, 0) ? on : true; }
         catch { return true; }
+    }
+
+    static bool OnBattery()
+    {
+        if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 } && Environment.GetEnvironmentVariable("TASKHUB_TEST_POWER") is { Length: > 0 } test)
+            return test == "battery";
+        return SystemInformation.PowerStatus.PowerLineStatus == PowerLineStatus.Offline;   // Unknown: as plugged in
     }
 
     /// <summary>Slides the panel in from / out to the right edge of its work area, one step per DWM frame. The window grows
@@ -678,11 +802,11 @@ sealed class PanelForm : Form
     /// content moves with the edge without re-layout, and the blur behind (which ignores window regions) matches the
     /// visible part exactly - nothing shows on a monitor to the right. The wait for the frame runs off the UI thread,
     /// so the form and WebView2 keep painting. False if a newer slide took over.</summary>
-    async Task<bool> Slide(bool show)
+    async Task<bool> Slide(bool show, int stopAt = 0)
     {
         int gen = ++animGen;
-        int w = target.Width, from = shownPx, to = show ? w : 0;
-        double ms = SlideMs * Math.Abs(to - from) / Math.Max(1, w);
+        int w = target.Width, from = shownPx, to = show ? w : stopAt;
+        double ms = AnimationsOn() ? SlideMs * Math.Abs(to - from) / Math.Max(1, w) : 0;   // 0: one step, in the same order
         animating = true;
         try
         {
@@ -705,7 +829,12 @@ sealed class PanelForm : Form
     {
         shownPx = Math.Clamp(px, 0, target.Width);
         int w = slideW = Math.Max(1, shownPx);
+        // settings: anchored right, the panel stays still and the edge uncovers them. Two calls, and a frame can come between them: in
+        // the order that shifts the page left in that frame, as the other way the settings' text would land on the panel.
+        bool closing = settingsSliding && w < Width;
+        if (closing) web.Left = w - web.Width;
         Native.SetWindowPos(Handle, IntPtr.Zero, target.Right - w, target.Y, w, target.Height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+        if (settingsSliding && !closing) web.Left = w - web.Width;
     }
 
     /// <summary>Fully shown at the target; the WebView2 follows the window size again.</summary>
@@ -714,15 +843,11 @@ sealed class PanelForm : Form
         sliding = false;
         shownPx = target.Width;
         Native.SetWindowPos(Handle, IntPtr.Zero, target.X, target.Y, target.Width, target.Height, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
-        web.Dock = DockStyle.Fill;
+        FitWeb();
     }
 
-    /// <summary>The WebView2 keeps the full panel width while the window is narrower (slide).</summary>
-    void PinWebSize()
-    {
-        web.Dock = DockStyle.None;
-        web.SetBounds(0, 0, target.Width, target.Height);
-    }
+    /// <summary>The WebView2 keeps its full size while the window is narrower (slide).</summary>
+    void PinWebSize() => web.SetBounds(settingsExtra - webExtra, 0, target.Width - settingsExtra + webExtra, target.Height);
 
     /// <summary>Until the page has drawn a frame (or 150 ms): the slide then shows content, not an empty window.</summary>
     async Task WaitPainted()
@@ -740,6 +865,7 @@ sealed class PanelForm : Form
 
     public void ShowPanel(string task)
     {
+        Log.D("panel", $"show{(task != null ? " for a task" : "")}: visible={Visible} pinned={Pinned} dpi={DeviceDpi} bounds={Bounds} screen={Screen.FromControl(this).WorkingArea}");
         // WebView2 isn't running (runtime missing, start failed, being re-created): nothing to slide in yet
         if (web.CoreWebView2 == null && initTried && !initRunning && !recreating) { _ = RetryInit(task); return; }
         if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
@@ -765,12 +891,10 @@ sealed class PanelForm : Form
     async Task SlideIn()
     {
         hiding = false;
-        bool anim = AnimationsOn();
         if (!Visible)
         {
             ApplyLook();
             target = ComputeTarget();
-            if (!anim) { Show(); animGen++; animating = false; ShowFull(); UpdateBar(); return; }
             sliding = true;
             PinWebSize();
             SetShown(0);
@@ -778,14 +902,14 @@ sealed class PanelForm : Form
             await WaitPainted();
             if (!sliding) return;    // hidden meanwhile
         }
-        if (!anim) { animGen++; animating = false; ShowFull(); UpdateBar(); return; }
         sliding = true;
-        if (await Slide(true)) { ShowFull(); UpdateBar(); }
+        if (await Slide(true)) { ShowFull(); UpdateBar(); _ = SyncSettings(); }
     }
 
     public void HidePanel(bool auto)
     {
         if (!Visible || hiding) return;
+        Log.D("panel", auto ? "hide: lost focus" : "hide: asked");
         if (auto) LastAutoHide = DateTime.UtcNow;
         if (WindowState == FormWindowState.Minimized || !AnimationsOn()) { HideNow(); return; }
         _ = SlideOut();
@@ -794,6 +918,7 @@ sealed class PanelForm : Form
     async Task SlideOut()
     {
         hiding = true;
+        settingsSliding = false;   // from here all of it moves together
         if (!sliding)
         {
             target = Bounds;
@@ -808,6 +933,8 @@ sealed class PanelForm : Form
     {
         hiding = false;
         sliding = false;
+        settingsSliding = settingsWanted = false;   // settings don't come back by themselves
+        settingsExtra = settingsW = 0;
         animGen++;
         animating = false;
         bar?.Remove(!Pinned);
@@ -815,6 +942,7 @@ sealed class PanelForm : Form
         Hide();
         shownPx = 0;
         PostShown(false);   // also: nothing stays open in a hidden panel (settings popover etc.)
+        PostSettingsGone();
     }
 
     public void Toggle()
@@ -847,7 +975,12 @@ sealed class PanelForm : Form
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (e.KeyCode == Keys.Escape) HidePanel(false);
+        if (e.KeyCode == Keys.Escape)
+        {
+            // the page decides about settings (pinned: only their close button); the keys usually go to it anyway
+            if (settingsWanted) { if (!Pinned) try { web.CoreWebView2?.PostWebMessageAsJson("{\"close_settings\":1}"); } catch { } }
+            else HidePanel(false);
+        }
         base.OnKeyDown(e);
     }
 

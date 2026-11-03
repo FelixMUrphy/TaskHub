@@ -98,7 +98,7 @@ sealed partial class Hub
             Prune();
             Bump();
         }
-        Log.W($"register {tid} '{name}' pid={pid}");
+        Log.I("hub", $"register {Log.Id(tid)} pid={pid}"); Log.D("hub", $"task {Log.Id(tid)} = {tid}: '{name}'");
         if (J.Truthy(notify["start"]))
             ToastFor(t, "▶ " + name, J.Truthy(t["description"]) ? J.Str(t["description"]) : L.T("started"));
         if (progressToast && !Muted && S.Bool("toasts", true)) lock (Lock) Notifier?.Progress(ToastSnap(t));
@@ -258,6 +258,15 @@ sealed partial class Hub
 
     public JsonObject Finish(string tid, JsonObject b) => Finish(tid, b, null);
 
+    /// <summary>Finishes without its own notification, for a mass action whose caller sends one summary instead.
+    /// Internal only: the HTTP API has no way to ask for it.</summary>
+    public JsonObject FinishQuietly(string tid, JsonObject b)
+    {
+        lock (Lock)
+            if (Get(tid)["notify"] is JsonObject n) { n["finish"] = false; n["fail"] = false; }
+        return Finish(tid, b, null);
+    }
+
     /// <param name="onlyGen">watchdog: finish only if the task is still active and still the same registration
     /// (its Internal) - not one finished or re-registered with the same id meanwhile. Returns null if skipped.</param>
     JsonObject Finish(string tid, JsonObject b, Internal onlyGen)
@@ -306,8 +315,11 @@ sealed partial class Hub
             if (state == "done") ToastFor(t, "✅ " + name, (msg.Length > 0 ? msg : L.T("done")) + "  ·  " + dur, "info", "finish");
             else if (state == "cancelled") ToastFor(t, "⏹ " + name, (msg.Length > 0 ? msg : L.T("cancelled")) + "  ·  " + dur, "warn", "finish");
             else ToastFor(t, "❌ " + name, (msg.Length > 0 ? msg : state) + "  ·  " + dur, "error", "fail");
+            // a task that says nothing when it ends has told the user nothing: the agent's Stop still counts
+            var said = state is "done" or "cancelled" ? "finish" : "fail";
+            if (t["notify"] is not JsonObject told || !told.ContainsKey(said) || J.Truthy(told[said])) AgentHooks.AgentSpoke(b);
         }
-        Log.W($"finish {tid} {state}");
+        Log.I("hub", $"finish {Log.Id(tid)} {state}");
         return new JsonObject { ["ok"] = true };
     }
 

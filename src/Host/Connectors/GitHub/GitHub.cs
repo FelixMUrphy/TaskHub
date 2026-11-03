@@ -37,6 +37,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         public long Id; public string Repo; public int Attempt; public long WorkflowId;
         public string RunEtag, JobsEtag; public JsonObject Json; public JsonArray Jobs;
         public double NextPoll; public int AwaitAttempt; public double AwaitUntil;
+        public double? Usual;   // usual duration of the workflow, s
     }
     sealed class RepoState { public string Etag; public double NextPoll; public bool Baseline = true; public string Status = ""; }
     readonly Dictionary<long, Run> active = new();                 // runs being followed
@@ -155,7 +156,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         Resp r = null;
         try { r = Call(HttpMethod.Get, "/user", null, token, CancellationToken.None).GetAwaiter().GetResult(); }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException)
-        { Log.W("github: token not checked: " + e.GetBaseException().Message); }
+        { Log.W("github", "token not checked: " + e.GetBaseException().Message); }
         if (r?.Code == 401) throw new ApiError(400, "GitHub rejected the token");
         try { Secrets.Write(S, Id, token); }
         catch (Exception e) { throw new ApiError(500, "the token was not saved: " + e.Message); }
@@ -183,7 +184,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         string[] rs;
         lock (gate) rs = c.Repos.ToArray();
         var rst = new JsonObject();
-        lock (gate) foreach (var r in rs) rst[r] = repos.TryGetValue(r, out var x) ? x.Status : "";
+        lock (gate) foreach (var r in rs) rst[r] = repos.TryGetValue(r, out var x) ? RepoStatusText(x.Status) : "";
         return new JsonObject
         {
             ["enabled"] = c.Enabled, ["repos"] = J.StrArray(c.Repos), ["interval"] = c.Interval,
@@ -281,7 +282,7 @@ sealed partial class GitHubConnector : ISettingsConnector
     bool TokenSet()
     {
         try { return Secrets.Read(S, Id) is { Length: > 0 }; }
-        catch (Exception e) { Log.W("github: token not read: " + e.Message); return false; }
+        catch (Exception e) { Log.W("github", "token not read: " + e.Message); return false; }
     }
 
     // ------------------------------------------------------------ lifecycle
@@ -318,7 +319,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             catch (Exception e)
             {
                 status = "offline: " + e.GetBaseException().Message;
-                Log.W("github: " + e.GetBaseException().Message);
+                Log.W("github", e.GetBaseException().Message);
                 try { await Task.Delay(15000, ct); } catch { return; }
             }
             try { await Task.Delay(1000, ct); } catch { return; }
@@ -390,7 +391,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         login = null;
         gcmToken = null;
         pausedUntil = J.Now() + 300;
-        Log.W("github: token rejected (" + c.Auth + ")");
+        Log.W("github", "token rejected (" + c.Auth + ")");
     }
 
     // ------------------------------------------------------------ token
@@ -449,7 +450,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             if (!p.WaitForExit(15000)) { try { p.Kill(true); } catch { } return ""; }
             return p.ExitCode == 0 ? outp.Result : "";
         }
-        catch (Exception e) { Log.W("github: git " + args.Split(' ')[0] + ": " + e.Message); }
+        catch (Exception e) { Log.W("github", "git " + args.Split(' ')[0] + ": " + e.Message); }
         return "";
     }
 
@@ -466,6 +467,20 @@ sealed partial class GitHubConnector : ISettingsConnector
         });
     }
 
+    // A repository's state is kept as a code and put into words when read: the language can change, and a 304 keeps the state for hours.
+    // GitHub's 404 doesn't tell a wrong name from a repository the token wasn't given or a missing permission (its docs name all three),
+    // so the words name all three. https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api
+    const string StatusNotFound = "not_found", StatusNoActions = "no_actions", StatusMoved = "moved", StatusMovedTo = "moved:";
+
+    static string RepoStatusText(string status) => status switch
+    {
+        StatusNotFound => L.T("gh_repo_not_found"),
+        StatusNoActions => L.T("gh_repo_no_actions"),
+        StatusMoved => L.T("gh_repo_moved"),
+        _ when status.StartsWith(StatusMovedTo) => L.T("gh_repo_moved_to", status[StatusMovedTo.Length..]),
+        _ => status,
+    };
+
     // ------------------------------------------------------------ runs
     async Task PollRepo(string repo, RepoState rs, string token, Conf c, CancellationToken ct)
     {
@@ -473,7 +488,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         if (r.Code == 304) return;
         if (r.Limited) return;   // paused; the status says until when
         if (r.Code == 401) { Rejected(c); return; }
-        if (r.Code is 403 or 404) { rs.Status = r.Code == 404 ? "not found or no access" : "no access (Actions: read)"; return; }
+        if (r.Code is 403 or 404) { rs.Status = r.Code == 404 ? StatusNotFound : StatusNoActions; return; }
         if (r.Code != 200) { rs.Status = $"HTTP {r.Code}"; return; }
         rs.Etag = r.ETag;
         var page = (r.Body?["workflow_runs"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().ToList();
@@ -481,7 +496,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         if (r.Redirected)
         {
             var moved = J.Str(page.FirstOrDefault()?["repository"]?["full_name"]);
-            rs.Status = moved.Length > 0 && !moved.Equals(repo, StringComparison.OrdinalIgnoreCase) ? "repository moved to " + moved : "repository moved";
+            rs.Status = moved.Length > 0 && !moved.Equals(repo, StringComparison.OrdinalIgnoreCase) ? StatusMovedTo + moved : StatusMoved;
         }
         else rs.Status = "ok";
         // more new runs than one page (a burst of pushes): the next pages too, while everything on a page is new
@@ -583,6 +598,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             run.Attempt > 1 ? L.T("gh_attempt", run.Attempt) : "",
         }.Where(x => x.Length > 0));
         var exp = await Expected(run, token, ct);
+        run.Usual = exp;
         var states = new JsonArray("running", "paused", "stale");
         var b = new JsonObject
         {
@@ -615,7 +631,10 @@ sealed partial class GitHubConnector : ISettingsConnector
         Try(() => hub.Update(Tid(run.Id), Progress(run)));
     }
 
-    /// <summary>Progress by steps of all jobs (a job without steps yet counts as one), stage = the job / step running now.</summary>
+    /// <summary>Stage = the job / step running now. The bar: time against the usual duration, the same source as the ETA, because steps are
+    /// very uneven (one long test step held the bar at 7 of 19 for most of a run while the ETA ran out). Past the usual duration it
+    /// has nothing to say: no percentage, and the status says so. Without earlier runs, or waiting for an approval, steps of all jobs
+    /// (a job without steps yet counts as one).</summary>
     JsonObject Progress(Run run)
     {
         var st = J.Str(run.Json?["status"]);
@@ -640,9 +659,17 @@ sealed partial class GitHubConnector : ISettingsConnector
             }
         }
         int jd = jobs.Count(x => J.Str(x["status"]) == "completed");
-        u["progress"] = total > 0 ? Math.Min(0.99, (double)done / total) : null;
+        double? bar = total > 0 ? Math.Min(0.99, (double)done / total) : null;
+        var status = L.T("gh_jobs", jd, jobs.Count);
+        if (run.Usual is double usual && usual > 0 && J.Str(u["attention"]).Length == 0 && Ts(run.Json["run_started_at"]) is double started)
+        {
+            var part = Math.Max(0, J.Now() - started) / usual;
+            bar = part < 1 ? Math.Min(0.99, part) : null;
+            if (part >= 1) status += " · " + L.T("gh_longer");
+        }
+        u["progress"] = bar;
         u["stage"] = J.Cut(stage, 200);
-        u["status"] = L.T("gh_jobs", jd, jobs.Count);
+        u["status"] = status;
         return u;
     }
 
@@ -715,7 +742,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         {
             var r = await Call(HttpMethod.Get, $"/repos/{repo}/actions/jobs/{jobId}/logs", null, token, ct, follow: false);
             if (r.Code is not (301 or 302 or 307) || r.Location == null) return new();
-            if (!LogHostOk(r.Location)) { Log.W("github: log link to an unexpected host " + r.Location.Host); return new(); }
+            if (!LogHostOk(r.Location)) { Log.W("github", "log link to an unexpected host " + r.Location.Host); return new(); }
             using var req = new HttpRequestMessage(HttpMethod.Get, r.Location);
             using var resp = await http.Send(req, ct, HttpCompletionOption.ResponseHeadersRead);
             if (resp.StatusCode != HttpStatusCode.OK) return new();
@@ -732,7 +759,7 @@ sealed partial class GitHubConnector : ISettingsConnector
                 if (tail.Count > 30) tail.Dequeue();
             }
         }
-        catch (Exception e) when (e is not OperationCanceledException) { Log.W("github: log: " + e.Message); }
+        catch (Exception e) when (e is not OperationCanceledException) { Log.W("github", "log: " + e.Message); }
         return tail.ToList();
     }
 
@@ -886,7 +913,7 @@ sealed partial class GitHubConnector : ISettingsConnector
                 : searchLeft == 0 && searchReset > 0 ? Math.Max(searchReset, J.Now() + 10) : J.Now() + 120;
             prPausedUntil = Math.Min(until, J.Now() + 3600);
             res.Limited = true;
-            Log.W("github: search rate limit, pull requests wait until " + DateTimeOffset.FromUnixTimeSeconds((long)prPausedUntil).ToLocalTime().ToString("HH:mm:ss"));
+            Log.W("github", "search rate limit, pull requests wait until " + DateTimeOffset.FromUnixTimeSeconds((long)prPausedUntil).ToLocalTime().ToString("HH:mm:ss"));
         }
         else if ((res.Code is 403 or 429) && (rateLeft == 0 || r.Headers.RetryAfter != null || secondary))
         {
@@ -901,7 +928,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             pausedUntil = Math.Max(pausedUntil, Math.Min(until, J.Now() + 3600));
             res.Limited = true;
             status = "rate limit, waiting until " + DateTimeOffset.FromUnixTimeSeconds((long)pausedUntil).ToLocalTime().ToString("HH:mm:ss");
-            Log.W("github: " + status + (secondary ? " (secondary limit)" : ""));
+            Log.W("github", "" + status + (secondary ? " (secondary limit)" : ""));
         }
         else if (res.Code is >= 200 and < 400) secondaryWait = 0;
         return res;
@@ -913,6 +940,6 @@ sealed partial class GitHubConnector : ISettingsConnector
 
     static void Try(Action a)
     {
-        try { a(); } catch (Exception e) { Log.W("github: " + e.Message); }
+        try { a(); } catch (Exception e) { Log.W("github", e.Message); }
     }
 }

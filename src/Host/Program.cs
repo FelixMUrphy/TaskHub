@@ -30,6 +30,28 @@ static class Program
         // tests only: the update check against a local mock of the releases API, steps on stdin (Updater.SelfTest)
         if (Arg("--selftest-update") is { } mockApi && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
             return Updater.SelfTest(S, mockApi);
+        // tests only: the AWS signer against AWS's test suite and a loopback mock (SigV4.SelfTest)
+        if (Arg("--selftest-sigv4") is { } sigIn && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+            return SigV4.SelfTest(sigIn, args[Array.IndexOf(args, "--selftest-sigv4") + 2]);
+        // tests only: masking and rotation of the log (Log.SelfTest)
+        if (Arg("--selftest-log") is { } logLines && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+            return Log.SelfTest(int.Parse(logLines));
+        // tests only: which Codex program would be asked for its limits (Hub.LocateCodex)
+        if (Arg("--selftest-codex-locate") is { } locateOut && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+        {
+            File.WriteAllText(locateOut, Hub.LocateCodex() ?? "");
+            return 0;
+        }
+        // tests only: the Codex hook command for a path (Integrations.CodexCommand)
+        if (Has("--selftest-codex-command") && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+        {
+            int at = Array.IndexOf(args, "--selftest-codex-command");
+            File.WriteAllText(args[at + 1], Integrations.CodexCommand(args[at + 2]));
+            return 0;
+        }
+        // tests only: what the setup window's switches become (Integrations.SetupArgs)
+        if (Has("--selftest-setup-args") && Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+            return Integrations.SelfTestSetupArgs(S, args[(Array.IndexOf(args, "--selftest-setup-args") + 1)..]);
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
@@ -62,14 +84,20 @@ static class Program
             int rc = 0;
             var outp = new List<string>();
             foreach (var a in Integrations.All)
-                foreach (var k in Integrations.Kinds)
+                foreach (var k in Integrations.Kinds.Append(Integrations.Kind.Limits))
                 {
                     var key = Integrations.ArgName(a, k);
                     var v = args.FirstOrDefault(x => x.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase))?[(key.Length + 1)..];
-                    if (v is "on" or "off")
+                    // a running hub holds its config in memory: it would go on as before and write its value back over this one
+                    if (v is "on" or "off" && a == Integrations.Agent.Codex && k == Integrations.Kind.Limits && Running(S))
+                    {
+                        rc = 1;
+                        outp.Add($"{key}: error TaskHub is running: use Settings -> AI agents, or close it first");
+                    }
+                    else if (v is "on" or "off")
                     {
                         bool changed = false;
-                        try { changed = Integrations.Apply(a, k, v == "on", S); S.Set((Integrations.CfgKey(a, k), v == "on")); }
+                        try { changed = Integrations.Apply(a, k, v == "on", S); if (Integrations.Remembered(k)) S.Set((Integrations.CfgKey(a, k), v == "on")); }
                         catch (Exception e) { rc = 1; outp.Add($"{key}: error {e.Message}"); continue; }
                         outp.Add($"{key}: {v}{(changed ? " (changed)" : " (unchanged)")}");
                     }
@@ -106,7 +134,7 @@ static class Program
             }
             catch (Exception e)
             {
-                Log.W("register failed: " + e);
+                Log.E("app", "register failed: " + e);
                 if (Arg("--result") is { } rf) { try { File.WriteAllText(rf, "!" + e.Message); } catch { } return 1; }
                 Msg("TaskHub: install failed\n" + e.Message);
                 return 1;
@@ -121,7 +149,7 @@ static class Program
             if (answer == true)
             {
                 try { Install.RemoveExeEdition(S); }
-                catch (Exception e) { Log.W("switch to Store edition: " + e); Msg(L.T("edition_failed", e.Message)); }
+                catch (Exception e) { Log.E("app", "switch to Store edition: " + e); Msg(L.T("edition_failed", e.Message)); }
             }
             else if (answer == false)   // "keep both": don't ask again (closed without choosing = null: ask again next time)
             {
@@ -163,14 +191,14 @@ static class Program
             else
                 f.ShowOptions(Install.IsInstalled, Install.InstalledVersion,
                     () => storeTask.Result is { } sp ? L.T("setup_store_found", sp.Version.ToString(3), Settings.Version) : null,
-                    () => Go(f.Folder, f.Autostart, f.AddPath, string.Concat(f.Agents.Select(x => (x.on ? " --" : " --no-") + Integrations.ArgName(x.agent, x.kind)))));
+                    () => Go(f.Folder, f.Autostart, f.AddPath, Integrations.SetupArgs(f.Agents, S)));
             Application.Run(f);
             if (f.Result != SetupForm.Choice.Run) return rc;
         }
         else if (install)   // --install --quiet: scripted, no window (as before)
         {
             var storePkg = !Install.IsPackaged ? Install.FindStoreEdition() : null;
-            if (storePkg != null) { Log.W("setup: " + L.T("setup_store_quiet")); return 1; }
+            if (storePkg != null) { Log.W("setup", L.T("setup_store_quiet")); return 1; }
             try
             {
                 installDir ??= Install.IsInstalled ? Install.InstallDir : Install.DefaultDir;
@@ -184,7 +212,7 @@ static class Program
             }
             catch (Exception e)
             {
-                Log.W("install failed: " + e);
+                Log.E("app", "install failed: " + e);
                 Msg("TaskHub: install failed\n" + e.Message);
                 return 1;
             }
@@ -213,16 +241,17 @@ static class Program
             return 0;
         }
 
-        Log.W($"TaskHub {Settings.Version} (.NET) starting; exe={Environment.ProcessPath} data={S.DataDir} port={S.Port} args=[{string.Join(" ", args)}]");
+        Log.DropStale();
+        StartHeader(S, args);
         if (S.Bool("autostart", true)) Install.EnsureAutostart(S);
         Install.EnsurePayload();
         if (Install.IsPackaged) Install.CleanExeLeftover(S);
         if (Install.IsInstalledCopy || Install.IsPackaged) Integrations.Ensure(S);   // never from dev/test hubs
         if (Install.IsInstalledCopy) Install.RemoveStoreCliLeftover();
-        Application.ThreadException += (_, e) => Log.W("UI exception: " + e.Exception);
+        Application.ThreadException += (_, e) => Log.E("app", "UI exception: " + e.Exception);
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-        AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.W("fatal: " + e.ExceptionObject);
-        TaskScheduler.UnobservedTaskException += (_, e) => { Log.W("task exception: " + e.Exception?.GetBaseException().Message); e.SetObserved(); };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.E("app", "fatal: " + e.ExceptionObject);
+        TaskScheduler.UnobservedTaskException += (_, e) => { Log.E("app", "task exception: " + e.Exception?.GetBaseException()); e.SetObserved(); };
 
         var iconPng = S.File_("icon.png");
         try
@@ -230,7 +259,7 @@ static class Program
             using var b = TrayApp.DrawIcon(new Hub.Summary { Progress = 0.75, ActiveT = { new JsonObject() } }, 128);
             b.Save(iconPng, System.Drawing.Imaging.ImageFormat.Png);
         }
-        catch (Exception e) { Log.W("icon.png: " + e.Message); }
+        catch (Exception e) { Log.W("app", "icon.png: " + e.Message); }
 
         var hub = new Hub(S);
         var notifier = new Notifier(S) { Hub = hub };
@@ -242,11 +271,12 @@ static class Program
         connectors.Add(new GitHubConnector(S, hub));
         connectors.Add(new RunpodConnector(S, hub));
         connectors.Add(new VastAiConnector(S, hub));
+        connectors.Add(new AwsConnector(S, hub));
         var api = new Api(S, hub) { Telegram = telegram, Conns = connectors };
         try { api.Start().GetAwaiter().GetResult(); }
         catch (Exception e)
         {
-            Log.W("cannot listen: " + e);
+            Log.E("app", "cannot listen: " + e);
             Msg($"TaskHub: cannot listen on {S.Url}\n{e.GetBaseException().Message}");
             return 1;
         }
@@ -268,7 +298,7 @@ static class Program
             connectors.StopAll();
             hub.MarkDirty();
             hub.Save();
-            Log.W("exit (asked to quit)");
+            Log.I("app", "exit (asked to quit)");
             return 0;
         }
 
@@ -280,12 +310,32 @@ static class Program
         connectors.StopAll();
         hub.MarkDirty();
         hub.Save();
-        Log.W("exit");
+        Log.I("app", "exit");
         return 0;
     }
 
     /// <summary>TASKHUB_SETUP_DRYRUN=1: the setup / uninstall windows go through their steps without changing anything
     /// (for checking the windows themselves).</summary>
+    /// <summary>What a log needs to be read on another PC. Flags only: a --open-url value comes from outside.</summary>
+    static void StartHeader(Settings S, string[] args)
+    {
+        Log.I("start", $"TaskHub {Settings.VersionText} edition={Install.Edition} beta={Settings.IsBeta} pid={Environment.ProcessId}");
+        Log.I("start", $"windows={Environment.OSVersion.Version} dotnet={Environment.Version} language={L.Lang} culture={System.Globalization.CultureInfo.CurrentUICulture.Name}");
+        Log.I("start", $"port={S.Port} data={S.DataDir} exe={Environment.ProcessPath}");
+        Log.I("start", "args=" + string.Join(" ", args.Where(a => a.StartsWith("--"))));
+        try
+        {
+            foreach (var m in Screen.AllScreens)
+            {
+                var mon = Native.MonitorFromPoint(new Point(m.Bounds.Left + m.Bounds.Width / 2, m.Bounds.Top + m.Bounds.Height / 2), 2);
+                uint dpi = Native.GetDpiForMonitor(mon, 0, out var dx, out _) == 0 ? dx : 0;
+                Log.I("start", $"monitor {m.Bounds.Width}x{m.Bounds.Height} at {m.Bounds.Left},{m.Bounds.Top} dpi={dpi}{(m.Primary ? " primary" : "")}");
+            }
+        }
+        catch (Exception e) { Log.W("start", "monitors: " + e.Message); }
+        Log.I("start", "webview2=" + (PanelForm.RuntimeVersion() ?? "none"));
+    }
+
     static readonly bool DryRun = Environment.GetEnvironmentVariable("TASKHUB_SETUP_DRYRUN") == "1";
 
     /// <summary>The install job inside the setup window: progress by steps, then "done" (Open TaskHub) or the error.</summary>
@@ -341,7 +391,7 @@ static class Program
         }
         catch (Exception e)
         {
-            Log.W("install failed: " + e);
+            Log.E("app", "install failed: " + e);
             rc(1);
             f.ShowFailed(L.T("setup_failed"), e.Message);
         }
@@ -355,7 +405,7 @@ static class Program
             Native.AllowSetForegroundWindow(-1);
             Post(S, "/api/ui/open", new JsonObject { ["task"] = null });
         }
-        catch (Exception e) { Log.W("open panel: " + e.Message); }
+        catch (Exception e) { Log.W("app", "open panel: " + e.Message); }
     }
 
     /// <summary>Uninstall from Apps &amp; features: confirm (and "also delete my data"), progress, done.</summary>
@@ -397,7 +447,7 @@ static class Program
             }
             catch (Exception e)
             {
-                Log.W("uninstall failed: " + e);
+                Log.E("app", "uninstall failed: " + e);
                 f.ShowFailed(L.T("uninstall_failed"), e.Message);
             }
         });

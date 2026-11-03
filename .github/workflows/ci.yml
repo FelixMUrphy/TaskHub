@@ -147,6 +147,10 @@ jobs:
           if ! grep -q '[^[:space:]]' notes.md; then
             echo "::error file=CHANGELOG.md::no section '## $v' in CHANGELOG.md"; exit 1
           fi
+          # a release should have moved these under its version; they would be missing from its notes
+          if tr -d '\r' < src/CHANGELOG.md | awk '$0 ~ "^## " { if (on) exit; if ($0 == "## Unreleased") { on = 1; next } } on' | grep -q '[^[:space:]]'; then
+            echo "::warning file=CHANGELOG.md::'## Unreleased' is not empty in the release commit: these changes are not in the notes of $v"
+          fi
           sha=$(cut -d' ' -f1 "dist/TaskHub-$v-setup.exe.sha256")
           {
             echo

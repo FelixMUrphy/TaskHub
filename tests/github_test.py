@@ -239,7 +239,9 @@ if t:
           t["project"] == "r" and "o/r · main · abc1234 · @alice · push" in t["description"], (t["project"], t["description"]))
     check("name = workflow · title", t["name"] == "CI · Fix the parser", t["name"])
     t = wait(lambda: (lambda x: x if x and x.get("progress") is not None else None)(task("gh-101")))
-    check("progress by steps (3 of 5 done)", t and abs(t["progress"] - 0.6) < 1e-6, t and t.get("progress"))
+    check("usual duration known: the bar is time against it, like the ETA, not steps (3 of 5)",
+          t and abs(t["progress"] - (time.time() - (now0 - 30)) / 120) < 0.2 and abs(t["progress"] - 0.6) > 0.1, t and t.get("progress"))
+    check("...and the status has no 'longer than usual' yet", t and "longer" not in t.get("status", ""), t and t.get("status"))
     check("stage = job › step", t and t.get("stage") == "test › Run pytest", t and t.get("stage"))
     check("ETA from the usual duration (median 120 s)", t and t.get("expected_duration") == 120 and
           abs(t.get("eta_at", 0) - (now0 - 30 + 120)) < 3, t and (t.get("expected_duration"), t.get("eta_at"), now0))
@@ -248,8 +250,29 @@ if t:
     check("buttons: open, cancel, re-run failed, re-run", ids == ["open", "cancel", "rerun_failed", "rerun"], ids)
 # repos are polled one after another: wait until o/missing has been checked, not just o/r
 r = wait(lambda: (lambda c: c if c.get("repo_status", {}).get("o/missing") else None)(call("GET", "/api/connectors/github")[1])) or {}
-check("repo without access reported", r.get("repo_status", {}).get("o/missing") == "not found or no access", r)
+check("repo without access reported", r.get("repo_status", {}).get("o/missing") == "not found, or the token can't reach it: check the name, then the token's repository list and permissions", r)
 check("token expiry known (warning ahead)", abs((r.get("token_expires") or 0) - EXP) < 2, r.get("token_expires"))
+
+# ---- past the usual duration; no usual duration
+with lock:
+    late = mkrun(110, "in_progress", started=time.time() - 300, title="Slow one")
+    late["jobs"] = [{"id": 9101, "name": "test", "status": "in_progress", "conclusion": None,
+                     "steps": [step("Checkout", "completed", "success"), step("Run pytest", "in_progress")]}]
+    fresh = mkrun(111, "in_progress", started=time.time() - 30, title="New workflow", wf=8)
+    fresh["jobs"] = [{"id": 9102, "name": "test", "status": "in_progress", "conclusion": None,
+                      "steps": [step("Checkout", "completed", "success"), step("Run pytest", "in_progress"), step("Upload", "queued"), step("Done", "queued")]}]
+t = wait(lambda: (lambda x: x if x and "longer" in x.get("status", "") else None)(task("gh-110")))
+check("past the usual duration: says so", t is not None and t["status"].endswith("longer than usual"), t and t.get("status"))
+check("...no percentage, no ETA", t and t["progress"] is None and t.get("eta_at") is None, t and (t.get("progress"), t.get("eta_at")))
+check("...the step still shown", t and t.get("stage") == "test › Run pytest", t and t.get("stage"))
+t = wait(lambda: (lambda x: x if x and x.get("progress") is not None else None)(task("gh-111")))
+check("no earlier runs: progress by steps (1 of 4)", t and abs(t["progress"] - 0.25) < 1e-6, t and t.get("progress"))
+with lock:
+    for rr in (late, fresh):
+        rr["status"], rr["conclusion"] = "completed", "success"
+        for jb in rr["jobs"]:
+            jb["status"], jb["conclusion"] = "completed", "success"
+check("those finish", wait(lambda: (lambda a, b: a and b and a["state"] == "done" and b["state"] == "done")(task("gh-110"), task("gh-111"))))
 
 # ---- failure: job, step, log tail (log storage reached without the token)
 with lock:
@@ -350,7 +373,7 @@ s, r = call("POST", "/api/connectors/github", {"repos": ["o/r"]})
 with lock:
     faults["secondary"] = 1
 r = wait(lambda: (lambda x: x if "rate limit" in (x.get("status") or "") else None)(call("GET", "/api/connectors/github")[1]))
-check("secondary rate limit -> paused, said so", r is not None and r["repo_status"].get("o/r") != "no access (Actions: read)", r)
+check("secondary rate limit -> paused, said so", r is not None and r["repo_status"].get("o/r") != "no access: the token needs Actions: Read-only", r)
 time.sleep(0.5)
 n = len(calls)
 time.sleep(4)

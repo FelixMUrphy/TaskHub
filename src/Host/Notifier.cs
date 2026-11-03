@@ -91,7 +91,7 @@ sealed class Notifier : INotifier
                     _ => "unknown",
                 };
             }
-            catch (Exception e) { v = "unknown"; Log.W("toast setting: " + e.Message); }
+            catch (Exception e) { v = "unknown"; Log.W("toast", "toast setting: " + e.Message); }
             lock (activationLock) systemSetting = v;
             return v;
         }
@@ -111,14 +111,14 @@ sealed class Notifier : INotifier
     {
         iconPath = iconPng;
         try { ToastNotificationManagerCompat.OnActivated += OnActivated; }
-        catch (Exception e) { Log.W("toast activation hook failed: " + e.Message); }
+        catch (Exception e) { Log.W("toast", "toast activation hook failed: " + e.Message); }
     }
 
     void Worker()
     {
         foreach (var a in queue.GetConsumingEnumerable())
         {
-            try { a(); } catch (Exception e) { Log.W("toast worker: " + e.Message); }
+            try { a(); } catch (Exception e) { Log.W("toast", "toast worker: " + e.Message); }
         }
     }
 
@@ -244,15 +244,15 @@ sealed class Notifier : INotifier
                 var msg = more > 0 ? (string.IsNullOrEmpty(p.Msg) ? "" : p.Msg + "\n") + L.N("toast_more", more) : p.Msg;
                 Deliver(p.Title, msg, p.Level, p.Tid, p.Task, p.DismissOnly, p.Controls);
             }
-            catch (Exception e) { Log.W("toast gate: " + e.Message); }
+            catch (Exception e) { Log.W("toast", "toast gate: " + e.Message); }
         }
     }
 
     void Deliver(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly, bool controls)
     {
-        try { Telegram?.Notify(title, msg, level, taskId, task, controls); } catch (Exception e) { Log.W("telegram: " + e.Message); }
+        Log.I("toast", $"shown {level}" + (taskId != null ? " task " + Log.Id(taskId) : "")); Log.D("toast", $"TOAST [{level}] {title}: {msg}");   // also with Windows toasts off: Telegram still gets it
+        try { Telegram?.Notify(title, msg, level, taskId, task, controls); } catch (Exception e) { Log.W("telegram", e.Message); }
         if (!S.Bool("toasts", true)) return;   // Windows toasts disabled (config.json "toasts": false)
-        Log.W($"TOAST [{level}] {title}: {msg}");
         queue.Add(() => ShowToast(J.Cut(string.IsNullOrEmpty(title) ? Settings.AppId : title, 150), J.Cut(msg ?? "", 500), level, taskId, task, dismissOnly, controls));
     }
 
@@ -262,8 +262,15 @@ sealed class Notifier : INotifier
     public void UpdateToast(string title, string msg)
     {
         if (!S.Bool("toasts", true)) return;
-        Log.W($"TOAST [update] {title}: {msg}");
+        Log.I("toast", "shown update"); Log.D("toast", $"TOAST [update] {title}: {msg}");
         queue.Add(() => ShowToast(title, msg, "info", null, null, action: "update"));
+    }
+
+    public void LocalToast(string title, string msg)
+    {
+        Log.I("toast", "shown local"); Log.D("toast", $"TOAST [local] {title}: {msg}");
+        if (!S.Bool("toasts", true)) return;
+        queue.Add(() => ShowToast(title, msg, "info", null, null));
     }
 
     /// <summary>Toasts currently shown (banner or notification center), so they can be re-rendered when values change.</summary>
@@ -308,9 +315,9 @@ sealed class Notifier : INotifier
             {
                 failures = 0;
                 toastsOffUntil = DateTime.UtcNow.AddMinutes(10);
-                Log.W("toasts failing: tray balloons for 10 minutes");
+                Log.W("toast", "toasts failing: tray balloons for 10 minutes");
             }
-            Log.W("toast failed: " + ex);
+            Log.E("toast", "toast failed: " + ex);
             Balloon?.Invoke(title, msg);
         }
     }
@@ -332,7 +339,7 @@ sealed class Notifier : INotifier
                 .Where(n => n.Group == Settings.AppId).Select(n => n.Tag).ToHashSet();
             foreach (var k in shown.Keys.Where(k => !live.Contains(k)).ToList()) shown.Remove(k);
         }
-        catch (Exception ex) { Log.W("toast history: " + ex.Message); }
+        catch (Exception ex) { Log.W("toast", "toast history: " + ex.Message); }
     }
 
     ToastContentBuilder Build(Shown e, JsonObject task, out bool interactive)
@@ -411,7 +418,7 @@ sealed class Notifier : INotifier
         {
             t.Tag = tag; t.Group = Settings.AppId;
             t.SuppressPopup = quiet;
-            t.Failed += (s, a) => Log.W($"toast[{tag}] failed: {a.ErrorCode}");
+            t.Failed += (s, a) => Log.W("toast", $"toast[{tag}] failed: {a.ErrorCode}");
         });
     }
 
@@ -436,7 +443,7 @@ sealed class Notifier : INotifier
             if (e.Tid != null) try { task = Hub.GetTask(e.Tid); } catch { }
             Post(Build(e, task, out _), tag, true);
         }
-        catch (Exception ex) { Log.W("repost: " + ex.Message); }
+        catch (Exception ex) { Log.W("toast", "repost: " + ex.Message); }
     }
 
     /// <summary>A control value changed: refresh this task's toasts so their inputs show the current value.</summary>
@@ -524,7 +531,7 @@ sealed class Notifier : INotifier
                 n.SuppressPopup = Quiet();
             });
         }
-        catch (Exception e) { Log.W("progress toast failed: " + e.Message); }
+        catch (Exception e) { Log.W("toast", "progress toast failed: " + e.Message); }
     }
 
     void ShowConfirm(string tid, JsonObject c, JsonNode value)
@@ -559,7 +566,7 @@ sealed class Notifier : INotifier
                 .AddButton(new ToastButton().SetContent(L.T("no")).AddArgument("action", "none"));
             Post(b, Tag(tid) + "q" + Guid.NewGuid().ToString("N")[..6], false);
         }
-        catch (Exception ex) { Log.W("confirm toast failed: " + ex.Message); }
+        catch (Exception ex) { Log.W("toast", "confirm toast failed: " + ex.Message); }
     }
 
     readonly Dictionary<string, string> confirmValues = new();   // long values of confirmation toasts (key -> JSON)
@@ -572,7 +579,7 @@ sealed class Notifier : INotifier
             var args = ToastArguments.Parse(e.Argument);
             args.TryGetValue("action", out string action);
             args.TryGetValue("task", out string tid);
-            Log.W($"toast activated: {e.Argument} input=[{string.Join(",", e.UserInput.Select(kv => kv.Key + "=" + kv.Value))}]");
+            Log.D("toast", $"toast activated: {e.Argument} inputs=[{string.Join(",", e.UserInput.Select(kv => kv.Key))}]");
             if (string.IsNullOrEmpty(tid)) tid = null;
             switch (action)
             {
@@ -644,6 +651,6 @@ sealed class Notifier : INotifier
                     break;
             }
         }
-        catch (Exception ex) { Log.W("toast activation error: " + ex); }
+        catch (Exception ex) { Log.E("toast", "toast activation error: " + ex); }
     }
 }

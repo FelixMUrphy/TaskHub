@@ -42,10 +42,11 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
   panel is open.
 - **Claude Code and Codex in one click**: TaskHub tools for the agent (MCP) and "finished / needs your permission"
   notifications (hooks) — see [below](#claude-code-and-codex-one-click).
+- **Plan limits** *(from 3.1, off until you turn it on)*: how much of the 5-hour and weekly limits Claude Code and Codex have used, in the panel, with warnings from 75% and 90% — see [below](#claude-code-and-codex-one-click).
 - **Telegram**: the same notifications on your phone through your own bot, with the task's buttons; a live progress
   bar per task and its charts when it finishes; `/tasks`, `/mute` (optionally only when you are away from the PC) —
   see [Telegram](#telegram).
-- **GitHub Actions** *(from 2.9)*: the workflow runs of your repositories as tasks — progress by jobs / steps, ETA from earlier runs,
+- **GitHub Actions** *(from 2.9)*: the workflow runs of your repositories as tasks — progress and ETA from the usual duration of earlier runs (by jobs / steps when there are none),
   the failed step and the end of its log, cancel / re-run buttons, artifact and release links — see
   [GitHub Actions](#github-actions).
 - **Runpod** *(from 2.9)*: your GPU pods as tasks — GPU, region, image, $/h, spent, uptime, SSH and Jupyter links, load
@@ -54,6 +55,8 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
 - **Vast.ai** *(from 2.9)*: your instances as tasks — the same as Runpod (GPU, location, image, $/h, spent, uptime, SSH, load
   charts with disk, *GPU idle*, balance / credit and runway, stop / start / reboot, delete only in the panel) — see
   [Vast.ai](#vastai).
+- **AWS** *(from 3.1; off until you turn it on; built from AWS's documentation, not yet checked on a real account)*: EC2 instances as tasks with a *Forgotten?*
+  reminder; SageMaker training jobs, AWS Batch jobs, this month's cost and forecast, and AWS Budgets, each behind its own switch. Read-only. [AWS](#aws).
 - **Balance guard** *(from 2.9, off until you turn it on)*: for Runpod and Vast.ai — a warning at your own balance threshold
   (balance, $/h, time left), and at the stop threshold the running machines are **stopped** (never deleted) after a
   notification with *Stop now* / *Snooze* (Windows and Telegram) — see [Balance guard](#balance-guard).
@@ -68,9 +71,10 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
   see-through background and cards (*Panel transparency*; *Card transparency* from 2.9 — in ⚙), light / dark theme and accent colour follow Windows
   (or set in ⚙). *From 2.9.4* the settings say when Windows itself draws no blur (energy saver on, or *Transparency
   effects* off in Windows settings), with a link to that setting.
-- **Settings in the panel** *(from 2.9)*: ⚙ in the panel (or *Settings* in the tray menu) opens one page with everything —
-  appearance, notifications and Telegram, connectors, AI agents, autostart, updates, data folder, API reference; the tray
-  menu keeps only the quick actions (open the panel, mute, settings, support, exit) in the Windows 11 style.
+- **Settings** *(in the panel from 2.9; beside it, with icon tabs, from 3.1)*: ⚙ in the panel (or *Settings* in the tray menu) opens them next to it, one icon tab per section —
+  appearance, notifications, Telegram, connectors, AI agents, system (autostart, updates, data folder, API reference), about; the tray
+  menu keeps only the quick actions (open the panel, mute, settings, support, exit) in the Windows 11 style. While the panel is pinned, only their own button closes them.
+  On battery (from 3.1) the panel and settings appear and go at once, without the slide.
 - 10 UI languages (English, Українська, Español, Deutsch, Français, Italiano, Português, Polski, 中文, 日本語).
 - Per-user install, no admin rights, no .NET runtime needed; self-healing autostart.
 
@@ -118,11 +122,12 @@ agents (ChatGPT, scripts, any tool with a shell) — add one line to `AGENTS.md`
 > `taskhub run --name ... -- <cmd>`).
 
 ### Claude Code and Codex: one click
-The setup dialog (and later Settings → *AI agents*) has two independent options per agent:
+The setup dialog (and later Settings → *AI agents*) has independent options per agent. From 3.1, if an agent is used on your PC and you haven't chosen yet, the panel shows a card until you choose, one notification says so, and nothing is written until you press *Connect*:
 
 | Option | What you get | Where TaskHub writes |
 |---|---|---|
 | **Notifications (hooks)** | a toast when the agent finishes a response or needs your permission | Claude Code: `~/.claude/settings.json` · Codex: `~/.codex/hooks.json` |
+| **Plan limits** (from 3.1, off until you turn it on in Settings → AI agents, for each agent) | how much of the 5-hour and weekly limits is used, in the panel, yellow with a warning from 75%, red with a warning from 90% | Claude Code: `~/.claude/settings.json` (`statusLine`) · Codex: nothing, TaskHub asks it directly |
 | **TaskHub tools (MCP)** | the agent gets tools `notify`, `task_start/update/finish`, `task_commands`, `task_wait` (from 2.9.2), `task_list` and shows its long jobs in the panel by itself | Claude Code: `~/.claude.json` · Codex: `~/.codex/config.toml` |
 
 TaskHub adds — and on uninstall removes (Store edition: see below) — only its own entries and keeps everything else (backup of the original:
@@ -130,6 +135,9 @@ TaskHub adds — and on uninstall removes (Store edition: see below) — only it
 
 - **Claude Code** — start a new *local* session (desktop app → Code tab → environment *Local*, the CLI or VS Code).
   `/mcp` should list `taskhub` as connected. Cloud sessions run on Anthropic's servers and can't reach TaskHub on your PC.
+- **Plan limits** — needs a Pro, Max or Ultra plan; the numbers appear after Claude Code's next reply and update only while a session runs, so an old reading says how old it is.
+  Your own status line keeps working unchanged. If you have none, Claude Code shows an empty one and hides hints such as `esc to interrupt`. Details: [API.md](API.md#plan-limits-claude-code).
+- **Plan limits in Codex** — TaskHub asks Codex for the numbers every 10 minutes while Codex is running, with no model requests. This relies on a part of Codex that its makers call experimental, so a Codex update can stop it: the numbers then just get old, and everything else keeps working. With no numbers to show, the panel says why (not found on `PATH`, not signed in, couldn't read). Details: [API.md](API.md#plan-limits-codex).
 - **Codex** — restart Codex. Hooks: Codex → Settings → Hooks → *Trust all* (Codex asks once for new hooks).
   MCP: the `taskhub` server should appear among Codex's MCP servers.
 
@@ -137,7 +145,7 @@ Scripted: `TaskHubHost.exe --integrations claude=on codex=on claude-mcp=on codex
 [API.md → Claude Code hooks](API.md#claude-code-hooks), [Codex hooks](API.md#codex-hooks), [MCP server](API.md#mcp-server).
 
 ### Telegram
-Settings → *Notifications* → *Telegram*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
+Settings → *Telegram*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
 *Connect*, scan the QR code with your phone (or open the link on this PC) and press *Start* (in a private chat with the bot:
 groups can't be linked, since every member could press the tasks' buttons). Everything is set up right on the settings
 page *(from 2.9.4; before, in a window of its own)*. To link another account later (e.g. the one on your phone), press
@@ -204,6 +212,18 @@ for deletion. A start can wait in *Scheduling* when the host rented the GPU out 
 to `console.vast.ai`. Details: [API.md → Connectors](API.md#connectors-vastai).
 *How to get a key:* [docs/keys/vastai.md](docs/keys/vastai.md) (step by step, minimum permissions, revoking; [українською](docs/keys/vastai.uk.md)).
 
+
+### AWS
+*From version 3.1; off until you turn it on. Built from AWS's documentation and tested against a simulator, not yet on a real account.*
+Settings → *Connectors* → *AWS*: paste an access key of a dedicated IAM user with a read-only policy
+([how to get it](docs/keys/aws.md)). TaskHub starts, stops and changes nothing in your account.
+EC2 instances become tasks with their state and how long they have run: in every Region enabled in the account, or only those you list. One running longer than your limit (72 hours by default, 0 = off) gets a *Forgotten?* reminder, with a button for the ones meant to run.
+Each of these has its own switch and its own permissions: **SageMaker training jobs** (phase and time; SageMaker reports no percentage for ordinary
+training, so TaskHub shows none), **AWS Batch jobs** (real progress for array jobs), **this month's cost and forecast** from Cost Explorer (AWS charges
+$0.01 per request; TaskHub makes 2 at most every 8 hours, about $1.80 a month, and a restart doesn't pay again) and **AWS Budgets** (one notification when a budget goes over its limit).
+Details: [API.md → Connectors](API.md#connectors-aws).
+*How to get a key:* [docs/keys/aws.md](docs/keys/aws.md) (step by step, minimum permissions, revoking; [українською](docs/keys/aws.uk.md)).
+
 ### Balance guard
 *From version 2.9; off until you turn it on.* Settings → *Connectors* → *Runpod* / *Vast.ai* → *Auto-stop at low balance*.
 Each provider has its own two thresholds in $: **warn** (default $10) and **stop** (default $2; warn must be above stop).
@@ -250,7 +270,7 @@ install the setup shows the installed version and folder (the version is read fr
 - Silent: `TaskHub-<version>-setup.exe --install [--dir PATH] [--no-autostart] [--no-path] [--claude|--no-claude]
   [--codex|--no-codex] [--claude-mcp|--no-claude-mcp] [--codex-mcp|--no-codex-mcp] --quiet` (agent options not given stay unchanged)
 - Uninstall: *Apps & features* → TaskHub, or `TaskHubHost.exe --uninstall [--quiet] [--purge]`
-  (`--purge` also deletes the data in `%APPDATA%\TaskHub` and, from 2.9, the GitHub / Telegram tokens TaskHub saved in the
+  (`--purge` also deletes the data in `%APPDATA%\TaskHub` and, from 2.9, the Telegram token and the GitHub, Runpod, Vast.ai and AWS keys TaskHub saved in the
   Windows Credential Manager; a plain uninstall keeps them for a reinstall). Also removes TaskHub's entries from the Claude Code / Codex settings.
 - Autostart restores itself if its entry is removed or changed, unless you turn it off in Settings → *System*.
   From 2.9 turning it off in Task Manager / Settings → *Apps* → *Startup* is respected too (TaskHub's switch then shows it off);
@@ -267,13 +287,16 @@ Updates: once a day the installed hub looks up the latest release on GitHub (one
 downloaded or installed; *from 2.9.5* also when the settings page opens and the last check is older than 15 minutes) and shows a notification when a newer version is out; Settings → *System* has *Check now* and the
 *Check daily* switch (`"update_check": false` in `config.json`). Run the new setup.exe to update.
 
+If something goes wrong, `taskhub.log` in the data folder says what happened. From 3.1, `"log_level": "debug"` in `config.json` adds more, including notification
+text and task names; nothing is sent anywhere, so look through the log before you share it.
+
 Toast timing: `toast_seconds` / `toast_seconds_interactive` (4 s / 8 s) in `config.json`; afterwards notifications stay
 in the notification center. Bursts (2.9): at most `toast_rate` notifications a minute (10; 0 = no limit) and one per task
 every `toast_task_gap` seconds (2); the rest fold into the latest one ("+N more notifications"), toasts and Telegram alike.
 
 ## Build from source
 `build.cmd` (needs the .NET 10 SDK) → `dist\TaskHub-<version>-setup.exe` (single self-contained file; the CLI is built
-first and embedded) and `app\` for development. Sources: `src\Host` (Kestrel HTTP API, WinForms tray, WebView2 panel,
+first and embedded) and `app\` for development; `build.cmd beta` is the same version with the full log, never a release. Sources: `src\Host` (Kestrel HTTP API, WinForms tray, WebView2 panel,
 WinRT toasts; connectors in `src\Host\Connectors\<Name>\`, see its README), `src\Cli`, `ui\` (the panel page: `index.html`
 + CSS / JS parts the hub puts together), `i18n\` (translations, 10 languages), `clients\python`.
 
@@ -292,7 +315,9 @@ Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no t
 `api_test.py` (API contract, agent hooks, CLI), `validation_test.py` (input validation: non-finite numbers, widget attributes, control values, shell controls), `parallel_test.py` (8 concurrent workers + notification burst),
 `integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder), `install_test.py` (setup /
 uninstall in a temporary folder), `mcp_test.py` (`taskhub mcp`), `telegram_test.py` (Telegram bridge against a mock Bot API),
-`github_test.py`, `runpod_test.py`, `vastai_test.py` and `guard_test.py` (connectors and the balance guard against mock APIs).
+`github_test.py`, `runpod_test.py`, `vastai_test.py` and `guard_test.py` (connectors and the balance guard against mock APIs),
+`aws_sigv4_test.py` and `aws_test.py` (the AWS signer against AWS's test suite, the connector against a simulator), `limits_test.py` and `codex_limits_test.py` (plan limits), `payload_bounds_test.py` (what a local process can post),
+`hooks_offer_test.py` and `hook_form_test.py` (agent hooks), `log_test.py` (log levels, masking, rotation).
 Every push runs the build and these tests on GitHub Actions (`.github/workflows/ci.yml`, Windows runner); pushing a tag
 `v<version>` (matching `Settings.Version`, `build.cmd` and both `.csproj`) also publishes the release with the setup exe
 and its SHA-256.
@@ -303,7 +328,7 @@ The setup and uninstall windows can be checked without changing anything: `set T
 setup exe (or `--uninstall`) - every step is only shown.
 
 Hub command line: `TaskHubHost.exe [--port N] [--data DIR] [--install|--uninstall [--quiet] [--purge] | --status |
---panel [ID] | --integrations [claude|codex|claude-mcp|codex-mcp=on|off ...] | --no-tray]`. A `TaskHubHost.settings.json` next to the exe (`{"port": 47801, "data": "..."}`) runs an
+--panel [ID] | --integrations [claude|codex|claude-mcp|codex-mcp|claude-limits|codex-limits=on|off ...] | --no-tray]`. A `TaskHubHost.settings.json` next to the exe (`{"port": 47801, "data": "..."}`) runs an
 independent second instance.
 
 ## Support

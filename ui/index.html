@@ -21,10 +21,12 @@
   <button class="ib" id="pin"><i>&#xE718;</i></button>
 </header>
 <div id="set" role="dialog" aria-labelledby="settitle">
-  <div class="sh"><button class="ib" id="setback"><i>&#xE72B;</i></button><h2 id="settitle" data-i="settings"></h2></div>
-  <div class="sc" tabindex="-1">
-    <h3 data-i="sec_look"></h3>
-    <div class="scard">
+  <div id="rail" role="tablist" aria-orientation="vertical"></div>
+  <div id="settip" role="tooltip"></div>
+  <div id="setpane">
+  <div class="sh"><h2 id="settitle"></h2><button class="ib" id="setclose"><i>&#xE711;</i></button></div>
+  <div class="sc" id="setsc" role="tabpanel" tabindex="-1">
+    <div class="scard" id="lookcard">
       <div class="srow"><label class="sl" for="lang" data-i="language"></label><select id="lang"></select></div>
       <div class="srow"><label class="sl" for="theme" data-i="theme"></label><select id="theme"></select></div>
       <div class="srow"><label class="sl" for="accent" data-i="accent"></label><select id="accent"></select></div>
@@ -36,10 +38,13 @@
     </div>
     <div id="sethost"></div>
   </div>
+  </div>
 </div>
 <div id="grip"></div>
 <div id="srcf"></div>
 <div id="off" data-i="offline"></div>
+<div id="hookoffer"></div>
+<div id="limits"></div>
 <main id="list" tabindex="-1"></main>
 <div id="sb"><i></i></div>
 <div id="snack"></div>

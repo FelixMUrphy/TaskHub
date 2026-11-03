@@ -25,6 +25,6 @@ setInterval(()=>{
 }, 300);
 if (!NATIVE) window.addEventListener("focus",()=>panelShown(true));
 document.addEventListener("visibilitychange",()=>{ if (!NATIVE) panelShown(document.visibilityState==="visible"); });
-document.addEventListener("keydown",e=>{ if(e.key==="Escape" && setOpen() && !modal){ e.preventDefault(); closeSet(); return; } if(e.key==="Escape" && !modal && !Object.values(ui).some(u=>u.formFor)){ if (NATIVE) host("hide"); else api("POST","/api/ui/hide",{}).catch(()=>{}); } });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape" && setOpen() && !modal){ e.preventDefault(); if (!pinnedSet()) closeSet(NATIVE); return; } if(e.key==="Escape" && !modal && !Object.values(ui).some(u=>u.formFor)){ if (NATIVE) host("hide"); else api("POST","/api/ui/hide",{}).catch(()=>{}); } });
 // docked panel: resize by its left edge
 $("#grip").addEventListener("mousedown",e=>{ if(e.button!==0) return; e.preventDefault(); host("resize"); });

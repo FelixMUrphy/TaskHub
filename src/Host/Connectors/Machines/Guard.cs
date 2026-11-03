@@ -206,7 +206,7 @@ abstract partial class MachineConnector
                 if (canAct == false) msg += " " + L.T("g_readonly");
                 else if (balance.NoStop is { Length: > 0 } ns) msg += " " + ns;
                 GuardNotify(msg);
-                Log.W($"{Id}: guard warning, balance {a}, burn {burn}");
+                Log.I(Id, $"guard warning"); Log.D(Id, $"guard warning: balance {a}, burn {burn}");
             }
         }
         if (a <= g.Stop)
@@ -231,7 +231,7 @@ abstract partial class MachineConnector
                 // the probe hasn't answered yet: nothing stopped, but said once (it is tried again at each reading)
                 bool send;
                 lock (gate) { send = !gProbeWarned; gProbeWarned = true; }
-                if (send) { GuardNotify(L.T("g_probe_wait", Money(a), Money(g.Stop))); Log.W($"{Id}: guard: below stop, actions not probed yet"); }
+                if (send) { GuardNotify(L.T("g_probe_wait", Money(a), Money(g.Stop))); Log.W(Id, $"guard: below stop, actions not probed yet"); }
                 return;
             }
             // only machines whose stop already failed (they had their grace): tried again now, quietly unless it works
@@ -268,7 +268,7 @@ abstract partial class MachineConnector
         }
         if (!send) return;
         GuardNotify(L.T("g_unreadable", gMissWhy.Length > 0 ? J.Cut(gMissWhy, 100) : "?"));
-        Log.W($"{Id}: guard: balance unreadable ({gMissWhy})");
+        Log.W(Id, $"guard: balance unreadable ({gMissWhy})");
     }
 
     /// <summary>A poll failed altogether (exception in the loop): counts as a missed balance reading once per reading slot.</summary>
@@ -305,7 +305,7 @@ abstract partial class MachineConnector
         if (capped && ZeroAt() is double z2) text += " " + L.T("g_capped", When(z2));
         ShowPending(p, g, text, register: true);
         GuardNotify(text, "warn", withButtons: true);
-        Log.W($"{Id}: guard: pending stop #{p.Seq} of {p.Ids.Count} machine(s) at {dl:0} (balance {a}, burn {burn})");
+        Log.I(Id, $"guard: pending stop #{p.Seq} of {p.Ids.Count} machine(s) at {dl:0}"); Log.D(Id, $"guard: balance {a}, burn {burn}");
     }
 
     string PendingNames(PendingStop p)
@@ -346,7 +346,7 @@ abstract partial class MachineConnector
                 ["controls"] = GuardControls(p, g), ["status"] = status, ["attention"] = status,
             };
             try { hub.Register(b, trusted: true); }
-            catch (Exception e) { Log.W($"{Id}: guard task: " + e.Message); }
+            catch (Exception e) { Log.W(Id, $"guard task: " + e.Message); }
         }
         var u = new JsonObject { ["status"] = status, ["attention"] = status, ["controls"] = GuardControls(p, g) };
         if (!string.IsNullOrEmpty(log)) { u["log"] = log; u["level"] = "warn"; }
@@ -373,7 +373,7 @@ abstract partial class MachineConnector
         Try(() => hub.Update(GuardTid, new JsonObject { ["controls"] = new JsonArray(), ["log"] = J.Cut(why, 1900) }, trusted: true));
         Try(() => hub.Finish(GuardTid, new JsonObject { ["state"] = "done", ["message"] = J.Cut(why, 300) }));
         GuardNotify(why, "info");
-        Log.W($"{Id}: guard: pending stop #{p.Seq} cancelled ({why})");
+        Log.I(Id, $"guard: pending stop #{p.Seq} cancelled"); Log.D(Id, $"guard: cancelled: {why}");   // the text names the balance or a machine
     }
 
     /// <summary>Each loop round: a pending stop whose time has come. The balance is read again first - unreadable (any
@@ -400,7 +400,7 @@ abstract partial class MachineConnector
             {
                 ShowPending(p, g, L.T("g_held"), register: false);
                 GuardNotify(L.T("g_held"), "warn", withButtons: true);
-                Log.W($"{Id}: guard: balance unreadable at the deadline ({why}) - auto-stop held");
+                Log.W(Id, $"guard: balance unreadable at the deadline ({why}) - auto-stop held");
             }
             return;
         }
@@ -452,7 +452,7 @@ abstract partial class MachineConnector
         SaveGuard();
         ShowPending(p, g, text, register: false);
         GuardNotify(text, "info");
-        Log.W($"{Id}: guard: pending stop #{p.Seq} snoozed to {p.Deadline:0}");
+        Log.I(Id, $"guard: pending stop #{p.Seq} snoozed to {p.Deadline:0}");
         return new JsonObject { ["ok"] = true, ["message"] = text, ["deadline"] = p.Deadline };
     }
 
@@ -517,7 +517,7 @@ abstract partial class MachineConnector
             {
                 try { await Task.Delay(TimeSpan.FromSeconds(Mock ? 0.5 : 5), CancellationToken.None); } catch { }
                 List<Machine> list = null;
-                try { list = await List(key, CancellationToken.None); } catch (Exception e) { Log.W($"{Id}: guard confirm: " + e.GetBaseException().Message); }
+                try { list = await List(key, CancellationToken.None); } catch (Exception e) { Log.W(Id, $"guard confirm: " + e.GetBaseException().Message); }
                 if (list == null) continue;
                 foreach (var id in left.Keys.ToList())
                 {
@@ -535,7 +535,7 @@ abstract partial class MachineConnector
                     else gFailed.Add(m.Id);
             if (retry && results.All(x => x.Error != null))
             {
-                Log.W($"{Id}: guard: retry #{p.Seq}: still failing ({string.Join(", ", results.Select(x => x.M.Id))})");
+                Log.E(Id, $"guard: retry #{p.Seq}: still failing ({string.Join(", ", results.Select(x => x.M.Id))})");
                 return;
             }
             // the log and the summary
@@ -571,7 +571,7 @@ abstract partial class MachineConnector
                 Try(() => hub.Finish(GuardTid, new JsonObject { ["state"] = failN > 0 ? "failed" : "done", ["message"] = J.Cut(head, 300) }));
             }
             GuardNotify(text, failN > 0 ? "error" : "warn");
-            Log.W($"{Id}: guard: stop #{p.Seq} ({trigger}): {okN} stopped, {failN} failed");
+            Log.I(Id, $"guard: stop #{p.Seq} ({trigger}): {okN} stopped, {failN} failed");
         }
         finally
         {
@@ -678,7 +678,7 @@ abstract partial class MachineConnector
                 File.WriteAllText(GuardFile + ".tmp", o.ToJsonString(J.Pretty));
                 File.Move(GuardFile + ".tmp", GuardFile, true);
             }
-            catch (Exception e) { Log.W($"{Id}: {Path.GetFileName(GuardFile)} not saved: " + e.Message); }
+            catch (Exception e) { Log.E(Id, $"{Path.GetFileName(GuardFile)} not saved: " + e.Message); }
     }
 
     /// <summary>After a restart: the counter goes on past the saved one (and past any number an older run could have used),
@@ -692,7 +692,7 @@ abstract partial class MachineConnector
         if (first)
         {
             try { if (File.Exists(GuardFile)) saved = J.Parse(File.ReadAllText(GuardFile)) as JsonObject; }
-            catch (Exception e) { Log.W($"{Id}: {Path.GetFileName(GuardFile)}: " + e.Message); }
+            catch (Exception e) { Log.W(Id, $"{Path.GetFileName(GuardFile)}: " + e.Message); }
             // seconds since 2024 also seed it: old buttons stay unmatched even if the file is lost
             var seed = Math.Max((int)Math.Min(J.Num(saved?["seq"]) ?? 0, int.MaxValue / 2), (int)((J.Now() - 1.704e9) / 2));
             lock (gate) guardSeq = Math.Max(guardSeq, seed) + 1;
@@ -718,7 +718,7 @@ abstract partial class MachineConnector
             var text = L.T("g_restored", When(p.Deadline));
             ShowPending(p, g, text, register: true);
             GuardNotify(text + " " + PendingShort(p), "warn", withButtons: true);
-            Log.W($"{Id}: guard: pending stop restored as #{p.Seq}, deadline {p.Deadline:0}");
+            Log.I(Id, $"guard: pending stop restored as #{p.Seq}, deadline {p.Deadline:0}");
             return;
         }
         if (first && (g.On || saved != null)) SaveGuard();
@@ -751,7 +751,7 @@ static class GuardLog
                 return a;
             }
         }
-        catch (Exception e) { Log.W("guard_log.json: " + e.Message); }
+        catch (Exception e) { Log.W("connector", "guard_log.json: " + e.Message); }
         return new JsonArray();
     }
 
@@ -768,7 +768,7 @@ static class GuardLog
                 File.WriteAllText(p + ".tmp", new JsonObject { ["entries"] = a }.ToJsonString(J.Pretty));
                 File.Move(p + ".tmp", p, true);
             }
-            catch (Exception e) { Log.W("guard_log.json not saved: " + e.Message); }
+            catch (Exception e) { Log.E("connector", "guard_log.json not saved: " + e.Message); }
         }
     }
 

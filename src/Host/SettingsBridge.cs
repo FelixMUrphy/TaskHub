@@ -27,26 +27,31 @@ sealed class SettingsBridge
     {
         var agents = new JsonArray();
         foreach (var a in Integrations.All)
-            agents.Add(new JsonObject
+        {
+            var row = new JsonObject
             {
                 ["agent"] = a == Integrations.Agent.Claude ? "claude" : "codex", ["name"] = Integrations.Name(a),
                 ["hooks"] = Integrations.Enabled(a, Integrations.Kind.Hooks), ["mcp"] = Integrations.Enabled(a, Integrations.Kind.Mcp),
                 ["detected"] = Integrations.Detected(a),
-            });
+            };
+            row["limits"] = Integrations.Enabled(a, Integrations.Kind.Limits);
+            if (a == Integrations.Agent.Claude) row["limits_wraps"] = Integrations.HasOwnStatusLine();
+            agents.Add(row);
+        }
         var t = tg?.State();
         var rows = ConnectorRows(conns);
         var up = updater();
         up?.RecheckIfStale();   // open page: a remembered "Update to X" may be days old (the hub runs on while the panel is hidden)
         // the host's own translations of what used to be the tray's items (one source of the words in 10 languages)
         var labels = new JsonObject();
-        foreach (var k in new[] { "mute", "test_toast", "connectors", "integrations", "menu_hooks", "menu_mcp", "autostart",
+        foreach (var k in new[] { "mute", "test_toast", "connectors", "integrations", "menu_hooks", "menu_mcp", "menu_limits", "menu_limits_codex", "limits_d_codex", "limits_d_new", "limits_d_wrap", "autostart",
                      "updates", "update_check_now", "update_auto", "data_folder", "api_help", "support" })
             labels[k] = L.T(k).TrimStart('❤', ' ');
         if (up?.Available is { } av) labels["update_to"] = L.T("update_to", av.Version.ToString(3)).TrimStart('⬆', ' ').TrimEnd('…');
         return new JsonObject
         {
             ["labels"] = labels,
-            ["version"] = Settings.Version, ["edition"] = Install.Edition,
+            ["version"] = Settings.VersionText, ["edition"] = Install.Edition,
             ["autostart"] = Install.AutostartEnabled(S),
             ["muted"] = hub.Muted,
             ["notifications"] = hub.Notifier?.SystemSetting,   // "disabled_*": turned off in Windows -> a warning row
@@ -74,7 +79,7 @@ sealed class SettingsBridge
                 using var data = gen.CreateQrCode(link, QRCoder.QRCodeGenerator.ECCLevel.M);
                 qrData = "data:image/png;base64," + Convert.ToBase64String(new QRCoder.PngByteQRCode(data).GetGraphic(8));
             }
-            catch (Exception e) { Log.W("qr: " + e.Message); }
+            catch (Exception e) { Log.W("settings", "qr: " + e.Message); }
         }
         string state = linked ? L.T("tg_state_ok", bot) + (st == "connected" ? "" : "  (" + TgStatus(st) + ")")
             : configured ? (link.Length > 0 ? L.T("tg_state_wait") : TgStatus(st)) : L.T("tg_state_off");
@@ -122,6 +127,7 @@ sealed class SettingsBridge
     public async Task<JsonObject> Handle(JsonObject c)
     {
         string err = null, note = null, info = null;
+        Log.D("settings", J.Str(c["settings"]) + " " + J.Str(c["what"]) + " [" + string.Join(",", c.Select(kv => kv.Key).Where(k => k is not ("settings" or "what"))) + "]");   // names, never values
         try
         {
             switch (J.Str(c["settings"]))
@@ -152,7 +158,7 @@ sealed class SettingsBridge
                         }
                         catch (ApiError e) when (keyed && e.Code == 400)
                         {
-                            err = L.T("k_invalid", cn.Title);   // nothing saved, the old key (if any) stays
+                            err = e.Ui ?? L.T("k_invalid", cn.Title);   // nothing saved, the old key (if any) stays
                         }
                         catch (ApiError e) when (e.Code == 400 && (e.Message.StartsWith("guard_") || e.Ui != null))
                         {
@@ -169,15 +175,40 @@ sealed class SettingsBridge
                     else if (J.IsStr(c["agent"]))
                     {
                         var a = J.Str(c["agent"]) == "codex" ? Integrations.Agent.Codex : Integrations.Agent.Claude;
-                        var k = J.Str(c["kind"]) == "mcp" ? Integrations.Kind.Mcp : Integrations.Kind.Hooks;
+                        var k = J.Str(c["kind"]) switch { "mcp" => Integrations.Kind.Mcp, "limits" => Integrations.Kind.Limits, _ => Integrations.Kind.Hooks };
                         bool on = J.Truthy(c["on"]);
                         err = await Task.Run(() => Integrations.Set(a, k, on, S));
                         if (err == null && on) note = Integrations.Hint(a, k);
+                        if (err == null && !on && k == Integrations.Kind.Limits) hub.ClearLimits(a == Integrations.Agent.Codex ? "codex" : "claude");
+                        if (err == null && on && k == Integrations.Kind.Limits && a == Integrations.Agent.Codex) hub.ReadCodexLimitsNow();
+                        if (k == Integrations.Kind.Hooks) await Task.Run(hub.RefreshHookOffer);
                     }
                     break;
                 case "do":
                     switch (J.Str(c["what"]))
                     {
+                        // the card that offers an agent's hooks: the first write to the agent's files after the user's click;
+                        // "not now" is remembered as that choice and writes nothing but TaskHub's own config
+                        case "hooks_offer":
+                        {
+                            // only the agents the card named: one found since then is not part of this answer
+                            bool connect = J.Truthy(c["connect"]);
+                            var named = (c["agents"] as JsonArray ?? new JsonArray()).Select(x => J.Str(x)).ToHashSet();
+                            var errors = new List<string>();
+                            var hints = new List<string>();
+                            foreach (var a in await Task.Run(() => Integrations.HookOffer(S)))
+                            {
+                                if (!named.Contains(Integrations.ArgName(a, Integrations.Kind.Hooks))) continue;
+                                if (!connect) { S.Set((Integrations.CfgKey(a), false)); continue; }
+                                var e = await Task.Run(() => Integrations.Set(a, Integrations.Kind.Hooks, true, S));
+                                if (e != null) errors.Add(e); else hints.Add(Integrations.Hint(a, Integrations.Kind.Hooks));
+                            }
+                            // one agent failing must not hide the step the other one still needs
+                            if (errors.Count > 0) err = string.Join("\n\n", errors.Concat(hints));
+                            else if (hints.Count > 0) note = string.Join("\n", hints);
+                            await Task.Run(hub.RefreshHookOffer);
+                            break;
+                        }
                         // Telegram, set up on the page: the link is not opened by itself (the Telegram account may be on the phone)
                         case "tg_pair":
                         case "tg_relink":
@@ -230,7 +261,7 @@ sealed class SettingsBridge
                     break;
             }
         }
-        catch (Exception e) { err = e.Message; Log.W("settings: " + e.Message); }
+        catch (Exception e) { err = e.Message; Log.W("settings", "settings: " + e.Message); }
         var r = new JsonObject { ["settings_state"] = State() };
         if (err != null) r["error"] = err;
         if (note != null) r["note"] = note;

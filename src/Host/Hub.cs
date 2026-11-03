@@ -20,6 +20,8 @@ interface INotifier
     /// <param name="dismissOnly">clicking the toast only closes it (no panel) - for toasts not tied to a task</param>
     /// <param name="controls">false: no control buttons / inputs (plain toast)</param>
     void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false, bool controls = true);
+    /// <summary>About this PC, not worth a phone: not mirrored to Telegram. A click opens the panel.</summary>
+    void LocalToast(string title, string msg);
     void Progress(JsonObject task);
     void ProgressEnd(string taskId);
     void Refresh(string taskId);   // a control value changed -> re-render shown toasts
@@ -101,9 +103,9 @@ sealed partial class Hub
                 tasks[id] = t;
                 internals[id] = new Internal { Ct = ct };
             }
-            Log.W($"restored {tasks.Count} task(s)");
+            Log.I("hub", $"restored {tasks.Count} task(s)");
         }
-        catch (Exception e) { Log.W("state.json unreadable: " + e.Message); }
+        catch (Exception e) { Log.E("hub", "state.json unreadable: " + e.Message); }
     }
 
     readonly object saveLock = new();
@@ -134,7 +136,7 @@ sealed partial class Hub
             }
             catch (Exception e)
             {
-                Log.W("save failed: " + e.Message);
+                Log.E("hub", "save failed: " + e.Message);
                 lock (Lock) dirty = true;   // try again on the next round
             }
         }
