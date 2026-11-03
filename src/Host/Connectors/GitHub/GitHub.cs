@@ -221,7 +221,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             ["key_check"] = check.Length > 0 ? check : null,
             ["summary"] = !on ? "" : SettingsRows.Line(tokenAuth ? J.Str(g["token_check_text"]) : (login.Length > 0 ? "@" + login : ""),
                 (tokenAuth ? SettingsRows.Normal(st) : st is "ok" or "starting" or "off" or "") ? "" : st, n > 0 ? L.N("gh_repos_n", n) : ""),
-            ["help_url"] = SettingsRows.KeyHelpUrl(Id, "uk"),
+            ["help_url"] = SettingsRows.KeyHelpUrl(Id),
         };
         if (!on) return row;
         // access: own token (fine-grained, read-only is enough) or the login Git already has

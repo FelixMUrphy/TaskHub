@@ -1,6 +1,6 @@
 # SSH: setting up a host for TaskHub
 
-[Українською](ssh.uk.md) · [All keys](README.md)
+**English** · [Українська](ssh.uk.md) · [Español](ssh.es.md) · [Deutsch](ssh.de.md) · [Français](ssh.fr.md) · [Italiano](ssh.it.md) · [Português](ssh.pt.md) · [Polski](ssh.pl.md) · [中文](ssh.zh.md) · [日本語](ssh.ja.md) · [All pages](README.md)
 
 ## What TaskHub does with it
 - TaskHub runs Windows' own `ssh.exe` and reads each host you list: load, memory, disks, GPU, tmux sessions, and a process you name.

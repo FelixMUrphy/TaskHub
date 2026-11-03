@@ -1,6 +1,6 @@
 # GitHub Actions: token for TaskHub
 
-[Українською](github.uk.md) · [All keys](README.md)
+**English** · [Українська](github.uk.md) · [Español](github.es.md) · [Deutsch](github.de.md) · [Français](github.fr.md) · [Italiano](github.it.md) · [Português](github.pt.md) · [Polski](github.pl.md) · [中文](github.zh.md) · [日本語](github.ja.md) · [All pages](README.md)
 
 ## What TaskHub uses it for
 - **Watch:** workflow runs of the repositories you list — progress, the failed step, the result.

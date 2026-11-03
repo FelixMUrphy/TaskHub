@@ -42,10 +42,10 @@ static class SettingsRows
 
     /// <summary>The "how to get a key" page of a connector (docs/keys/&lt;id&gt;.md), in the UI language when that page
     /// exists (langs: the translated pages besides English), else English.</summary>
-    public static string KeyHelpUrl(string id, params string[] langs)
+    public static string KeyHelpUrl(string id)
     {
         var lang = L.Lang;
-        var suffix = lang != "en" && langs.Contains(lang) ? "." + lang : "";
+        var suffix = lang != "en" ? "." + lang : "";   // every page exists in all the languages of the UI (tests/i18n_test.py)
         return $"{L.RepoUrl}/blob/main/docs/keys/{id}{suffix}.md";
     }
 

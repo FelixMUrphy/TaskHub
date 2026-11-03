@@ -1,6 +1,6 @@
 # SSH: як налаштувати хост для TaskHub
 
-[English](ssh.md) · [Усі ключі](README.md)
+[English](ssh.md) · **Українська** · [Español](ssh.es.md) · [Deutsch](ssh.de.md) · [Français](ssh.fr.md) · [Italiano](ssh.it.md) · [Português](ssh.pt.md) · [Polski](ssh.pl.md) · [中文](ssh.zh.md) · [日本語](ssh.ja.md) · [Усі сторінки](README.md)
 
 ## Що TaskHub робить
 - TaskHub запускає вбудований у Windows `ssh.exe` і читає кожен хост зі списку: навантаження, пам'ять, диски, GPU, сесії tmux і процес, який ви вкажете.

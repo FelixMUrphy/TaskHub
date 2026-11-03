@@ -1,6 +1,6 @@
 # Discord: bot token for TaskHub
 
-[Українською](discord.uk.md) · [All keys](README.md)
+**English** · [Українська](discord.uk.md) · [Español](discord.es.md) · [Deutsch](discord.de.md) · [Français](discord.fr.md) · [Italiano](discord.it.md) · [Português](discord.pt.md) · [Polski](discord.pl.md) · [中文](discord.zh.md) · [日本語](discord.ja.md) · [All pages](README.md)
 
 ## What TaskHub uses it for
 - Sends your TaskHub notifications, task progress and charts as direct messages from **your own** bot.

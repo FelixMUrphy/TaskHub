@@ -388,7 +388,7 @@ check("how-to page in Ukrainian (exists) + the row in Ukrainian", rw and rw["hel
       and rw["summary"].startswith("Під’єднано, баланс $"), rw)
 call("POST", "/api/settings", {"language": "de"})
 txt, rw = row("runpod")
-check("how-to page: German not there -> English", rw and rw["help_url"].endswith("/docs/keys/runpod.md"), rw)
+check("how-to page in German", rw and rw["help_url"].endswith("/docs/keys/runpod.de.md"), rw)
 call("POST", "/api/settings", {"language": "en"})
 s, r = call("POST", "/api/connectors/runpod", {"enabled": False})
 check("off keeps the key (Credential Manager)", s == 200 and r.get("status") == "off" and r.get("key_set") is True

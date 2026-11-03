@@ -1,6 +1,6 @@
 # Runpod: API-ключ для TaskHub
 
-[English](runpod.md) · [Усі ключі](README.md)
+[English](runpod.md) · **Українська** · [Español](runpod.es.md) · [Deutsch](runpod.de.md) · [Français](runpod.fr.md) · [Italiano](runpod.it.md) · [Português](runpod.pt.md) · [Polski](runpod.pl.md) · [中文](runpod.zh.md) · [日本語](runpod.ja.md) · [Усі сторінки](README.md)
 
 ## Навіщо він TaskHub
 - **Спостереження:** ваші поди, їхнє навантаження, ціна, скільки вже витрачено (білінг Runpod), баланс і на скільки його вистачить.
@@ -35,7 +35,7 @@ TaskHub один раз (а далі щодня) перевіряє, чи мож
 - **У Runpod:** <https://console.runpod.io/user/credentials> → значок кошика біля ключа → **Revoke Key**
   (або вимкніть ключ перемикачем).
 - **У TaskHub:** Налаштування → Конектори → Runpod → **Видалити** (стирає ключ із диспетчера облікових даних).
-  Видалення TaskHub теж його стирає.
+  Видалення TaskHub з опцією **Також видалити мої дані** теж його стирає; звичайне видалення його залишає.
 
 ## Офіційна документація
 - API-ключі: <https://docs.runpod.io/get-started/credentials>

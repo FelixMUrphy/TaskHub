@@ -103,5 +103,32 @@ try:
 except OSError as e:
     check("/ui reachable", False, e)
 
+# ---- how-to pages: every setup page in every language of the UI, with the facts of the English page
+KEYS_DIR = os.path.join(ROOT, "docs", "keys")
+PAGE_LANGS = ["uk", "es", "de", "fr", "it", "pt", "pl", "zh", "ja"]
+
+
+def page_facts(path):
+    text = open(path, encoding="utf-8", newline="").read().replace("\r\n", "\n")
+    fences = re.findall(r"```.*?```", text, re.S)
+    body = re.sub(r"```.*?```", "", text, flags=re.S)
+    return {"fences": fences, "urls": sorted(set(re.findall(r"https?://[^\s)>\]]+", text))), "headings": len(re.findall(r"^#+ ", body, re.M)),
+            "items": len(re.findall(r"^\s*(?:[-*]|\d+\.) ", body, re.M)), "bar": text.split("\n")[2]}
+
+
+pages = sorted(f[:-3] for f in os.listdir(KEYS_DIR) if f.endswith(".md") and f != "README.md" and f.count(".") == 1)
+check("how-to pages found", len(pages) >= 6, pages)
+for page in pages:
+    en = page_facts(os.path.join(KEYS_DIR, page + ".md"))
+    check(f"how-to {page}: the language bar links every language", all(f"({page}.{l}.md)" in en["bar"] for l in PAGE_LANGS), en["bar"])
+    for lang in PAGE_LANGS:
+        path = os.path.join(KEYS_DIR, f"{page}.{lang}.md")
+        if not os.path.exists(path):
+            check(f"how-to {page}.{lang} exists", False)
+            continue
+        f = page_facts(path)
+        check(f"how-to {page}.{lang}: same steps, code and links as English", all(f[k] == en[k] for k in ("fences", "urls", "headings", "items")),
+              {k: (f[k], en[k]) for k in ("fences", "urls", "headings", "items") if f[k] != en[k]})
+
 print("i18n tests:", "OK" if fails == 0 else f"{fails} FAILED")
 raise SystemExit(1 if fails else 0)

@@ -1,6 +1,6 @@
 # Discord: токен бота для TaskHub
 
-[English](discord.md) · [Усі ключі](README.md)
+[English](discord.md) · **Українська** · [Español](discord.es.md) · [Deutsch](discord.de.md) · [Français](discord.fr.md) · [Italiano](discord.it.md) · [Português](discord.pt.md) · [Polski](discord.pl.md) · [中文](discord.zh.md) · [日本語](discord.ja.md) · [Усі сторінки](README.md)
 
 ## Для чого він TaskHub
 - Надсилає ваші сповіщення TaskHub, поступ завдань і графіки особистими повідомленнями від **вашого власного** бота.

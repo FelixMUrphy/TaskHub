@@ -1,6 +1,6 @@
 # AWS: ключ доступу для TaskHub
 
-[English](aws.md) · [Усі ключі](README.md)
+[English](aws.md) · **Українська** · [Español](aws.es.md) · [Deutsch](aws.de.md) · [Français](aws.fr.md) · [Italiano](aws.it.md) · [Português](aws.pt.md) · [Polski](aws.pl.md) · [中文](aws.zh.md) · [日本語](aws.ja.md) · [Усі сторінки](README.md)
 
 ## Для чого він TaskHub
 - **Спостереження:** ваші інстанси EC2 у регіонах, якими ви користуєтеся: назва, тип, регіон, стан і час роботи.

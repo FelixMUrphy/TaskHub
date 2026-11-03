@@ -114,7 +114,7 @@ sealed partial class SshConnector : ISettingsConnector
         {
             ["id"] = Id, ["name"] = Title, ["kind"] = "local", ["enabled"] = on, ["uses_key"] = false,
             ["summary"] = !on ? "" : Summary(),
-            ["help_url"] = SettingsRows.KeyHelpUrl(Id, "uk"), ["help_label"] = L.T("ssh_help"),
+            ["help_url"] = SettingsRows.KeyHelpUrl(Id), ["help_label"] = L.T("ssh_help"),
             ["list"] = new JsonObject
             {
                 ["key"] = "hosts", ["label"] = L.T("ssh_hosts"), ["items"] = items, ["placeholder"] = L.T("ssh_host_ph"),

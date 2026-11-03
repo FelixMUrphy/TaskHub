@@ -277,7 +277,7 @@ sealed partial class AwsConnector : ISettingsConnector
                 new JsonObject { ["ph"] = L.T("aws_key_id") },
                 new JsonObject { ["ph"] = L.T("aws_key_secret") }),
             ["summary"] = !on ? "" : SettingsRows.Line(Summary(), SettingsRows.Normal(st) ? "" : st),
-            ["help_url"] = SettingsRows.KeyHelpUrl(Id, "uk"),
+            ["help_url"] = SettingsRows.KeyHelpUrl(Id),
             ["help_needed"] = denied.Count > 0 || moneyDenied,   // the key works but lacks what a switch needs: the page lists it
             ["list"] = new JsonObject
             {

@@ -121,7 +121,7 @@ sealed class SettingsBridge
         {
             ["configured"] = configured, ["linked"] = linked, ["status"] = st, ["phase"] = J.C(d["phase"]), ["invite"] = J.C(d["invite"]),
             ["warning"] = J.C(d["warning"]), ["away"] = J.Truthy(d["away_only"]), ["progress"] = J.Truthy(d["progress"]),
-            ["help_url"] = SettingsRows.KeyHelpUrl("discord", "uk"),
+            ["help_url"] = SettingsRows.KeyHelpUrl("discord"),
             ["texts"] = new JsonObject
             {
                 ["state"] = state, ["intro"] = L.T("dc_intro"), ["token"] = L.T("dc_token"), ["connect"] = L.T("tg_connect"),

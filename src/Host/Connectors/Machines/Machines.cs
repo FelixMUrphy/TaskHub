@@ -274,7 +274,6 @@ abstract partial class MachineConnector : ISettingsConnector
 
     // ------------------------------------------------------------ settings page row
     /// <summary>Languages (besides English) of its "how to get a key" page, docs/keys/&lt;id&gt;.&lt;lang&gt;.md.</summary>
-    protected virtual string[] KeyDocLangs => new[] { "uk" };
 
     const double IdleStopMin = 5;
 
@@ -293,7 +292,7 @@ abstract partial class MachineConnector : ISettingsConnector
             ["id"] = Id, ["name"] = Title, ["kind"] = "key", ["enabled"] = on, ["uses_key"] = true,
             ["key_set"] = J.Truthy(ms["key_set"]), ["key_check"] = check.Length > 0 ? check : null,
             ["summary"] = !on ? "" : SettingsRows.Line(J.Str(ms["summary"]), SettingsRows.Normal(st) ? "" : st),
-            ["help_url"] = SettingsRows.KeyHelpUrl(Id, KeyDocLangs),
+            ["help_url"] = SettingsRows.KeyHelpUrl(Id),
             ["thresholds"] = new JsonObject
             {
                 ["idle_minutes"] = J.C(ms["idle_minutes"]), ["low_runway_hours"] = J.C(ms["low_runway_hours"]),
