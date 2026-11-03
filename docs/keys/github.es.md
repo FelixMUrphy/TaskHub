@@ -5,7 +5,7 @@
 ## Para qué lo usa TaskHub
 - **Vigilar:** las ejecuciones de workflows de los repositorios que indiques: progreso, el paso que falló, el resultado.
 - **Acciones** (solo con acceso de escritura): Cancelar y Relanzar una ejecución.
-- **Pull requests** (opcional, desde la 2.9.4, solo lectura): los que esperan tu revisión y los pull requests abiertos de Dependabot.
+- **Pull requests** (opcional, solo lectura): los que esperan tu revisión y los pull requests abiertos de Dependabot.
 - TaskHub nunca cambia tus workflows, tu código ni la configuración de tus repositorios.
 
 ## Crea un token fine-grained

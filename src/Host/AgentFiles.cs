@@ -31,7 +31,7 @@ static class AgentFiles
     {
         var c = Str(h["command"]);
         if (claude)
-            return Str(h["type"]) == "http" ? Str(h["url"]).Contains("/api/hooks/claude")   // before 3.1
+            return Str(h["type"]) == "http" ? Str(h["url"]).Contains("/api/hooks/claude")   // the older HTTP form
                 : Str(h["type"]) == "command" && c.Contains("taskhub", StringComparison.OrdinalIgnoreCase)
                   && h["args"] is JsonArray a && a.Count == 2 && Str(a[0]) == "hook" && Str(a[1]) == "claude";
         return Str(h["type"]) == "command" && c.Contains("hook codex") && c.Contains("taskhub", StringComparison.OrdinalIgnoreCase);

@@ -5,7 +5,7 @@
 ## Навіщо він TaskHub
 - **Спостереження:** запуски workflow вибраних репозиторіїв — прогрес, крок, що впав, результат.
 - **Дії** (лише з правом на запис): Cancel і Re-run запуску.
-- **Pull requests** (необов'язково, з 2.9.4, лише читання): ті, що чекають вашого рев'ю, і відкриті PR від Dependabot.
+- **Pull requests** (необов'язково, лише читання): ті, що чекають вашого рев'ю, і відкриті PR від Dependabot.
 - TaskHub ніколи не змінює ваші workflow, код чи налаштування репозиторіїв.
 
 ## Створити fine-grained токен
@@ -25,7 +25,7 @@
 | (a) Лише спостерігати | **Actions:** Read-only · **Contents:** Read-only · **Metadata:** Read-only |
 | (b) Cancel / Re-run | **Actions:** Read and write · **Contents:** Read-only · **Metadata:** Read-only |
 
-Pull requests (необов'язково, з 2.9.4, лише читання): для PR від Dependabot додайте ще **Pull requests: Read-only** (GitHub
+Pull requests (необов'язково, лише читання): для PR від Dependabot додайте ще **Pull requests: Read-only** (GitHub
 дає список відкритих PR лише з цим дозволом); пошук запитів на рев'ю дозволів не потребує. Fine-grained токен бачить
 запити на рев'ю лише в наданих йому репозиторіях і публічних.
 

@@ -5,7 +5,7 @@
 ## Do czego TaskHub go używa
 - **Obserwowanie:** uruchomienia workflow w repozytoriach, które wskażesz — postęp, nieudany krok, wynik.
 - **Akcje** (tylko z uprawnieniem do zapisu): Anuluj i Uruchom ponownie uruchomienie.
-- **Pull requesty** (opcjonalnie, od 2.9.4, tylko odczyt): te, które czekają na Twoją recenzję, oraz otwarte pull requesty Dependabota.
+- **Pull requesty** (opcjonalnie, tylko odczyt): te, które czekają na Twoją recenzję, oraz otwarte pull requesty Dependabota.
 - TaskHub nigdy nie zmienia Twoich workflow, kodu ani ustawień repozytorium.
 
 ## Utwórz token fine-grained

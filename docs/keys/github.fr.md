@@ -5,7 +5,7 @@
 ## À quoi TaskHub l'utilise
 - **Surveiller :** les exécutions de workflow des dépôts que vous indiquez — progression, étape en échec, résultat.
 - **Actions** (uniquement avec un accès en écriture) : annuler et relancer une exécution.
-- **Pull requests** (facultatif, à partir de la 2.9.4, en lecture seule) : celles qui attendent votre relecture et les pull requests Dependabot ouvertes.
+- **Pull requests** (facultatif, en lecture seule) : celles qui attendent votre relecture et les pull requests Dependabot ouvertes.
 - TaskHub ne modifie jamais vos workflows, votre code ni les paramètres de vos dépôts.
 
 ## Créer un jeton fine-grained

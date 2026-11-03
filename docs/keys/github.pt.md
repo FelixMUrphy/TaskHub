@@ -5,7 +5,7 @@
 ## Para que o TaskHub usa o token
 - **Acompanhar:** as execuções de workflow dos repositórios que você listar — progresso, a etapa que falhou, o resultado.
 - **Ações** (só com acesso de escrita): Cancelar e Reexecutar uma execução.
-- **Pull requests** (opcional, a partir da 2.9.4, somente leitura): os que aguardam a sua revisão e os pull requests abertos do Dependabot.
+- **Pull requests** (opcional, somente leitura): os que aguardam a sua revisão e os pull requests abertos do Dependabot.
 - O TaskHub nunca altera seus workflows, seu código nem as configurações dos repositórios.
 
 ## Crie um token fine-grained

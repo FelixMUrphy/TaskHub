@@ -52,8 +52,8 @@ sealed class TelegramBridge
     /// <summary>The last Credential Manager read / write failed: shown as a warning.</summary>
     volatile bool vaultFailed;
 
-    /// <summary>Reads the token: the Credential Manager's, else the one in config.json. Before 2.9 it was always in
-    /// config.json: moved to the Credential Manager and removed from config.json only after a verified write; kept there
+    /// <summary>Reads the token: the Credential Manager's, else the one in config.json. One still in
+    /// config.json is moved to the Credential Manager and removed from config.json only after a verified write; kept there
     /// if the Credential Manager refuses (retried on every start), so nothing is lost and Telegram keeps working.</summary>
     string LoadToken()
     {

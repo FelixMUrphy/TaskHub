@@ -61,8 +61,8 @@ sealed class Api
             {
                 ["ok"] = true, ["app"] = Settings.AppId, ["version"] = Settings.Version, ["impl"] = "dotnet", ["edition"] = Install.Edition,
                 ["pid"] = Environment.ProcessId, ["tasks"] = total, ["active"] = active,
-                ["notifications"] = hub.Notifier?.SystemSetting,   // Windows' switch for TaskHub's notifications (2.9)
-                ["toast_queue"] = hub.Notifier?.QueueLength ?? 0,  // notifications waiting for the rate limit (2.9)
+                ["notifications"] = hub.Notifier?.SystemSetting,   // Windows' switch for TaskHub's notifications
+                ["toast_queue"] = hub.Notifier?.QueueLength ?? 0,  // notifications waiting for the rate limit
             });
         });
         R("GET", "/api/hub-proof", (c, q, g) =>
@@ -156,7 +156,7 @@ sealed class Api
         R("GET", "/api/connectors/([a-z0-9]{1,20})", (c, q, g) => V(Conn(g[0]).State()));
         R("GET", "/api/guard/log", (c, q, g) =>
         {
-            // what the balance guard stopped (2.9), newest first: ?provider=runpod|vastai&limit=1-200 (default 50)
+            // what the balance guard stopped, newest first: ?provider=runpod|vastai&limit=1-200 (default 50)
             var prov = q.TryGetValue("provider", out var pv) && pv.Length > 0 ? pv : null;
             int lim = q.TryGetValue("limit", out var lv) && int.TryParse(lv, out var li) ? li : 50;
             var a = new JsonArray();

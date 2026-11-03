@@ -301,13 +301,13 @@ abstract partial class MachineConnector : ISettingsConnector
             ["fields"] = new JsonArray
             {
                 SettingsRows.Field("idle_minutes", "s_idle_min", 1, 1440, 1, ms["idle_minutes"]),
-                // auto-stop on GPU idle (2.9.3): 0 = off
+                // auto-stop on GPU idle: 0 = off
                 SettingsRows.Field("idle_stop_minutes", "s_idle_stop", 0, 1440, 5, ms["idle_stop_minutes"]),
                 // the balance guard on: its warning replaces the old low-balance one (the keys stay as they are)
                 SettingsRows.Field("low_runway_hours", "s_low_runway", 0, 720, 1, ms["low_runway_hours"]),
                 SettingsRows.Field("low_balance", "s_low_bal", 0, 1000000, 1, ms["low_balance"], emptyOk: true),
             },
-            // the balance guard (2.9): its values, forecast / pending line, machines with "never auto-stop", last stops
+            // the balance guard: its values, forecast / pending line, machines with "never auto-stop", last stops
             ["guard"] = on ? GuardRow() : null,
         };
     }

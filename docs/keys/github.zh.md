@@ -5,7 +5,7 @@
 ## TaskHub 用它做什么
 - **监视：** 你列出的仓库中的 workflow 运行——进度、失败的步骤、结果。
 - **操作**（仅在有写入权限时）：取消和重新运行某次运行。
-- **Pull request**（可选，自 2.9.4 起，只读）：等待你审查的 pull request，以及未关闭的 Dependabot pull request。
+- **Pull request**（可选，只读）：等待你审查的 pull request，以及未关闭的 Dependabot pull request。
 - TaskHub 绝不会修改你的 workflow、代码或仓库设置。
 
 ## 创建 fine-grained 令牌

@@ -23,9 +23,7 @@ Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/
   `%LOCALAPPDATA%\Packages\<package family>\LocalCache\Roaming\TaskHub\config.json`). Env `TASKHUB_TOKEN` for the Python
   client; the `taskhub` CLI and MCP server also read it from the hub's `config.json`. The token keeps out browsers and other users'
   sessions; processes of your own account can read `config.json` (and the panel page) anyway.
-- Features marked with a version (2.9, 2.9.2, …) exist from that TaskHub version on; check `version` from `GET /api/health`
-  before relying on one.
-- `meta.github` is the connector's: over this API it is dropped from what you send (3.2).
+- `meta.github` is the connector's: over this API it is dropped from what you send.
 - Be fail-soft: if the hub is not reachable (`GET /api/health` fails), keep working without it.
 - Throttle updates to ≤ 2–4 per second. Chart points are appended per update, so batch them (see `chart`).
 - Always `finish` the task (done/failed/cancelled). If you pass `pid`, the hub marks the task `lost` when the process dies without finishing.
@@ -79,8 +77,8 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 
 | Method | Path | Body / query | Purpose |
 |---|---|---|---|
-| GET | `/api/health` | | `{ok, app:"TaskHub", version, edition: "exe"\|"store", active, notifications, toast_queue}` — `notifications` (2.9): Windows' switch for TaskHub's notifications, `enabled` \| `disabled_app` \| `disabled_user` \| `disabled_policy` \| `disabled_manifest` \| `unknown` (when disabled, toasts vanish silently; failure notifications fall back to a tray balloon); `toast_queue` (2.9): notifications waiting for the rate limit (`toast_rate` per minute, one per task every `toast_task_gap` s; bursts fold into the latest) |
-| GET | `/api/hub-proof?nonce=<16-128 hex>` | | (3.2) `{proof}` = hex of HMAC-SHA256 with the key in `hub.key` over `taskhub-hub-proof\|<port>\|<nonce>`; no token needed. Lets a client tell the hub from another program on its port. The `taskhub` CLI and MCP server check it before every request, unless `--url` is given, `TASKHUB_URL` is another address than the hub's own, or it cannot see the key |
+| GET | `/api/health` | | `{ok, app:"TaskHub", version, edition: "exe"\|"store", active, notifications, toast_queue}` — `notifications`: Windows' switch for TaskHub's notifications, `enabled` \| `disabled_app` \| `disabled_user` \| `disabled_policy` \| `disabled_manifest` \| `unknown` (when disabled, toasts vanish silently; failure notifications fall back to a tray balloon); `toast_queue`: notifications waiting for the rate limit (`toast_rate` per minute, one per task every `toast_task_gap` s; bursts fold into the latest) |
+| GET | `/api/hub-proof?nonce=<16-128 hex>` | | `{proof}` = hex of HMAC-SHA256 with the key in `hub.key` over `taskhub-hub-proof\|<port>\|<nonce>`; no token needed. Lets a client tell the hub from another program on its port. The `taskhub` CLI and MCP server check it before every request, unless `--url` is given, `TASKHUB_URL` is another address than the hub's own, or it cannot see the key |
 | GET | `/api/help` | | this document |
 | GET | `/api/tasks` | `?since=V&wait=25` ([long-poll](#long-poll)), `?active=1`, `?brief=1` | all tasks + `version` |
 | POST | `/api/tasks` | Registration (below) | create / re-register → `{id}` |
@@ -88,30 +86,30 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/tasks/{id}/update` | Update (below) | progress, status, widgets… |
 | POST | `/api/tasks/{id}/log` | `{msg: str or [str], level?, toast?}` | append log |
 | POST | `/api/tasks/{id}/heartbeat` | | liveness only |
-| POST | `/api/tasks/{id}/finish` | `{state: done/failed/cancelled, message?, result?, widgets?, source?, agent_cwd?}` | (3.1) `source` `claude`/`codex` with `agent_cwd` = its folder holds back that agent's next `Stop` toast ([rule](#claude-code-hooks)). finish + toast; a repeated finish overwrites state and message (and `result` if sent), with no second toast |
+| POST | `/api/tasks/{id}/finish` | `{state: done/failed/cancelled, message?, result?, widgets?, source?, agent_cwd?}` | `source` `claude`/`codex` with `agent_cwd` = its folder holds back that agent's next `Stop` toast ([rule](#claude-code-hooks)). finish + toast; a repeated finish overwrites state and message (and `result` if sent), with no second toast |
 | GET | `/api/tasks/{id}/commands` | `?wait=25` ([long-poll](#long-poll), max 60) | `{commands: [...], state}`: the queued signals for the process. Reading takes them off the queue (status `delivered`): each command is returned once, also if you never ack it |
 | POST | `/api/tasks/{id}/commands/{cmd}/ack` | `{ok: bool, message}`; `{cmd}` = the command's `id` | the process's reply, shown in the panel log (it does not remove or re-queue anything) |
 | POST | `/api/tasks/{id}/controls/{cid}` | `{value?}` | trigger a control (same as panel button) |
 | DELETE | `/api/tasks/{id}` | `?force=1` for active | remove (an active task without `force` → 409) |
-| POST | `/api/notify` | `{title, message, level: info/warn/error, task?, source?, agent_cwd?}` | one-off toast; `source` and `agent_cwd` as for finish (3.1) |
+| POST | `/api/notify` | `{title, message, level: info/warn/error, task?, source?, agent_cwd?}` | one-off toast; `source` and `agent_cwd` as for finish |
 | POST | `/api/hooks/claude`, `/api/hooks/codex` | agent hook input (as sent, from `taskhub hook`) | `Stop` / `Notification` / `PermissionRequest` → toast; always `{}` (below) |
-| GET | `/api/telegram` | | Telegram bridge state `{configured, linked, bot, status, away_only, progress, link, storage, warning}` — `storage` (2.9): where the bot token is kept, `vault` (Windows Credential Manager) \| `config` (`config.json`, only when the Credential Manager is unavailable) \| null; `warning`: text for Settings, or null |
+| GET | `/api/telegram` | | Telegram bridge state `{configured, linked, bot, status, away_only, progress, link, storage, warning}` — `storage`: where the bot token is kept, `vault` (Windows Credential Manager) \| `config` (`config.json`, only when the Credential Manager is unavailable) \| null; `warning`: text for Settings, or null |
 | POST | `/api/telegram` | `{token}` (start pairing, returns the t.me `link`) · `{test: true}` · `{relink: true}` (new code for another chat, same bot) · `{away_only: bool}` · `{progress: bool}` (live progress bar + charts at the end) · `{disconnect: true}` | Telegram setup |
-| GET | `/api/discord` | | (3.2) Discord bridge state `{configured, linked, bot, status, phase, away_only, progress, invite, endpoint_set, cannot_write, warning}`; `status`: `off` / `connecting` / `connected` / `offline` / `on hold` / `invalid token` / `closed <code>`; `phase` until linked: `server` (no shared server, or its direct messages are off) / `confirm` (the button was sent) / `retry` (Discord failed or is out of reach) / `again` (restarted before the button was pressed). `invite` has the application's id, as any invite link does; never the token or other ids. Setting it up is only on the settings page, not over HTTP |
-| GET | `/api/connectors`, `/api/connectors/github` | | connector state: `{enabled, repos, interval, notify_success, logs, auth, token_set, token_check, token_check_text, login, token_expires, status, repo_status, rate_remaining, active_runs, pr_reviews, pr_dependabot, prs}` (the token itself is never returned); `repo_status` = `{repo: "ok" or a line in the UI language or "HTTP n"}`, for showing: don't compare the text (3.1) |
-| GET | `/api/connectors?view=settings` | | the rows of the settings page's Connectors section (2.9): `{connectors: [{id, name, kind, enabled, uses_key, key_set, key_check, summary, help_url, thresholds?, fields?, guard?, setup?, key_parts?, list?, switches?, notes?, help_needed?}], lang}` - `key_parts` (3.1) = a key entered in several fields, sent joined with `:`; `key_check` = the last verdict on the saved key (`ok` / `revoked` / `denied` / `clock` / `network` / `unavailable` / null), `summary` = the state line in the UI language ("Connected, balance $X", "Connected as @login · 3 repositories"...), `help_url` = the "how to get a key" page (`docs/keys/<id>.md`, or `<id>.<lang>.md` when that language exists); `fields` (2.9.2) = the connector's number inputs as the page draws them: `[{key, label, min, max, step, value, empty_ok?}]` (`label` = a key of the panel's translations; `thresholds` stays as before); never a key |
+| GET | `/api/discord` | | Discord bridge state `{configured, linked, bot, status, phase, away_only, progress, invite, endpoint_set, cannot_write, warning}`; `status`: `off` / `connecting` / `connected` / `offline` / `on hold` / `invalid token` / `closed <code>`; `phase` until linked: `server` (no shared server, or its direct messages are off) / `confirm` (the button was sent) / `retry` (Discord failed or is out of reach) / `again` (restarted before the button was pressed). `invite` has the application's id, as any invite link does; never the token or other ids. Setting it up is only on the settings page, not over HTTP |
+| GET | `/api/connectors`, `/api/connectors/github` | | connector state: `{enabled, repos, interval, notify_success, logs, auth, token_set, token_check, token_check_text, login, token_expires, status, repo_status, rate_remaining, active_runs, pr_reviews, pr_dependabot, prs}` (the token itself is never returned); `repo_status` = `{repo: "ok" or a line in the UI language or "HTTP n"}`, for showing: don't compare the text |
+| GET | `/api/connectors?view=settings` | | the rows of the settings page's Connectors section: `{connectors: [{id, name, kind, enabled, uses_key, key_set, key_check, summary, help_url, thresholds?, fields?, guard?, setup?, key_parts?, list?, switches?, notes?, help_needed?}], lang}` - `key_parts` = a key entered in several fields, sent joined with `:`; `key_check` = the last verdict on the saved key (`ok` / `revoked` / `denied` / `clock` / `network` / `unavailable` / null), `summary` = the state line in the UI language ("Connected, balance $X", "Connected as @login · 3 repositories"...), `help_url` = the "how to get a key" page (`docs/keys/<id>.md`, or `<id>.<lang>.md` when that language exists); `fields` = the connector's number inputs as the page draws them: `[{key, label, min, max, step, value, empty_ok?}]` (`label` = a key of the panel's translations; `thresholds` is there as well); never a key |
 | POST | `/api/connectors/github` | `{enabled?, repos?: ["owner/repo"], interval?: 15-3600, notify_success?, logs?, auth?: "token"\|"gcm", token?, forget_token?, pr_reviews?, pr_dependabot?}` | GitHub Actions connector (below) |
-| GET | `/api/connectors/runpod` | | `{enabled, key_set, key_check, key_check_text, status, can_act, probed_at, machines: [{id, name, state, task}], running, balance: {amount, spend_per_hr, spend_limit, runway_hours, raw, at}, low, idle_minutes, idle_util, low_runway_hours, low_balance, graphql_balance, summary}` (2.9; the key is never returned) |
-| POST | `/api/connectors/runpod` | `{enabled?, key?, forget_key?, idle_minutes?: 1-1440, idle_util?: 1-50, low_runway_hours?: 0-720, low_balance?: $\|null, list_interval?: 30-3600, detail_interval?: 15-3600, billing_interval?: 300-86400, graphql_balance?}` | Runpod connector (2.9, below). From 3.2 `idle_minutes`, `idle_util`, `billing_interval`, `graphql_balance` and the guard's keys answer 403 here: Settings only |
-| GET | `/api/connectors/vastai` | | the same as Runpod without `graphql_balance`; `balance.label` says what `amount` is ("Balance $x · Credit"), `balance.raw = {balance, credit, ...}` (2.9; the key is never returned) |
-| POST | `/api/connectors/vastai` | `{enabled?, key?, forget_key?, idle_minutes?, idle_util?, low_runway_hours?, low_balance?, list_interval?, detail_interval?, billing_interval?}` (ranges as Runpod) | Vast.ai connector (2.9, below). From 3.2 `idle_minutes`, `idle_util`, `billing_interval`, `graphql_balance` and the guard's keys answer 403 here: Settings only |
-| GET | `/api/connectors/aws` | | `{enabled, key_set, key_check, key_check_text, status, regions: {<region>: {state, code, count, read_at}}, regions_chosen, machines: [{id, name, region, state, task}], running, forgotten_hours, forgotten_exempt, list_interval, sagemaker, batch, job_interval, jobs: [{kind, id, name, region, state, task}], job_polls, cost, budgets, cost_read: {state, code, period, month, forecast, unit, read_at, next_at}, budgets_read: {state, code, read_at, items: [{name, actual, limit, forecast, unit}]}, summary}`; never a key (3.1) |
-| GET | `/api/connectors/ssh` | | SSH connector (3.2, below): `{enabled, client, interval, disk_warn, tmux_notify, hosts: [{host, state, text}]}` |
-| POST | `/api/connectors/ssh` | | 403: Settings only (3.2); an empty body changes nothing and gives the state |
-| POST | `/api/connectors/aws` | `{enabled?, key?: "id:secret", forget_key?, regions?: [..], forgotten_hours?: 0-8760, list_interval?: 300-3600, sagemaker?: bool, batch?: bool, job_interval?: 120-3600, cost?: bool, budgets?: bool}` | changes the settings; a key AWS rejects -> 400, nothing saved; `cost: true` -> 403, it goes on only in Settings because it costs money (`cost: false` works) (3.1) |
-| POST | `/api/connectors/runpod`, `/api/connectors/vastai` | `{guard?: bool, guard_warn?: $\|null, guard_stop?: $\|null, guard_grace_min?: 1-120, guard_snooze_min?: 5-240, guard_exempt?: [machine id], idle_stop_minutes?: 0\|5-1440}` | balance guard (2.9, [below](#balance-guard)); `guard_warn` must be above `guard_stop` (>= 0), else 400 and nothing changes; a threshold you don't send is compared as saved. These fields can go in one request with the connector's own: any invalid value → 400 and nothing is saved; `idle_stop_minutes` (2.9.3): auto-stop on GPU idle, 0 = off |
-| GET | `/api/guard/log` | `?provider=runpod\|vastai&limit=1-200` (50) | what the balance guard stopped, newest first (2.9): `{entries: [{t, provider, machine_id, name, trigger: "auto"\|"stop_now"\|"idle", balance, threshold, idle_minutes, burn_per_hr, spent, spent_estimated, result: "stopped"\|"failed", error, storage_per_day, storage_note, storage_approx}]}` |
-| GET | `/api/limits` | | plan limits as last reported (3.1): `{claude: {five_hour: {used_percentage, resets_at, at}, seven_day: {...}}, codex: {...}}`, only agents with their switch on; also `limits` and `limits_warn` in `GET /api/tasks`; empty while the switch is off |
+| GET | `/api/connectors/runpod` | | `{enabled, key_set, key_check, key_check_text, status, can_act, probed_at, machines: [{id, name, state, task}], running, balance: {amount, spend_per_hr, spend_limit, runway_hours, raw, at}, low, idle_minutes, idle_util, low_runway_hours, low_balance, graphql_balance, summary}` (the key is never returned) |
+| POST | `/api/connectors/runpod` | `{enabled?, key?, forget_key?, idle_minutes?: 1-1440, idle_util?: 1-50, low_runway_hours?: 0-720, low_balance?: $\|null, list_interval?: 30-3600, detail_interval?: 15-3600, billing_interval?: 300-86400, graphql_balance?}` | Runpod connector (below). `idle_minutes`, `idle_util`, `billing_interval`, `graphql_balance` and the guard's keys answer 403 here: Settings only |
+| GET | `/api/connectors/vastai` | | the same as Runpod without `graphql_balance`; `balance.label` says what `amount` is ("Balance $x · Credit"), `balance.raw = {balance, credit, ...}` (the key is never returned) |
+| POST | `/api/connectors/vastai` | `{enabled?, key?, forget_key?, idle_minutes?, idle_util?, low_runway_hours?, low_balance?, list_interval?, detail_interval?, billing_interval?}` (ranges as Runpod) | Vast.ai connector (below). `idle_minutes`, `idle_util`, `billing_interval`, `graphql_balance` and the guard's keys answer 403 here: Settings only |
+| GET | `/api/connectors/aws` | | `{enabled, key_set, key_check, key_check_text, status, regions: {<region>: {state, code, count, read_at}}, regions_chosen, machines: [{id, name, region, state, task}], running, forgotten_hours, forgotten_exempt, list_interval, sagemaker, batch, job_interval, jobs: [{kind, id, name, region, state, task}], job_polls, cost, budgets, cost_read: {state, code, period, month, forecast, unit, read_at, next_at}, budgets_read: {state, code, read_at, items: [{name, actual, limit, forecast, unit}]}, summary}`; never a key |
+| GET | `/api/connectors/ssh` | | SSH connector (below): `{enabled, client, interval, disk_warn, tmux_notify, hosts: [{host, state, text}]}` |
+| POST | `/api/connectors/ssh` | | 403: Settings only; an empty body changes nothing and gives the state |
+| POST | `/api/connectors/aws` | `{enabled?, key?: "id:secret", forget_key?, regions?: [..], forgotten_hours?: 0-8760, list_interval?: 300-3600, sagemaker?: bool, batch?: bool, job_interval?: 120-3600, cost?: bool, budgets?: bool}` | changes the settings; a key AWS rejects -> 400, nothing saved; `cost: true` -> 403, it goes on only in Settings because it costs money (`cost: false` works) |
+| POST | `/api/connectors/runpod`, `/api/connectors/vastai` | `{guard?: bool, guard_warn?: $\|null, guard_stop?: $\|null, guard_grace_min?: 1-120, guard_snooze_min?: 5-240, guard_exempt?: [machine id], idle_stop_minutes?: 0\|5-1440}` | balance guard ([below](#balance-guard)); `guard_warn` must be above `guard_stop` (>= 0), else 400 and nothing changes; a threshold you don't send is compared as saved. These fields can go in one request with the connector's own: any invalid value → 400 and nothing is saved; `idle_stop_minutes`: auto-stop on GPU idle, 0 = off |
+| GET | `/api/guard/log` | `?provider=runpod\|vastai&limit=1-200` (50) | what the balance guard stopped, newest first: `{entries: [{t, provider, machine_id, name, trigger: "auto"\|"stop_now"\|"idle", balance, threshold, idle_minutes, burn_per_hr, spent, spent_estimated, result: "stopped"\|"failed", error, storage_per_day, storage_note, storage_approx}]}` |
+| GET | `/api/limits` | | plan limits as last reported: `{claude: {five_hour: {used_percentage, resets_at, at}, seven_day: {...}}, codex: {...}}`, only agents with their switch on; also `limits` and `limits_warn` in `GET /api/tasks`; empty while the switch is off |
 | POST | `/api/limits/claude` | `{five_hour?: {used_percentage, resets_at?}, seven_day?: {...}}` | a reading, from `taskhub statusline`; only these numbers are kept; ignored while the switch is off (`{ok: true, ignored: true}`); a `resets_at` further off than its window's length counts as none; a body with no limit window → 400 |
 | POST | `/api/clear` | | remove finished tasks |
 | POST | `/api/settings` | `{muted?: bool, seen?: true \| [task ids], language?, theme?: "system"\|"light"\|"dark", accent?: "system"\|"taskhub", panel_transparency?: 0-100, card_transparency?: 0-100, panel_group?: "project"\|"source"\|"none", panel_pinned?: bool}` | mute toasts; panel look (also in `GET /api/tasks` → `panel`, which also shows `panel_push_windows`: read-only, it changes only on the panel's settings page) |
@@ -148,7 +146,7 @@ Every error is JSON `{"error": "<text>"}` with one of these statuses:
   "project": "shop-api",                  // panel groups (default: the folder name of "cwd")
   "attention": "Approve the deploy",      // the task waits for the user: shown on top of the panel ("" = no)
   "pid": 12345,                           // a Windows pid: lost-detection + automatic "Kill" control ("kill_control": false to disable);
-                                          // 2.9: no Kill when the hub can't read the process's start time (not a Windows pid)
+                                          // no Kill when the hub can't read the process's start time (not a Windows pid)
   "heartbeat_timeout": 600,               // s without update -> "stale" + toast (0 = off)
   "expected_duration": 120,               // s it usually takes: the ETA comes from it (not from the pace) until overdue
   "notify": {"start": false, "finish": true, "fail": true, "stale": true, "milestones": []},
@@ -170,7 +168,7 @@ task is active and starts anew when it had finished. Signals the process hasn't 
 `percent` → `progress`, so the last one wins · `status` · `stage` · `log` (str or [str]) + `level` (info/warn/error) ·
 `toast`: true or string → Windows notification now · `metrics`: an object `{k: v}` (a null value deletes the key; the panel shows it as a key-value list) ·
 `widgets`: `{widget_id: value}` · `state`: running/paused · `project` · `attention` (string; `""` clears, also cleared on finish) · `add_widgets` / `remove_widgets` · `add_controls` / `remove_controls` / `controls` (replace) · `links` · `meta` · `expected_duration`.
-`links` (register and update): a list of URLs or `{"label", "url"}`. 2.9: only `http`, `https`, `mailto` and `file` URLs or an absolute
+`links` (register and update): a list of URLs or `{"label", "url"}`. Only `http`, `https`, `mailto` and `file` URLs or an absolute
 path (`E:/proj/out`, `\\server\share\x`) - anything else is rejected with 400. The panel opens web links in the browser and shows
 a file or folder link in Explorer (a folder opens, a file is selected in its folder) - it never runs a linked program.
 An update with an invalid entry in `controls` / `add_controls` / `add_widgets` / `links` is rejected as a whole (400, nothing changed). Numbers must be finite:
@@ -216,8 +214,8 @@ in Telegram), `hint`, `states` (when shown; default running/paused/stale), `inpu
 | `signal` | queued for the process → it receives via `GET /commands?wait=25` → replies with `ack` |
 | `shell` | hub runs `command` (list or string; placeholders `{value}` `{pid}` `{task_id}`; see *Shell values* below), the last 25 output lines and the exit code → task log; `cwd`, `timeout` (s, default 300, 1–86400) |
 | `open` | hub opens `target` (file, folder, URL) |
-| `connector` | only on tasks of a built-in connector (not accepted from API clients): the connector does it (e.g. cancel / re-run on GitHub); `panel_only` ones (delete a Runpod pod / Vast.ai instance) answer 403 over HTTP - only the panel's own page can trigger them (2.9) |
-| `kill` | hub kills `pid` with its whole process tree (only if it is still the process the task registered, never a reused pid); task → cancelled. 2.9: refused (409) when the process's start time couldn't be read at registration; if the process is still running after the kill (e.g. it runs elevated: access denied) → 500 with the reason and the task stays as it was (before 2.9: marked cancelled anyway) |
+| `connector` | only on tasks of a built-in connector (not accepted from API clients): the connector does it (e.g. cancel / re-run on GitHub); `panel_only` ones (delete a Runpod pod / Vast.ai instance) answer 403 over HTTP - only the panel's own page can trigger them |
+| `kill` | hub kills `pid` with its whole process tree (only if it is still the process the task registered, never a reused pid); task → cancelled. Refused (409) when the process's start time couldn't be read at registration; if the process is still running after the kill (e.g. it runs elevated: access denied) → 500 with the reason and the task stays as it was |
 
 `input`: `{"type": "text"|"number"|"select"|"bool", "label", "default", "options": [...], "min", "max", "step"}`.
 Values are checked by the hub for every surface (400 otherwise): a number within `min`/`max`, `true`/`false` for bool, one of
@@ -225,7 +223,7 @@ Values are checked by the hub for every surface (400 otherwise): a number within
 The value is sent only when the control's button is pressed, so give such controls an action label ("Set speed", "Apply", "Send"),
 and `input.label` for the field itself. The hub remembers the last sent value (`last_value` in the control) and pre-fills the panel form
 and the toast input with it.
-**Shell values** (2.9). The value (from the panel, a notification, Telegram or Discord) is never pasted into a command line as text:
+**Shell values**. The value (from the panel, a notification, Telegram or Discord) is never pasted into a command line as text:
 - every form: the hub also passes it in the environment variable `TASKHUB_VALUE` (absent when the value is empty);
 - string `command` (run by `cmd.exe /d /s /c`): `{value}` becomes `!TASKHUB_VALUE!` and cmd runs with delayed expansion (`/v:on`),
   which expands it only after the line is split into commands, pipes and redirections - `& | < > ^ % " !` in the value stay plain
@@ -248,7 +246,7 @@ Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in updat
 One rotated copy, `taskhub.log.1`, past 4 MB. At `debug` the CLI also writes its own failures to `cli.log` (hooks and MCP are silent otherwise).
 A beta build (`build.cmd beta`) defaults to `debug` and keeps three copies of 20 MB. Text that looks like a token or key is masked at any level.
 
-## Discord (3.2)
+## Discord
 
 A mirror of notifications, like Telegram. Settings page only (token, *Check again*, *Send test*, *Disconnect*, switches). Controls pressed there arrive with `via` `discord` and follow the same rules as Telegram's (panel-only controls are refused).
 
@@ -270,7 +268,7 @@ Requests go only to api.github.com (with the token) and, for logs, to GitHub's l
 (without the token). Polling uses ETags (unchanged = free): every `interval` s (default 60) when idle, every 10 s while a run is
 going, slower near the rate limit. A notification warns 7 days before the token expires.
 
-Pull requests, read-only (2.9.4; `pr_reviews`, `pr_dependabot`, both off by default): PRs waiting for your review (search
+Pull requests, read-only (`pr_reviews`, `pr_dependabot`, both off by default): PRs waiting for your review (search
 `is:pr is:open archived:false review-requested:<login>`, team requests included, at most once a minute - the search API's own
 limit of 30 / min; a search rate limit pauses only these searches) and open Dependabot PRs (`dependabot[bot]`) in the
 listed repositories (`GET /repos/{repo}/pulls?state=open`, ETag, every 5 min). Each is a task `ghpr-<12 hex>` (hash of
@@ -284,7 +282,7 @@ token sees review requests only in its own repositories and public ones); the PR
 More than 100 open PRs / review requests are paged; a list too long to read ends nothing. State also has `pr_status`.
 
 ## Connectors: Runpod
-*2.9.* Panel → ⚙ Settings → Connectors → Runpod (or `POST /api/connectors/runpod {key, enabled: true}`). The key is checked with
+Panel → ⚙ Settings → Connectors → Runpod (or `POST /api/connectors/runpod {key, enabled: true}`). The key is checked with
 Runpod, then kept in the Windows Credential Manager (never `config.json`, never returned): a key Runpod rejects (401 / 403) -> 400,
 nothing saved; when Runpod can't be asked (no network, 5xx, 429) the key is saved with `key_check` `network` / `unavailable`
 and checked again by the polling; a working one -> `key_check: "ok"` and the balance at once (*Connected, balance $X*).
@@ -306,7 +304,7 @@ days (≈). Polling: pod list every 60 s (`list_interval`, all pages), each runn
 and balance every 10 min (`billing_interval`); Runpod's `RateLimit` header and 429 `Retry-After` pause everything.
 
 ## Connectors: Vast.ai
-*2.9.* Panel → ⚙ Settings → Connectors → Vast.ai (or `POST /api/connectors/vastai {key, enabled: true}`); the key is kept like
+Panel → ⚙ Settings → Connectors → Vast.ai (or `POST /api/connectors/vastai {key, enabled: true}`); the key is kept like
 Runpod's. Each instance is a task: id `va-<instance id>`, source `vastai`, project `Vast.ai`, name = its label (else
 "instance <id>"), `meta.vastai = {id, name, state, status}`. `actual_status` running → active; `intended_status` running while
 not yet running (loading, scheduling...) → active, *Starting…* (after a minute in *Scheduling*: "waiting for its GPU"); asked to
@@ -319,12 +317,12 @@ answers count as errors (its `msg` is shown). Spent = `/api/v0/charges` of the l
 no Retry-After) pauses everything 60 s, doubling while 429s follow each other (up to 30 min).
 
 ## Connectors: SSH
-*From 3.2, off by default.* Your own Linux hosts, read-only, through Windows' `ssh.exe` with your ssh config, agent and `known_hosts`; TaskHub keeps no key. Hosts, interval and the switch change only in Settings: `POST /api/connectors/ssh` answers 403.
+*Off by default.* Your own Linux hosts, read-only, through Windows' `ssh.exe` with your ssh config, agent and `known_hosts`; TaskHub keeps no key. Hosts, interval and the switch change only in Settings: `POST /api/connectors/ssh` answers 403.
 `GET /api/connectors/ssh` gives `{enabled, client, interval, disk_warn, tmux_notify, hosts: [{host, state, text}]}`. `state`: `connecting`, `ok`, `unreachable` (retried after 1, 2, 5, then every 15 min), or, tried again only after the *Check again* control: `hostkey`, `hostkey_changed`, `auth`, `restricted`, `not_linux`, `no_client`.
 Each host is a task `ssh-<host>`, source `ssh`. Controls: `watch` and `unwatch` (`{value: PID}`), `recheck`. Config (`connectors.ssh`): `enabled`, `hosts` (20 at most; up to 60 letters, digits, `.`, `-`, `_`), `interval` (30-3600 s, 60), `disk_warn` (0-100 %, 90, 0 = off), `tmux_notify` (true), `watched`.
 
 ## Connectors: AWS
-*3.1. Built from AWS's documentation and tested against a simulator, not yet on a real account.* Panel → ⚙ Settings → Connectors → AWS. The key is two parts (`id:secret`), checked with
+*Built from AWS's documentation and tested against a simulator, not yet on a real account.* Panel → ⚙ Settings → Connectors → AWS. The key is two parts (`id:secret`), checked with
 AWS, kept in the Windows Credential Manager and never returned; temporary `ASIA` keys are refused. Read-only: no controls change anything in AWS.
 
 `key_check`: `ok` | `revoked` | `denied` (a real key without `ec2:DescribeRegions` and no Regions listed) | `clock` | `network` | `unavailable`; only a key AWS rejects isn't saved. `regions` empty = every Region enabled in the account (DescribeRegions at `us-east-1`, daily, at most 40). `regions.<r>.state`: `ok` | `no_access` | `throttled` | `clock` | `error`; a Region that fails declares nothing gone. Defaults: `list_interval` 600 s, `job_interval` 300 s, `forgotten_hours` 72 (0 = off). `job_polls`: `{"<region>/<service>": {state, code, active}}`, `state` also `not_offered`.
@@ -342,7 +340,7 @@ already spent. Cost Explorer is billed by AWS ($0.01 per request), so its switch
 sends one notification a month. Fields not listed here may change.
 
 ## Balance guard
-*2.9, off by default. From 3.2 `guard*`, `idle_stop_minutes`, `idle_minutes`, `idle_util`, `billing_interval` and `graphql_balance` are refused over this API (403): they decide when machines stop, so they change only in Settings. Reading them stays.* Per machine connector (`connectors.runpod`, `connectors.vastai` in `config.json`): `guard` (false),
+*Off by default. `guard*`, `idle_stop_minutes`, `idle_minutes`, `idle_util`, `billing_interval` and `graphql_balance` are refused over this API (403): they decide when machines stop, so they change only in Settings. Reading them stays.* Per machine connector (`connectors.runpod`, `connectors.vastai` in `config.json`): `guard` (false),
 `guard_warn` ($, default 10), `guard_stop` ($, default 2; `guard_warn` > `guard_stop` >= 0), `guard_grace_min` (10, 1-120),
 `guard_snooze_min` (15, 5-240), `guard_exempt` (machine ids that are never stopped by the guard). `low_runway_hours` /
 `low_balance` keep their meaning and stay in the panel; while the guard is on, their warning is skipped only for a reading
@@ -351,8 +349,8 @@ Burn = Runpod's `currentSpendPerHr`, else the sum of the running machines' $/h (
 (balance − stop) / burn. `GET /api/connectors/<id>` → `guard: {enabled, warn, stop, grace_min, snooze_min, exempt, can_act,
 balance_source, burn_per_hr, hours_to_stop, stop_at, zero_at, unreadable, warned, stops, no_stop, retry: [machine id],
 pending: {seq, deadline, held, capped, machines, task, kind: "balance"|"idle"}|null}`; the settings rows (`?view=settings`) carry `guard` with the texts in the UI language (forecast,
-`hint` under the stop threshold (Runpod, 2.9.1: the balance moves in steps), pending line, machines with `exempt`, the last log lines, a note when it can only warn).
-- Auto-stop on GPU idle (2.9.3, `idle_stop_minutes`, 0 = off, else 5-1440; works with `guard` off): a running machine
+`hint` under the stop threshold (Runpod: the balance moves in steps), pending line, machines with `exempt`, the last log lines, a note when it can only warn).
+- Auto-stop on GPU idle (`idle_stop_minutes`, 0 = off, else 5-1440; works with `guard` off): a running machine
   whose GPUs all stay under `idle_util` that long gets a pending stop of kind `idle` (same task, Stop now / Snooze,
   `guard_grace_min`, `guard_exempt`); the GPU busy again or the machine no longer running cancels it; at the deadline it
   is stopped only if still idle - a load reading taken after the announcement and recent (unknown load: cancelled, not
@@ -379,7 +377,7 @@ pending: {seq, deadline, held, capped, machines, task, kind: "balance"|"idle"}|n
 
 ## Native CLI `taskhub` (no Python needed; starts the hub if it is not running, disable with `TASKHUB_NO_AUTOSTART=1`)
 `taskhub run --name "<what>" --source <agent> [--auto-progress] [--heartbeat N] [--preset blender|none] -- <cmd args>`
-wraps any command (echo + log + progress; presets (2.9.2) read a known tool's output - `blender`: frame / samples status,
+wraps any command (echo + log + progress; presets read a known tool's output - `blender`: frame / samples status,
 overall progress when the frame range is known, widgets `blender_spf` (chart, s per frame), `blender_mem` (chart, MB) and
 `blender_saved`, control `blender_stop` ("Stop after this frame": ends Blender when the next frame begins after a saved one,
 task `cancelled`; pressed during the last frame: Blender ends by itself, `done`); after a stop / crash / error in an animation the message ends with `resume: -s N` and `run` prints the
@@ -390,11 +388,11 @@ unless `--progress-regex` / `--status-regex` / `--auto-progress` is given; the c
 `mcp` ([MCP server](#mcp-server)), `hook claude|codex` (agent hooks), `statusline` ([plan limits](#plan-limits-claude-code)). `taskhub --help`.
 
 ## Claude Code hooks
-Easiest: setup dialog checkbox or Settings → *AI agents* (before 2.9: tray → *AI agents*) (or `TaskHubHost.exe --integrations claude=on codex=on`)
-writes exactly these entries for you and removes them on uninstall. From 3.1, when an agent is used on the PC, its hooks are off and no choice was made,
+Easiest: setup dialog checkbox or Settings → *AI agents* (or `TaskHubHost.exe --integrations claude=on codex=on`)
+writes exactly these entries for you and removes them on uninstall. When an agent is used on the PC, its hooks are off and no choice was made,
 the panel shows a card with *Connect* / *Not now* and one notification says so; nothing is written before *Connect* (`hooks_offer` = `[{agent, name}]`, `hooks_offer_tg` = whether these notifications also go to Telegram, in
 `GET /api/tasks`; the choice can't be made over HTTP; `integration_claude` / `integration_codex` in `config.json` hold it, `hooks_offer_told` the agents already told about).
-From 3.1 `Stop` shows no toast if the same agent has just (30 s, once) sent a notification or finished a task through TaskHub's MCP server (one whose `notify` allows that finish notification) from the same project folder; other events are never held back. Manual setup:
+`Stop` shows no toast if the same agent has just (30 s, once) sent a notification or finished a task through TaskHub's MCP server (one whose `notify` allows that finish notification) from the same project folder; other events are never held back. Manual setup:
 Notifications when Claude Code finishes a response (`Stop`, toast shows the first line of the answer and the project folder)
 or waits for a permission / your answer (`Notification`). Add to `~/.claude/settings.json` (or install the
 [taskhub-claude-code](https://github.com/FelixMUrphy/taskhub-claude-code) plugin, which sends the same events over HTTP):
@@ -407,11 +405,11 @@ or waits for a permission / your answer (`Notification`). Add to `~/.claude/sett
   }
 }
 ```
-`taskhub hook claude` forwards the event JSON from stdin to the hub: silent, exit 0, nothing back to Claude Code, whatever answers. From 3.1 TaskHub writes this form with no shell (`args`; a recent Claude Code) and replaces its HTTP entries from earlier versions, because an HTTP hook acts on whatever answers its URL. If TaskHub is not running nothing happens. Toasts follow the usual rules (mute, no pop-ups while the panel is open); clicking one only closes it.
+`taskhub hook claude` forwards the event JSON from stdin to the hub: silent, exit 0, nothing back to Claude Code, whatever answers. TaskHub writes this form with no shell (`args`; a recent Claude Code) and replaces its older HTTP entries, because an HTTP hook acts on whatever answers its URL. If TaskHub is not running nothing happens. Toasts follow the usual rules (mute, no pop-ups while the panel is open); clicking one only closes it.
 
 ## Plan limits (Claude Code)
 
-From 3.1, off by default: Settings → AI agents → Claude Code → *plan limits in the panel*, or `TaskHubHost.exe --integrations claude-limits=on`. It sets Claude Code's
+Off by default: Settings → AI agents → Claude Code → *plan limits in the panel*, or `TaskHubHost.exe --integrations claude-limits=on`. It sets Claude Code's
 `statusLine` in `~/.claude/settings.json` to `taskhub statusline`, keeping the entry's other fields. Your own entry is kept in `~/.claude/statusline.taskhub.json` and put back as it
 was when you turn this off; if the command there is no longer TaskHub's, it stays. The switch is what the file says at that moment, also when it changes while the hub runs.
 
@@ -425,7 +423,7 @@ A project's own `statusLine`, `disableAllHooks` or `allowManagedHooksOnly` can k
 
 ## Plan limits (Codex)
 
-From 3.1, off by default: Settings → AI agents → Codex → *plan limits in the panel*, or with the hub closed `TaskHubHost.exe --integrations codex-limits=on` (`limits_codex` in `config.json`; with the hub running this exits 1 and changes nothing). Nothing is written to Codex's settings.
+Off by default: Settings → AI agents → Codex → *plan limits in the panel*, or with the hub closed `TaskHubHost.exe --integrations codex-limits=on` (`limits_codex` in `config.json`; with the hub running this exits 1 and changes nothing). Nothing is written to Codex's settings.
 
 Codex has no status line, so TaskHub asks Codex itself: once when you turn this on, then every 10 minutes while a `codex` process is running (checked once a minute). It starts `codex app-server` with no window, sends `initialize`, `initialized` and `account/rateLimits/read`, and closes it (about a second; a Codex that doesn't answer in 20 s is ended). No thread is started, so there are no model requests and your MCP servers aren't started. Codex uses its own login and asks OpenAI for the numbers; a read also adds to Codex's own logs and caches in `CODEX_HOME`.
 
@@ -444,17 +442,17 @@ forwards the event JSON from stdin to `POST /api/hooks/codex` (silent, exit 0, n
   }
 }
 ```
-Use the full path (`%LOCALAPPDATA%\Programs\TaskHub\taskhub.exe`) if `taskhub` is not on PATH for Codex. Codex runs the command in PowerShell, so a path with a space needs `& "C:\my tools\taskhub.exe" hook codex` (from 3.1 TaskHub writes this itself when the path has no short name). New hooks must be
+Use the full path (`%LOCALAPPDATA%\Programs\TaskHub\taskhub.exe`) if `taskhub` is not on PATH for Codex. Codex runs the command in PowerShell, so a path with a space needs `& "C:\my tools\taskhub.exe" hook codex` (TaskHub writes this itself when the path has no short name). New hooks must be
 trusted once in Codex (`/hooks`). Do **not** replace an existing `notify = [...]` in `config.toml` (the Codex app uses it);
 `taskhub hook codex` also accepts the legacy `notify` payload as its last argument if you need it.
 
 ## MCP server
-`taskhub mcp [--source NAME]` (`notify` and `task_finish` also send `source` and `agent_cwd`, its working folder, for the `Stop` rule in [Claude Code hooks](#claude-code-hooks); from 3.1 its instructions ask the agent not to notify just to say it is done while TaskHub's hooks are on) is a stdio [MCP](https://modelcontextprotocol.io) server for AI agents with the tools
+`taskhub mcp [--source NAME]` (`notify` and `task_finish` also send `source` and `agent_cwd`, its working folder, for the `Stop` rule in [Claude Code hooks](#claude-code-hooks); its instructions ask the agent not to notify just to say it is done while TaskHub's hooks are on) is a stdio [MCP](https://modelcontextprotocol.io) server for AI agents with the tools
 `notify`, `task_start`, `task_update`, `task_finish`, `task_commands` (button presses / input values, acknowledged on read),
-`task_wait` (from 2.9.2: blocks up to 50 s until a task finishes - instead of polling with sleep; call again while it runs)
-and `task_list`. It starts the hub on the first tool call. From 2.9.6 calls run side by side (a waiting `task_wait` does
+`task_wait` (blocks up to 50 s until a task finishes - instead of polling with sleep; call again while it runs)
+and `task_list`. It starts the hub on the first tool call. Calls run side by side (a waiting `task_wait` does
 not hold other requests), `notifications/cancelled` stops a call (no answer for it), and the server ends when stdin
-closes or the program that started it exits. Enable it in the setup dialog / Settings → *AI agents* (before 2.9: tray → *AI agents*), or by hand:
+closes or the program that started it exits. Enable it in the setup dialog / Settings → *AI agents*, or by hand:
 - Claude Code (user scope, `~/.claude.json`): `"mcpServers": {"taskhub": {"type": "stdio", "command": "<install dir>\\taskhub.exe", "args": ["mcp", "--source", "claude"]}}`
   (or `claude mcp add --scope user taskhub -- "<install dir>\taskhub.exe" mcp --source claude`)
 - Codex (`~/.codex/config.toml`; TaskHub's setup writes the same and keeps the rest of the file):

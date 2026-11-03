@@ -5,7 +5,7 @@
 ## Wofür TaskHub ihn braucht
 - **Beobachten:** Workflow-Läufe der Repositories, die du angibst – Fortschritt, der fehlgeschlagene Schritt, das Ergebnis.
 - **Aktionen** (nur mit Schreibzugriff): Lauf abbrechen und Lauf neu starten.
-- **Pull Requests** (optional, ab 2.9.4, nur lesend): die, die auf dein Review warten, und offene Dependabot-Pull-Requests.
+- **Pull Requests** (optional, nur lesend): die, die auf dein Review warten, und offene Dependabot-Pull-Requests.
 - TaskHub ändert nie deine Workflows, deinen Code oder die Repository-Einstellungen.
 
 ## Fine-grained Token erstellen

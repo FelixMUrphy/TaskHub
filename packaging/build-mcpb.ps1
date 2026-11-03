@@ -2,7 +2,7 @@
 #   dist\taskhub-mcp-win-x64.mcpb  - the bundle (release asset; the name must contain "mcp" for the registry)
 #   dist\mcp-server.json           - packaging\mcp\server.json with this version, the asset URL and its SHA-256
 # Needs Node.js (npx runs the pinned @anthropic-ai/mcpb CLI, which validates the manifest and packs).
-# Usage: packaging\build-mcpb.ps1 [-Version 2.9.2] [-Cli app\taskhub.exe] [-Repo FelixMUrphy/TaskHub]
+# Usage: packaging\build-mcpb.ps1 [-Version X.Y.Z] [-Cli app\taskhub.exe] [-Repo FelixMUrphy/TaskHub]
 param(
     [string]$Version,
     [string]$Cli = "app\taskhub.exe",

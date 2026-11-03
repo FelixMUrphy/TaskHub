@@ -637,7 +637,7 @@ static class Install
     }
 
     /// <summary>Setup exe replacing the Store edition: take over the data the package wrote into its private copy of
-    /// %APPDATA% (only where write virtualization was still on: Windows before 1903 / package versions before 2.9),
+    /// %APPDATA% (only where write virtualization was still on: Windows before 1903 / older package versions),
     /// then remove the package.</summary>
     public static void ReplaceStoreEdition(StorePackage pkg, Settings s)
     {

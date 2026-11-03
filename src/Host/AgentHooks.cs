@@ -5,7 +5,7 @@ namespace TaskHub;
 
 /// <summary>
 /// Adapters for AI-agent hook payloads, posted as-is:
-///   POST /api/hooks/claude  - Claude Code via `taskhub hook claude` (Stop, Notification), HTTP entries from before 3.1 and the plugin
+///   POST /api/hooks/claude  - Claude Code via `taskhub hook claude` (Stop, Notification), older HTTP entries and the plugin
 ///   POST /api/hooks/codex   - Codex hooks via `taskhub hook codex` (Stop, PermissionRequest) and the legacy
 ///                             `notify` payload ({"type": "agent-turn-complete", "last-assistant-message": ...})
 /// Each becomes an informational toast (a click only dismisses it). Always answers {} so the agent never
