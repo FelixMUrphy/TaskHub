@@ -13,6 +13,7 @@ sealed class SettingsBridge
     readonly Settings S;
     readonly Hub hub;
     readonly TelegramBridge tg;
+    public DiscordBridge Dc;
     readonly ISettingsConnector[] conns;   // in the order of the page
     readonly Func<Updater> updater;
     readonly Action<Action> ui;
@@ -58,6 +59,7 @@ sealed class SettingsBridge
             ["updates"] = up == null ? null : new JsonObject { ["auto"] = up.Auto, ["available"] = up.Available?.Version.ToString(3) },
             ["agents"] = agents,
             ["telegram"] = t == null ? null : TelegramState(t),
+            ["discord"] = Dc == null ? null : DiscordState(Dc.State()),
             // every connector the same way: what it is, on / off, a short state line; its own window for the details
             ["connectors"] = rows,
         };
@@ -95,6 +97,38 @@ sealed class SettingsBridge
                 ["connect"] = L.T("tg_connect"), ["qr"] = L.T("tg_qr"), ["open"] = L.T("tg_open", "").TrimEnd(),
                 ["away"] = L.T("tg_away"), ["progress"] = L.T("tg_progress"), ["test"] = L.T("tg_test"),
                 ["relink"] = L.T("tg_relink"), ["relink_q"] = L.T("tg_relink_q"), ["disconnect"] = L.T("tg_disconnect"), ["disconnect_q"] = L.T("tg_disconnect_q"),
+            },
+        };
+    }
+
+    /// <summary>Discord as the settings page shows it, set up right there. Never the token. The words come from the host's translations.</summary>
+    static JsonObject DiscordState(JsonObject d)
+    {
+        bool linked = J.Truthy(d["linked"]), configured = J.Truthy(d["configured"]);
+        string st = J.Str(d["status"]), phase = J.Str(d["phase"]);
+        string word = st switch
+        {
+            "connecting" => L.T("tg_st_connecting"),
+            "offline" => L.T("dc_st_offline"),
+            "on hold" => L.T("dc_st_hold"),
+            _ when st.StartsWith("closed ") => L.T("dc_st_closed", st[7..]),
+            _ => "",
+        };
+        string state = !configured || st == "invalid token" ? L.T("tg_state_off")   // the warning says why
+            : linked ? (J.Str(d["bot"]).Length > 0 ? L.T("dc_state_ok", J.Str(d["bot"])) : L.T("dc_state_linked")) + (word.Length > 0 ? "  (" + word + ")" : "")
+            : word.Length > 0 && st != "connecting" ? word   // nothing can arrive in this state, whatever the last step was
+            : phase switch { "confirm" => L.T("dc_state_confirm"), "retry" => L.T("dc_no_answer"), "again" => L.T("dc_state_again"), _ => L.T("dc_state_server") };
+        return new JsonObject
+        {
+            ["configured"] = configured, ["linked"] = linked, ["status"] = st, ["phase"] = J.C(d["phase"]), ["invite"] = J.C(d["invite"]),
+            ["warning"] = J.C(d["warning"]), ["away"] = J.Truthy(d["away_only"]), ["progress"] = J.Truthy(d["progress"]),
+            ["help_url"] = SettingsRows.KeyHelpUrl("discord", "uk"),
+            ["texts"] = new JsonObject
+            {
+                ["state"] = state, ["intro"] = L.T("dc_intro"), ["token"] = L.T("dc_token"), ["connect"] = L.T("tg_connect"),
+                ["invite"] = L.T("dc_invite"), ["retry"] = L.T("dc_retry"),
+                ["away"] = L.T("tg_away"), ["progress"] = L.T("tg_progress"), ["test"] = L.T("tg_test"),
+                ["disconnect"] = L.T("tg_disconnect"), ["disconnect_q"] = L.T("dc_disconnect_q"),
             },
         };
     }
@@ -144,6 +178,8 @@ sealed class SettingsBridge
                     if (c.ContainsKey("panel_push_windows")) hub.SetPushWindows(J.Truthy(c["panel_push_windows"]));
                     if (c.ContainsKey("tg_away")) tg?.SetAwayOnly(J.Truthy(c["tg_away"]));
                     if (c.ContainsKey("tg_progress")) tg?.SetProgress(J.Truthy(c["tg_progress"]));
+                    if (c.ContainsKey("dc_away")) Dc?.SetAwayOnly(J.Truthy(c["dc_away"]));
+                    if (c.ContainsKey("dc_progress")) Dc?.SetProgress(J.Truthy(c["dc_progress"]));
                     // a connector: on / off (off keeps the key), the key (checked with the service, then kept in the
                     // Credential Manager - never config.json), remove the key (only this deletes it), thresholds
                     if (J.IsStr(c["connector"]))
@@ -224,6 +260,33 @@ sealed class SettingsBridge
                             break;
                         case "tg_test": if (tg != null && tg.Linked) { tg.Test(); info = L.T("tg_test_sent"); } break;
                         case "tg_disconnect": tg?.Disconnect(); break;
+                        case "dc_pair":
+                        case "dc_retry":
+                            if (Dc == null) break;
+                            try
+                            {
+                                bool fresh = J.Str(c["what"]) == "dc_pair";
+                                var dst = await Task.Run(() => fresh ? Dc.Pair(J.Str(c["token"])) : Dc.Retry());
+                                // always an answer: the page shows "Checking…" until one comes
+                                switch (J.Str(dst["phase"]))
+                                {
+                                    case "retry": err = L.T("dc_no_answer"); break;
+                                    case "server": info = L.T("dc_st_server"); break;
+                                    case "confirm": info = L.T("dc_state_confirm"); break;
+                                    default: info = L.T("tg_st_connecting"); break;
+                                }
+                            }
+                            catch (ApiError e) when (e.Code == 400) { err = e.Ui ?? e.Message; }
+                            break;
+                        case "dc_test":
+                            if (Dc == null || !Dc.Linked) break;
+                            try { await Task.Run(Dc.Test); info = L.T("tg_test_sent"); }
+                            catch (ApiError e) when (e.Code == 400) { err = e.Ui ?? e.Message; }
+                            break;
+                        case "dc_disconnect":
+                            try { Dc?.Disconnect(); }
+                            catch (ApiError e) when (e.Code == 400) { err = e.Ui ?? e.Message; }
+                            break;
                         case "test_toast":
                             hub.Notify(new JsonObject { ["title"] = "TaskHub", ["message"] = L.T("test_toast") + " ✓", ["force"] = true });
                             break;

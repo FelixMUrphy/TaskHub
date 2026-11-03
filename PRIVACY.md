@@ -19,7 +19,7 @@ it.
 - From TaskHub 3.1, to offer those notifications, TaskHub looks on your PC for signs that Claude Code or Codex is used (their settings
   folders and files, the programs on your `PATH`) and remembers your answer and which agents it told you about in its own `config.json`. It adds nothing
   to their settings until you press *Connect*. With the connection on, a notification shows the project folder and the start of the agent's reply. Like
-  every notification it goes to Telegram if you have connected Telegram.
+  every notification it goes to Telegram or Discord if you have connected them.
 - From TaskHub 3.1, TaskHub's MCP server tells TaskHub which folder it runs in, on your PC only and not stored, to avoid a second notification for the same thing.
 
 ## What leaves your PC, and only if you turn it on
@@ -27,10 +27,11 @@ it.
   status line command to `~/.claude/settings.json`. Your own status line, if you have one, keeps running unchanged, and a copy of its entry is kept in
   `~/.claude/statusline.taskhub.json` until you turn this off. TaskHub's command hands everything Claude Code gives a status line to your own status line, in memory, and passes only the used percentages and reset times of the 5-hour and
   weekly limits to the TaskHub app, over the local connection. They are stored in `plan_limits.json` in TaskHub's data folder with the time of each reading and which warnings were
-  given, and deleted when you turn this off. A warning contains the percentage and the reset time and is shown like other notifications, including Telegram when that is on.
+  given, and deleted when you turn this off. A warning contains the percentage and the reset time and is shown like other notifications, including Telegram or Discord when on.
   TaskHub doesn't read Claude Code's account tokens for this.
 - **Plan limits of Codex** (TaskHub 3.1 and later, off by default). If you turn this on in Settings → AI agents, TaskHub starts Codex on your PC for about a second once when you turn it on and then every 10 minutes while Codex is running, and asks it for the limits.
   Codex asks OpenAI for them with its own login and adds to its own logs and caches, as it does when you use it; no model request is made and TaskHub doesn't read Codex's account tokens. TaskHub gives Codex only its own name and version, which Codex may pass on to OpenAI. TaskHub keeps only the used percentages and reset times, in `plan_limits.json` with the time of each reading and which warnings were given, and deletes them when you turn this off. Warnings work as for Claude Code above.
+- **Discord** (off by default, from TaskHub 3.2). If you connect your own Discord bot, TaskHub sends your notifications, task progress and charts from your PC straight to Discord (`discord.com`, and its gateway under `discord.gg`), as direct messages to you, and receives your button presses and commands over the same connection. That includes the labels and list options of a task's buttons, the value last entered in an input (shown in its input window), and the list of active tasks when you use `/tasks`. The computer's name appears in the first message and in *Send test*. These messages stay on Discord after you disconnect; Discord's own privacy policy applies to them. The token is kept only in the Windows Credential Manager; if that is unavailable TaskHub doesn't connect. Your Discord user id, the chat's id and the application's id are stored in `config.json`. *Disconnect* stops this and removes the token and the ids.
 - **Telegram** (off by default). If you connect a Telegram bot, TaskHub sends your notifications, task progress and
   charts from your PC straight to Telegram's Bot API, to the chat you linked, and receives your button presses and
   replies from it. The chat ID is stored in `%APPDATA%\TaskHub\config.json`; the bot token is kept in the Windows Credential
@@ -47,7 +48,7 @@ it.
   privacy policy applies to these requests. Turning the connector off stops them (the token stays saved); *Remove* deletes the token.
   From 2.9.4, two more switches (off by default) also ask `api.github.com`, with the same token, for the pull requests
   waiting for your review and the open Dependabot pull requests of the listed repositories; their titles, numbers,
-  repository and author names are shown as tasks (and in notifications, including Telegram when that is on). Nothing is
+  repository and author names are shown as tasks (and in notifications, including Telegram or Discord when on). Nothing is
   written to GitHub.
 - **Runpod connector** (TaskHub 2.9 and later; off by default, earlier versions don't have it). If you paste a Runpod API
   key and turn it on, TaskHub asks `api.runpod.io` with that key (in the `Authorization` header) for your pods and their
@@ -73,8 +74,8 @@ it.
   AWS Batch jobs (`batch.<region>.amazonaws.com`), this month's cost and forecast (`ce.us-east-1.amazonaws.com`, which AWS charges for) and
   AWS Budgets (`budgets.amazonaws.com`, plus `sts.amazonaws.com` for the account number, kept in memory only). Instance and job names and ids, instance types, Regions, Batch queue names, states and
   times, failure reasons (with ARNs and account numbers removed) become tasks: kept in TaskHub's data folder and shown
-  in notifications, including Telegram when that is on. Budget names and amounts are shown in the settings; the name of a budget over its limit also appears in a
-  notification (including Telegram when that is on). The last cost figures and the names of budgets over their limit stay in `config.json`, with the ids of the instances you marked as needed.
+  in notifications, including Telegram or Discord when on. Budget names and amounts are shown in the settings; the name of a budget over its limit also appears in a
+  notification (including Telegram or Discord when on). The last cost figures and the names of budgets over their limit stay in `config.json`, with the ids of the instances you marked as needed.
   The key is kept in the Windows Credential Manager, not in TaskHub's files. Nothing is changed in your AWS account. AWS's own privacy policy applies to these
   requests. Turning the connector off stops them (the key stays saved); *Remove* deletes the key.
 - **Balance guard** (TaskHub 2.9 and later; off by default). If you turn it on for Runpod or Vast.ai, TaskHub uses the
@@ -84,7 +85,7 @@ it.
   whose GPU stayed idle as long as you set, judged from the load TaskHub already reads; its log records the idle minutes
   instead of a threshold, and its pending stop is not saved to disk. Its notifications — the balance,
   the spend per hour, the time left, the names of the machines it stops and what their storage costs while stopped — are
-  shown on Windows and, if you connected Telegram, sent to your Telegram chat like other notifications. A record of each stop
+  shown on Windows and, if you connected Telegram or Discord, sent to that chat like other notifications. A record of each stop
   (time, provider, machine id and name, balance, threshold, spend, result, storage estimate) is kept only on your PC in
   `%APPDATA%\TaskHub\guard_log.json` (at most 200 entries); a stop that is still pending (its deadline and machine ids) is
   kept in `guard_runpod.json` / `guard_vastai.json` in the same folder so it survives a restart. Both are deleted with that
@@ -100,9 +101,9 @@ nothing there.
 ## Removing your data
 Uninstalling TaskHub removes the program; your tasks and settings stay in `%APPDATA%\TaskHub`. To delete them as well,
 delete that folder (or uninstall the GitHub version with *Also delete my data* / `TaskHubHost.exe --uninstall --purge`).
-The Telegram bot token and the GitHub, Runpod, Vast.ai and AWS keys stay in the Windows Credential Manager after a plain
+The Telegram and Discord bot tokens and the GitHub, Runpod, Vast.ai and AWS keys stay in the Windows Credential Manager after a plain
 uninstall, so a reinstall finds them; *Also delete my data* / `--purge` deletes them too (TaskHub 2.9 and later), or
-remove the `TaskHub/...` entries in Control Panel → Credential Manager → Windows Credentials, or disconnect Telegram or press
+remove the `TaskHub/...` entries in Control Panel → Credential Manager → Windows Credentials, or disconnect Telegram or Discord or press
 *Remove* on the connector in TaskHub's settings before uninstalling. Uninstalling the Microsoft Store version doesn't delete them either.
 The Microsoft Store version also leaves its `taskhub` copy in `%LOCALAPPDATA%\TaskHub`, which you can delete.
 

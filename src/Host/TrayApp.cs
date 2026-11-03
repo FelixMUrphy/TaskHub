@@ -19,6 +19,7 @@ sealed class TrayApp : ApplicationContext
     IntPtr lastHicon;
     readonly CancellationTokenSource cts = new();
     public TelegramBridge Telegram;
+    public DiscordBridge Discord;
     public Updater Updater;
     public ISettingsConnector[] Connectors = Array.Empty<ISettingsConnector>();   // rows of the settings page, in order
 
@@ -26,6 +27,7 @@ sealed class TrayApp : ApplicationContext
     {
         S = s; hub = h; api = a;
         Telegram = n.Telegram;
+        Discord = n.Discord;
         ui = new Control();
         ui.CreateControl();
         _ = ui.Handle;
@@ -59,7 +61,7 @@ sealed class TrayApp : ApplicationContext
         Ui(async () =>
         {
             // here, not above: Connectors / Updater are set by the caller after the constructor
-            Panel.SettingsPage = new SettingsBridge(S, hub, Telegram, Connectors, () => Updater, Ui);
+            Panel.SettingsPage = new SettingsBridge(S, hub, Telegram, Connectors, () => Updater, Ui) { Dc = Discord };
             try
             {
                 // no WebView2 Runtime: say so once (a click on the balloon / the next open offers the download)

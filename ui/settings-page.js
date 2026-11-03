@@ -1,7 +1,7 @@
 const reSet=()=>{ $("#sethost").__h=null; renderSet(); };
 // what was typed in a field of a tab: survives the redraws and a visit to another tab; only fields still there are kept
 let TYPED={};
-const IN_KEEP="input[data-ckey],input[data-tgtok],input[data-ladd]";
+const IN_KEEP="input[data-ckey],input[data-tgtok],input[data-dctok],input[data-ladd]";
 function keepTyped(box){ if (!box.__tab) return; const m=new Map(); for (const e of box.querySelectorAll(IN_KEEP)) m.set(ckey(e),e.value); TYPED[box.__tab]=m; }
 function wipeTyped(){ TYPED={}; for (const e of $("#sethost").querySelectorAll(IN_KEEP)) e.value=""; }
 function renderSet(){
@@ -18,6 +18,7 @@ function renderSet(){
     const winOff=/^disabled/.test(s.notifications||"")? srow(T("s_win_off"),T("s_win_off_d"),sbtn("notif_settings",T("s_open"))) : "";
     if (tab==="notif") h=sec(winOff + mute + srow(HL("test_toast"),"",sbtn("test_toast",T("s_send"))));
     if (tab==="telegram" && tg) h=sec(tgRows(tg));
+    if (tab==="discord" && s.discord) h=sec(dcRows(s.discord));
     if (tab==="connectors") h=sec((s.connectors||[]).map(connRow).join(""), T("s_conn_note"));
     if (tab==="agents") h=sec((s.agents||[]).map(a=>srow(a.name, a.detected? "" : T("s_not_found"), "")
         + ["hooks","mcp"].map(k=>srow(HL("menu_"+k),"",tgl("agent",a[k],` data-agent="${a.agent}" data-kind="${k}"`),"sub")).join("")
@@ -49,6 +50,9 @@ $("#sethost").addEventListener("click",e=>{
   const a=e.target.closest("a[data-open]"); if (a){ e.preventDefault(); host({open:a.dataset.open}); return; }   // the default browser
   const t=e.target.closest("button"); if (!t || t.disabled) return;
   if (t.dataset.do==="tg_pair"){ tgPair(); return; }
+  if (t.dataset.do==="dc_pair"){ dcPair(); return; }
+  if (t.dataset.do==="dc_retry" || t.dataset.do==="dc_test"){ const w=t.dataset.do; dcBusy(()=>host({settings:"do",what:w})); return; }
+  if (t.dataset.do==="dc_disconnect"){ ask(t.dataset.q).then(ok=>{ if (ok) host({settings:"do",what:"dc_disconnect"}); }); return; }
   if (t.dataset.do==="tg_relink"){ const go=()=>tgBusy(()=>host({settings:"do",what:"tg_relink"})); if (t.dataset.q) ask(t.dataset.q).then(ok=>{ if (ok) go(); }); else go(); return; }
   if (t.dataset.do==="tg_disconnect"){ ask(t.dataset.q).then(ok=>{ if (ok) host({settings:"do",what:"tg_disconnect"}); }); return; }
   if (t.dataset.do){ if (t.dataset.do==="update_check_now") snack(T("s_upd_checking")); host({settings:"do",what:t.dataset.do}); return; }
@@ -99,6 +103,7 @@ function connKey(id, what){
 $("#sethost").addEventListener("keydown",e=>{
   const a=e.target.closest && e.target.closest("a[data-open]"); if (a && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); host({open:a.dataset.open}); return; }
   if (e.key==="Enter" && e.target.dataset && e.target.dataset.tgtok!=null){ e.preventDefault(); tgPair(); return; }
+  if (e.key==="Enter" && e.target.dataset && e.target.dataset.dctok!=null){ e.preventDefault(); dcPair(); return; }
   if (e.key==="Enter" && e.target.dataset && e.target.dataset.ladd){ e.preventDefault(); connList(e.target.dataset.conn, e.target.dataset.ladd, true); return; }
   const i=e.target.closest && e.target.closest("input[data-ckey]"); if (i && e.key==="Enter"){ e.preventDefault(); connKey(i.dataset.ckey,"save"); } });
 // a number field of a connector (idle GPU minutes, runway hours, low balance $...): sent when changed; empty = off where the
@@ -112,7 +117,7 @@ $("#sethost").addEventListener("change",e=>{
   host({settings:"set",connector:i.dataset.conn,[k]: v===""? null : +v});
 });
 function settingsReply(d){
-  if (d.error || d.note || d.info){ CHECKING.clear(); clearTimeout(checkTimer); clearTimeout(TGBUSY); TGBUSY=0; }   // the answer to a key just saved
+  if (d.error || d.note || d.info){ CHECKING.clear(); clearTimeout(checkTimer); clearTimeout(TGBUSY); TGBUSY=0; clearTimeout(DCBUSY); DCBUSY=0; }   // the answer to a key just saved
   listReply(d);
   SET=d.settings_state; renderSet();
   $("#hookoffer").__h=null; renderHookOffer();   // the answer to the card (its buttons wait for it)

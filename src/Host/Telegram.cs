@@ -704,7 +704,7 @@ sealed class TelegramBridge
     [StructLayout(LayoutKind.Sequential)] struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
     [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
 
-    static double IdleSeconds()
+    internal static double IdleSeconds()
     {
         var li = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
         return GetLastInputInfo(ref li) ? (Environment.TickCount - (int)li.dwTime) / 1000.0 : 0;

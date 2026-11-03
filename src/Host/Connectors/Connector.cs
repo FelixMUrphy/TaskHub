@@ -63,7 +63,7 @@ sealed class Connectors
 static class Secrets
 {
     /// <summary>Every name TaskHub saves a secret under (connectors, Telegram bot): deleted by uninstall --purge.</summary>
-    public static readonly string[] Names = { "github", "telegram", "runpod", "vastai", "aws" };
+    public static readonly string[] Names = { "github", "telegram", "runpod", "vastai", "aws", "discord" };
 
     const int ErrorNotFound = 1168;
 
@@ -187,7 +187,7 @@ sealed class SafeHttp
     readonly HttpClient http;
     readonly Func<IEnumerable<string>> hosts;
 
-    public SafeHttp(Func<IEnumerable<string>> allowedHosts, int timeoutSec = 30)
+    public SafeHttp(Func<IEnumerable<string>> allowedHosts, int timeoutSec = 30, string userAgent = null)
     {
         hosts = allowedHosts;
         http = new HttpClient(new SocketsHttpHandler
@@ -195,7 +195,7 @@ sealed class SafeHttp
             AllowAutoRedirect = false, AutomaticDecompression = DecompressionMethods.All,
             PooledConnectionLifetime = TimeSpan.FromMinutes(10),
         }) { Timeout = TimeSpan.FromSeconds(timeoutSec) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("TaskHub/" + Settings.Version);
+        http.DefaultRequestHeaders.UserAgent.ParseAdd(userAgent ?? "TaskHub/" + Settings.Version);
     }
 
     public bool Allowed(Uri u)

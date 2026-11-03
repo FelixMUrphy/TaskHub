@@ -28,19 +28,20 @@ window.addEventListener("resize",()=>settingsSize());
 function settingsGone(){ if (!setOpen()) document.body.classList.remove("setwide"); }
 
 /* ---------------- tabs: a strip of icons, one section at a time ---------------- */
-const TAB_ICON={look:"\uE790",notif:"\uEA8F",telegram:"\uE724",connectors:"\uE703",agents:"\uE99A",system:"\uE770",about:"\uE946"};
+const TAB_ICON={look:"\uE790",notif:"\uEA8F",telegram:"\uE724",discord:"\uE8BD",connectors:"\uE703",agents:"\uE99A",system:"\uE770",about:"\uE946"};
 let setTab=(()=>{ try{ return localStorage.th_settab||"look"; }catch(e){ return "look"; } })();
 const TAB_TIP=500;
 function tabList(){
   if (!NATIVE) return ["look","notif"];   // a browser tab has only what the HTTP API allows
-  return ["look","notif",...(SET && !SET.telegram? [] : ["telegram"]),"connectors","agents","system","about"];
+  return ["look","notif",...(SET && !SET.telegram? [] : ["telegram"]),...(SET && !SET.discord? [] : ["discord"]),"connectors","agents","system","about"];
 }
-const tabName=id=>({look:T("sec_look"),notif:T("sec_notif"),telegram:"Telegram",connectors:T("tab_connectors"),agents:T("tab_agents"),system:T("sec_system"),about:T("sec_about")})[id];
+const tabName=id=>({look:T("sec_look"),notif:T("sec_notif"),telegram:"Telegram",discord:"Discord",connectors:T("tab_connectors"),agents:T("tab_agents"),system:T("sec_system"),about:T("sec_about")})[id];
 // a section with something the user has to do: the strip shows it, as its title can't be read without hovering
 function tabAttention(id){
   if (!NATIVE || !SET) return false;
   if (id==="notif") return /^disabled/.test(SET.notifications||"");
   if (id==="telegram") return !!(SET.telegram && SET.telegram.warning);
+  if (id==="discord") return !!(SET.discord && SET.discord.warning);
   if (id==="system") return !!(SET.updates && SET.updates.available);
   if (id==="connectors") return (SET.connectors||[]).some(c=>c.enabled && ((c.uses_key && !c.key_set) || c.key_check==="revoked" || c.key_check==="denied" || c.help_needed || (c.guard && c.guard.pending)));
   return false;

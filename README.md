@@ -46,6 +46,7 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
 - **Telegram**: the same notifications on your phone through your own bot, with the task's buttons; a live progress
   bar per task and its charts when it finishes; `/tasks`, `/mute` (optionally only when you are away from the PC) —
   see [Telegram](#telegram).
+- **Discord** *(from 3.2, off until you connect it)*: the same notifications and buttons as direct messages from your own bot — see [Discord](#discord).
 - **GitHub Actions** *(from 2.9)*: the workflow runs of your repositories as tasks — progress and ETA from the usual duration of earlier runs (by jobs / steps when there are none),
   the failed step and the end of its log, cancel / re-run buttons, artifact and release links — see
   [GitHub Actions](#github-actions).
@@ -160,6 +161,16 @@ is kept in the Windows Credential Manager (2.9; before: `config.json`; if the Cr
 `config.json`, with a warning in Settings); messages go from your PC straight to Telegram's Bot API.
 From 2.9 TaskHub keeps to Telegram's pace (about one message a second, and as long as Telegram asks after *Too many
 requests*) instead of dropping messages, and long texts are shortened so they always arrive.
+
+### Discord
+*From 3.2. Built from Discord's documentation and tested against a simulator, not yet with a real bot.*
+
+Settings → *Discord*: create an application with a bot in the [Developer Portal](https://discord.com/developers/applications), paste the bot's token, press *Connect*, add the bot to a server of yours (a bot can't write to someone it shares no server with), press *Check again* and then the *Connect* button in the bot's direct message. Only the application's owner can be linked, and only that person's presses in that chat count. *Disconnect* removes the token from this PC.
+
+From then on every notification also arrives there. A task's notification buttons become buttons, a list becomes a list (up to 25 options), number and text inputs open Discord's input window, and what doesn't fit in 5 rows stays in the panel. A task with progress gets one silent message that is edited in place, and its charts arrive as a picture when it finishes (option *Progress and charts*, `discord_progress`). Commands: `/tasks`, `/mute`, `/unmute`. Option: send only when you are away from the PC (`discord_away_only`, `discord_away_minutes`).
+
+The token is kept only in the Windows Credential Manager; without it TaskHub doesn't connect. Your PC talks straight to Discord: no public address, no server of ours.
+*How to get a token:* [docs/keys/discord.md](docs/keys/discord.md) (step by step, revoking; [українською](docs/keys/discord.uk.md)).
 
 ### GitHub Actions
 *From version 2.9; off until you turn it on.* Settings → *Connectors* → *GitHub Actions* (everything on the settings page from 2.9.6): list the repositories (`owner/repo`) and give access — your own
@@ -315,7 +326,7 @@ Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no t
 `api_test.py` (API contract, agent hooks, CLI), `validation_test.py` (input validation: non-finite numbers, widget attributes, control values, shell controls), `parallel_test.py` (8 concurrent workers + notification burst),
 `integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder), `install_test.py` (setup /
 uninstall in a temporary folder), `mcp_test.py` (`taskhub mcp`), `telegram_test.py` (Telegram bridge against a mock Bot API),
-`github_test.py`, `runpod_test.py`, `vastai_test.py` and `guard_test.py` (connectors and the balance guard against mock APIs),
+`discord_test.py` (the Discord bridge against a mock of its API and gateway), `github_test.py`, `runpod_test.py`, `vastai_test.py` and `guard_test.py` (connectors and the balance guard against mock APIs),
 `aws_sigv4_test.py` and `aws_test.py` (the AWS signer against AWS's test suite, the connector against a simulator), `limits_test.py` and `codex_limits_test.py` (plan limits), `payload_bounds_test.py` (what a local process can post),
 `hooks_offer_test.py` and `hook_form_test.py` (agent hooks), `log_test.py` (log levels, masking, rotation).
 Every push runs the build and these tests on GitHub Actions (`.github/workflows/ci.yml`, Windows runner); pushing a tag

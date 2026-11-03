@@ -74,7 +74,7 @@ static class Log
         foreach (var x in new[]
         {
             "https://api.telegram.org/bot123456789:" + new string('A', 35) + "/getMe failed", "token 123456789:" + new string('B', 35),
-            "ghp_" + new string('C', 36), "github_pat_" + new string('D', 60), "AKIA" + new string('E', 16), "rpa_" + new string('F', 40),
+            "ghp_" + new string('C', 36), "github_pat_" + new string('D', 60), "AKIA" + new string('E', 16), "rpa_" + new string('F', 40), new string('L', 25) + ".GabcDe." + new string('M', 38),
             "Authorization: Bearer abcdefghijklmnop", "url?api_key=GGGGGGGG&x=1", "token=HHHHHHHH",
             "AKIA" + new string('E', 16) + ":" + new string('I', 40), "aws_secret_access_key=JJJJJJJJJJJJ", "{\"token\": \"KKKKKKKKKKKK\"}", string.Concat(Enumerable.Repeat("ab", 32)),
         })

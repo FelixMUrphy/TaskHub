@@ -17,6 +17,7 @@ sealed class Api
     public Func<string, bool> UiOpen;    // task -> ok
     public Func<bool> UiHide;            // -> hidden
     public TelegramBridge Telegram;
+    public DiscordBridge Discord;
     public Connectors Conns;
     WebApplication app;
 
@@ -114,6 +115,20 @@ sealed class Api
             if (J.Truthy(b["test"])) Telegram.Test();
             return Telegram.State();
         });
+        R("GET", "/api/discord", (c, q, g) => V(Discord?.State() ?? new JsonObject { ["status"] = "off" }));
+        // setting it up is only on the settings page (WebView2 messages): this is for the isolated hubs of the tests
+        if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+            R("POST", "/api/discord", async (c, q, g) =>
+            {
+                var b = await Body(c);
+                if (J.Truthy(b["disconnect"])) Discord.Disconnect();
+                if (b.ContainsKey("away_only")) Discord.SetAwayOnly(J.Truthy(b["away_only"]));
+                if (b.ContainsKey("progress")) Discord.SetProgress(J.Truthy(b["progress"]));
+                if (J.IsStr(b["token"])) return await Task.Run(() => Discord.Pair(J.Str(b["token"])));
+                if (J.Truthy(b["retry"])) return await Task.Run(() => Discord.Retry());
+                if (J.Truthy(b["test"])) await Task.Run(Discord.Test);
+                return Discord.State();
+            });
         R("GET", "/api/connectors", (c, q, g) =>
         {
             // the rows of the settings page's Connectors section (read-only; never a key): {connectors: [...]}

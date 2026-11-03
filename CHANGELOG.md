@@ -5,6 +5,8 @@ from here), followed by the list of commits.
 
 ## Unreleased
 
+- New: Discord. Your notifications, a live progress message, charts and the tasks' buttons as direct messages from your own bot, off until you connect it. Built from Discord's documentation and tested against a simulator, not yet with a real bot.
+
 ## 3.1.0 — 2026-11-03
 
 - New connector: AWS. EC2 instances, SageMaker training jobs and AWS Batch jobs as tasks, this month's cost and forecast, AWS Budgets, each behind its own switch. Off until you turn it on, and read-only. Built from AWS's documentation and tested against a simulator, not yet on a real account. Cost Explorer is billed by AWS ($0.01 per request; about $1.80 a month).

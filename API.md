@@ -95,6 +95,7 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | POST | `/api/hooks/claude`, `/api/hooks/codex` | agent hook input (as sent, from `taskhub hook`) | `Stop` / `Notification` / `PermissionRequest` → toast; always `{}` (below) |
 | GET | `/api/telegram` | | Telegram bridge state `{configured, linked, bot, status, away_only, progress, link, storage, warning}` — `storage` (2.9): where the bot token is kept, `vault` (Windows Credential Manager) \| `config` (`config.json`, only when the Credential Manager is unavailable) \| null; `warning`: text for Settings, or null |
 | POST | `/api/telegram` | `{token}` (start pairing, returns the t.me `link`) · `{test: true}` · `{relink: true}` (new code for another chat, same bot) · `{away_only: bool}` · `{progress: bool}` (live progress bar + charts at the end) · `{disconnect: true}` | Telegram setup |
+| GET | `/api/discord` | | (3.2) Discord bridge state `{configured, linked, bot, status, phase, away_only, progress, invite, endpoint_set, cannot_write, warning}`; `status`: `off` / `connecting` / `connected` / `offline` / `on hold` / `invalid token` / `closed <code>`; `phase` until linked: `server` (no shared server, or its direct messages are off) / `confirm` (the button was sent) / `retry` (Discord failed or is out of reach) / `again` (restarted before the button was pressed). `invite` has the application's id, as any invite link does; never the token or other ids. Setting it up is only on the settings page, not over HTTP |
 | GET | `/api/connectors`, `/api/connectors/github` | | connector state: `{enabled, repos, interval, notify_success, logs, auth, token_set, token_check, token_check_text, login, token_expires, status, repo_status, rate_remaining, active_runs, pr_reviews, pr_dependabot, prs}` (the token itself is never returned); `repo_status` = `{repo: "ok" or a line in the UI language or "HTTP n"}`, for showing: don't compare the text (3.1) |
 | GET | `/api/connectors?view=settings` | | the rows of the settings page's Connectors section (2.9): `{connectors: [{id, name, kind, enabled, uses_key, key_set, key_check, summary, help_url, thresholds?, fields?, guard?, setup?, key_parts?, list?, switches?, notes?, help_needed?}], lang}` - `key_parts` (3.1) = a key entered in several fields, sent joined with `:`; `key_check` = the last verdict on the saved key (`ok` / `revoked` / `denied` / `clock` / `network` / `unavailable` / null), `summary` = the state line in the UI language ("Connected, balance $X", "Connected as @login · 3 repositories"...), `help_url` = the "how to get a key" page (`docs/keys/<id>.md`, or `<id>.<lang>.md` when that language exists); `fields` (2.9.2) = the connector's number inputs as the page draws them: `[{key, label, min, max, step, value, empty_ok?}]` (`label` = a key of the panel's translations; `thresholds` stays as before); never a key |
 | POST | `/api/connectors/github` | `{enabled?, repos?: ["owner/repo"], interval?: 15-3600, notify_success?, logs?, auth?: "token"\|"gcm", token?, forget_token?, pr_reviews?, pr_dependabot?}` | GitHub Actions connector (below) |
@@ -220,7 +221,7 @@ Values are checked by the hub for every surface (400 otherwise): a number within
 The value is sent only when the control's button is pressed, so give such controls an action label ("Set speed", "Apply", "Send"),
 and `input.label` for the field itself. The hub remembers the last sent value (`last_value` in the control) and pre-fills the panel form
 and the toast input with it.
-**Shell values** (2.9). The value (from the panel, a notification or Telegram) is never pasted into a command line as text:
+**Shell values** (2.9). The value (from the panel, a notification, Telegram or Discord) is never pasted into a command line as text:
 - every form: the hub also passes it in the environment variable `TASKHUB_VALUE` (absent when the value is empty);
 - string `command` (run by `cmd.exe /d /s /c`): `{value}` becomes `!TASKHUB_VALUE!` and cmd runs with delayed expansion (`/v:on`),
   which expands it only after the line is split into commands, pipes and redirections - `& | < > ^ % " !` in the value stay plain
@@ -242,6 +243,14 @@ Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in updat
 `"log_level"` in `config.json`, read at start: `"info"` (default) or `"debug"`, which adds notification text, task names and panel show / hide; anything else keeps the default.
 One rotated copy, `taskhub.log.1`, past 4 MB. At `debug` the CLI also writes its own failures to `cli.log` (hooks and MCP are silent otherwise).
 A beta build (`build.cmd beta`) defaults to `debug` and keeps three copies of 20 MB. Text that looks like a token or key is masked at any level.
+
+## Discord (3.2)
+
+A mirror of notifications, like Telegram. Settings page only (token, *Check again*, *Send test*, *Disconnect*, switches). Controls pressed there arrive with `via` `discord` and follow the same rules as Telegram's (panel-only controls are refused).
+
+Config keys: `discord_away_only` (false), `discord_away_minutes` (5), `discord_progress` (true); set by linking: `discord_user`, `discord_channel`, `discord_app`, `discord_cmds` (ids as strings). `discord_api`, `discord_identify_gap`: tests only, honoured only for a loopback address.
+
+Outbound: `https://discord.com/api/v10` and `wss` to `gateway.discord.gg` / `*.discord.gg`, checked before each connection, the address Discord names for resuming too. Nothing is polled; presses arrive over the gateway, with intent `GUILDS` only. A new session waits at least 5 minutes after the last, and holds below 100 left in Discord's daily count. After a 401 nothing is sent until the token changes; after a 403 on the chat nothing until *Send test* or *Check again*. *Send test* sends at once and reports Discord's answer.
 
 ## Connectors: GitHub Actions
 Panel → ⚙ Settings → Connectors → GitHub Actions (or `POST /api/connectors/github`). Each workflow run of the chosen repositories is a task:

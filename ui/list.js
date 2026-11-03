@@ -158,6 +158,7 @@ function renderHookOffer(){
   const box=$("#hookoffer"), rows=NATIVE? data.hooks_offer||[] : [], title=T("hooks_offer_t",rows.map(r=>r.name).join(", "));
   const h=!rows.length? "" : `<div class="ht">${esc(title)}</div><div class="hd">${esc(T("hooks_offer_d"))}</div>`
     +(data.hooks_offer_tg? `<div class="hd">${esc(T("hooks_offer_tg"))}</div>` : "")
+    +(data.hooks_offer_dc? `<div class="hd">${esc(T("hooks_offer_dc"))}</div>` : "")
     +`<div class="ctl"><button class="btn primary" data-connect="1">${esc(T("hooks_offer_yes"))}</button><button class="btn" data-connect="">${esc(T("hooks_offer_no"))}</button></div>`;
   if (box.__h===h) return;
   const had=box.__clicked||box.contains(document.activeElement);

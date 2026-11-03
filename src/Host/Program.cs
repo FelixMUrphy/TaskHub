@@ -266,12 +266,14 @@ static class Program
         notifier.Init(iconPng);
         var telegram = new TelegramBridge(S, hub);
         notifier.Telegram = telegram;
+        var discord = new DiscordBridge(S, hub);
+        notifier.Discord = discord;
         var connectors = new Connectors(S, hub);
         connectors.Add(new GitHubConnector(S, hub));
         connectors.Add(new RunpodConnector(S, hub));
         connectors.Add(new VastAiConnector(S, hub));
         connectors.Add(new AwsConnector(S, hub));
-        var api = new Api(S, hub) { Telegram = telegram, Conns = connectors };
+        var api = new Api(S, hub) { Telegram = telegram, Discord = discord, Conns = connectors };
         try { api.Start().GetAwaiter().GetResult(); }
         catch (Exception e)
         {
@@ -283,6 +285,7 @@ static class Program
         // the installer / uninstaller asks a running hub to quit through this event (Install.StopHubs)
         using var quit = new EventWaitHandle(false, EventResetMode.ManualReset, Install.QuitEventName(Environment.ProcessId));
         telegram.Start();
+        discord.Start();
         connectors.StartAll();
         var updater = new Updater(S, hub, notifier);
         notifier.UpdateClicked = updater.OpenPage;

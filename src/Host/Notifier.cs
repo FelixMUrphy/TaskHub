@@ -19,6 +19,7 @@ sealed class Notifier : INotifier
     public Action<string, string> Balloon;     // fallback: tray balloon (title, msg)
     public Func<bool> PanelOpen;               // true -> no popup banners, toasts go silently to the notification center
     public TelegramBridge Telegram;            // every notification is mirrored there (if linked)
+    public DiscordBridge Discord;              // and there
     readonly BlockingCollection<Action> queue = new();
     readonly HashSet<string> progressDismissed = new();
     readonly Dictionary<string, uint> progressSeq = new();
@@ -252,6 +253,7 @@ sealed class Notifier : INotifier
     {
         Log.I("toast", $"shown {level}" + (taskId != null ? " task " + Log.Id(taskId) : "")); Log.D("toast", $"TOAST [{level}] {title}: {msg}");   // also with Windows toasts off: Telegram still gets it
         try { Telegram?.Notify(title, msg, level, taskId, task, controls); } catch (Exception e) { Log.W("telegram", e.Message); }
+        try { Discord?.Notify(title, msg, level, taskId, task, controls); } catch (Exception e) { Log.W("discord", e.GetType().Name); }
         if (!S.Bool("toasts", true)) return;   // Windows toasts disabled (config.json "toasts": false)
         queue.Add(() => ShowToast(J.Cut(string.IsNullOrEmpty(title) ? Settings.AppId : title, 150), J.Cut(msg ?? "", 500), level, taskId, task, dismissOnly, controls));
     }
