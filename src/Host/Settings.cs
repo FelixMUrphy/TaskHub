@@ -93,7 +93,7 @@ static class Log
 sealed class Settings
 {
     public const string AppId = "TaskHub";
-    public const string Version = "3.0.0";
+    public const string Version = "3.1.0";
 #if BETA
     public const bool IsBeta = true;
 #else

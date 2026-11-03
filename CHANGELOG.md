@@ -5,6 +5,8 @@ from here), followed by the list of commits.
 
 ## Unreleased
 
+## 3.1.0 — 2026-11-03
+
 - New connector: AWS. EC2 instances, SageMaker training jobs and AWS Batch jobs as tasks, this month's cost and forecast, AWS Budgets, each behind its own switch. Off until you turn it on, and read-only. Built from AWS's documentation and tested against a simulator, not yet on a real account. Cost Explorer is billed by AWS ($0.01 per request; about $1.80 a month).
 - Settings open beside the panel, with icon tabs. While the panel is pinned they close only with their own button.
 - Plan limits for Claude Code, off until you turn them on: how much of the 5-hour and weekly limits is used, in the panel, yellow with a warning from 75%, red with a warning from 90%. Your own status line keeps working unchanged. Also by script: `TaskHubHost.exe --integrations claude-limits=on` (Codex: with TaskHub closed).
