@@ -376,7 +376,12 @@ sealed class Notifier : INotifier
                     {
                         var opts = (inp["options"] as JsonArray).Select(x => J.Str(x)).Take(5).ToList();
                         var def = J.Str(cur);
-                        if (!opts.Contains(def)) def = opts[0];
+                        // a toast shows 5 at most: the current value stays among them, or pressing the button would send another one
+                        if (!opts.Contains(def))
+                        {
+                            if ((inp["options"] as JsonArray).Any(x => J.Str(x) == def)) { opts = opts.Take(4).ToList(); opts.Add(def); }
+                            else def = opts[0];
+                        }
                         // the option itself is the id (it is the value sent back); only the shown text is shortened
                         b.AddComboBox(iid, lbl, def, opts.Select(o => (o, J.Cut(o, 60))).ToArray());
                     }

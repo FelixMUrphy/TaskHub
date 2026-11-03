@@ -161,6 +161,25 @@ sealed partial class Hub
         return Native.PidAlive(pid, ct) ? KillResult.Failed : KillResult.Killed;
     }
 
+    /// <summary>A line of a shell control's output: UTF-8 if it is valid UTF-8, else the OEM code page console tools write.</summary>
+    static string ShellLine(string latin1)
+    {
+        var bytes = System.Text.Encoding.Latin1.GetBytes(latin1);
+        try { return strictUtf8.GetString(bytes); }
+        catch (System.Text.DecoderFallbackException) { return oem.Value.GetString(bytes); }
+    }
+    static readonly System.Text.Encoding strictUtf8 = new System.Text.UTF8Encoding(false, true);
+    static readonly Lazy<System.Text.Encoding> oem = new(() =>
+    {
+        try
+        {
+            System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+            return System.Text.Encoding.GetEncoding((int)GetOEMCP());
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException) { return System.Text.Encoding.Latin1; }
+    });
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern uint GetOEMCP();
+
     public static void OpenTarget(string target)
     {
         Process.Start(new ProcessStartInfo(target) { UseShellExecute = true })?.Dispose();
@@ -214,6 +233,8 @@ sealed partial class Hub
             psi.CreateNoWindow = true;
             psi.RedirectStandardOutput = true;
             psi.RedirectStandardError = true;
+            // bytes as they are: each line is decoded below, as a command can print either
+            psi.StandardOutputEncoding = psi.StandardErrorEncoding = System.Text.Encoding.Latin1;
             psi.Environment["PYTHONIOENCODING"] = "utf-8";
             psi.Environment["TASKHUB_TASK_ID"] = tid;
             psi.Environment["TASKHUB_URL"] = S.Url;
@@ -227,7 +248,7 @@ sealed partial class Hub
             {
                 string l;
                 while ((l = await r.ReadLineAsync()) != null)
-                    if (l.Length > 0) lock (tail) { tail.Enqueue(J.Cut(l, 2000)); if (tail.Count > 25) tail.Dequeue(); }
+                    if (l.Length > 0) lock (tail) { tail.Enqueue(J.Cut(ShellLine(l), 2000)); if (tail.Count > 25) tail.Dequeue(); }
             }
             var drained = Task.WhenAll(Drain(p.StandardOutput), Drain(p.StandardError));
             var secs = Math.Clamp(J.Num(c["timeout"]) ?? 300, 1, 86400);

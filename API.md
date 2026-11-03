@@ -334,7 +334,7 @@ already spent. Cost Explorer is billed by AWS ($0.01 per request), so its switch
 sends one notification a month. Fields not listed here may change.
 
 ## Balance guard
-*2.9, off by default.* Per machine connector (`connectors.runpod`, `connectors.vastai` in `config.json`): `guard` (false),
+*2.9, off by default. From 3.2 `guard*` and `idle_stop_minutes` are refused over this API (403): they stop machines, so they change only in Settings. Reading them stays.* Per machine connector (`connectors.runpod`, `connectors.vastai` in `config.json`): `guard` (false),
 `guard_warn` ($, default 10), `guard_stop` ($, default 2; `guard_warn` > `guard_stop` >= 0), `guard_grace_min` (10, 1-120),
 `guard_snooze_min` (15, 5-240), `guard_exempt` (machine ids that are never stopped by the guard). `low_runway_hours` /
 `low_balance` keep their meaning and stay in the panel; while the guard is on, their warning is skipped only for a reading

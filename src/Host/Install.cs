@@ -275,6 +275,8 @@ static class Install
             k.SetValue("URL Protocol", "");
             using var c = Hkcu.CreateSubKey(ProtoKey + @"\shell\open\command");
             c.SetValue("", $"\"{Exe}\" --open-url \"%1\"");
+            using var icon = Hkcu.CreateSubKey(ProtoKey + @"\DefaultIcon");
+            icon.SetValue("", $"\"{Exe}\",0");
         }
         else
         {
@@ -373,6 +375,8 @@ static class Install
         k.SetValue("QuietUninstallString", $"\"{Exe}\" --uninstall --quiet");
         k.SetValue("NoModify", 1, RegistryValueKind.DWord);
         k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+        k.SetValue("URLInfoAbout", "https://github.com/FelixMUrphy/TaskHub");
+        if (k.GetValue("InstallDate") == null) k.SetValue("InstallDate", DateTime.Now.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture));
         try
         {
             long bytes = Payload.Select(f => new FileInfo(Path.Combine(dir, f))).Where(f => f.Exists).Sum(f => f.Length);
@@ -473,7 +477,7 @@ static class Install
 
     static void CopyFile(string from, string to, Action<double> progress)
     {
-        if (progress == null) { File.Copy(from, to, true); return; }
+        // by stream, always: File.Copy would bring the downloaded setup's Mark of the Web along
         using (var src = new FileStream(from, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 20))
         using (var dst = new FileStream(to, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20))
         {
@@ -484,7 +488,7 @@ static class Install
             {
                 dst.Write(buf, 0, n);
                 done += n;
-                progress(done / (double)total);
+                progress?.Invoke(done / (double)total);
             }
         }
         File.SetLastWriteTimeUtc(to, File.GetLastWriteTimeUtc(from));
@@ -528,6 +532,21 @@ static class Install
         SetPath(dir, false);
         SetShortcut(false);
         SetUninstallEntry(false, dir);
+        RemoveOtherPortEntries();
+    }
+
+    /// <summary>This copy's autostart entries for other ports ("TaskHub-PORT"), left from a hub once started with --port.</summary>
+    static void RemoveOtherPortEntries()
+    {
+        if (IsPackaged) return;
+        using var k = Hkcu.CreateSubKey(RunKey);
+        using var a = Hkcu.CreateSubKey(ApprovedKey);
+        foreach (var name in k.GetValueNames().Where(n => System.Text.RegularExpressions.Regex.IsMatch(n, @"^TaskHub-\d+$")))
+            if (k.GetValue(name) is string v && v.Contains(HostExe, StringComparison.OrdinalIgnoreCase))
+            {
+                k.DeleteValue(name, false);
+                a.DeleteValue(name, false);
+            }
     }
 
     /// <summary>Uninstall with "also delete my data": the data folder and the tokens TaskHub saved in the Windows Credential
@@ -655,6 +674,7 @@ static class Install
                 case "ensure-autostart": EnsureAutostart(s); return 0;
                 case "stop" when a.Length > 1 && int.TryParse(a[1], out var pid): StopHubs(p => p.Id == pid); return 0;
                 case "copy-missing" when a.Length > 2: CopyMissing(a[1], a[2]); return 0;
+                case "copy" when a.Length > 2: CopyFile(a[1], a[2], null); return 0;
                 case "purge": PurgeData(s); return 0;
                 default: return 2;
             }

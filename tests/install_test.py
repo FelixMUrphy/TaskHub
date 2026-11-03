@@ -3,7 +3,7 @@ hidden `TaskHubHost.exe --selftest-install STEP` with TASKHUB_TEST_HOME: the reg
 HKCU\\Software\\TaskHubTest\\<temp folder name> and the shortcut under the temp folder - never the real install / entries.
 The quit test starts its own hub on 47893 (temp data) and stops only that one.
 Usage: python install_test.py [path\\to\\TaskHubHost.exe]"""
-import json, os, shutil, subprocess, sys, tempfile, time, urllib.request, winreg
+import json, os, re, shutil, subprocess, sys, tempfile, time, urllib.request, winreg
 import vault
 
 exe = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "app", "TaskHubHost.exe"))
@@ -210,6 +210,30 @@ try:
             hub.wait(10)
         shutil.rmtree(hub_data, True)
 
+    # ---- a quiet install doesn't carry the downloaded file's Mark of the Web
+    src, dst = os.path.join(home, "dl.exe"), os.path.join(home, "copied.exe")
+    with open(src, "w") as f:
+        f.write("x")
+    with open(src + ":Zone.Identifier", "w") as f:
+        f.write("[ZoneTransfer]\nZoneId=3\n")
+    check("copy step", selftest("copy", src, dst) == 0)
+    check("no Mark of the Web on the copy", os.path.exists(dst) and not os.path.exists(dst + ":Zone.Identifier"))
+
+    # ---- uninstall takes this copy's autostart entries for other ports, not another copy's; the entry has its details
+    check("register for the details", selftest("register") == 0)
+    run_value = reg(RUN, "TaskHub")
+    check("uninstall entry: install date", re.fullmatch(r"\d{8}", str(reg(UNINST, "InstallDate"))), reg(UNINST, "InstallDate"))
+    check("uninstall entry: link", str(reg(UNINST, "URLInfoAbout")).startswith("https://github.com/"), reg(UNINST, "URLInfoAbout"))
+    check("protocol: its icon", str(reg(PROTO + "\\DefaultIcon", "") or "").endswith(",0"), reg(PROTO + "\\DefaultIcon", ""))
+    reg_set(RUN, "TaskHub-1234", run_value + " --port 1234")
+    reg_set(RUN, "TaskHub-5678", '"D:\\Other\\Something.exe" --port 5678')
+    reg_set(RUN, "TaskHub-notes", run_value)
+    check("unregister", selftest("unregister") == 0)
+    check("this copy's entry for another port is gone", reg(RUN, "TaskHub-1234") is None, reg(RUN, "TaskHub-1234"))
+    check("another program's entry stays", reg(RUN, "TaskHub-5678") is not None)
+    check("a name that only looks alike stays", reg(RUN, "TaskHub-notes") is not None)
+    reg_set(RUN, "TaskHub-5678", None)
+    reg_set(RUN, "TaskHub-notes", None)
 finally:
     reg_delete_tree(root)
     try:

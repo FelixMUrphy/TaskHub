@@ -138,7 +138,7 @@ static class Runner
         {
             sender = new Thread(() => SenderLoop(c, tid, pending, stop.Token)) { IsBackground = true };
             sender.Start();
-            new Thread(() => PollLoop(c, tid, p, stop.Token, v => forwarding = v, preset, pending.L)) { IsBackground = true }.Start();
+            new Thread(() => PollLoop(c, tid, p, stop.Token, v => forwarding = v, () => userCancelled = true, preset, pending.L)) { IsBackground = true }.Start();
         }
 
         string lastLine = "";
@@ -247,7 +247,13 @@ static class Runner
 
     static string Cut(string s, int n) => s.Length > n ? s[..n] : s;
     static double? Num(string s) => double.TryParse(s.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : null;
-    static string Quote(string s) => s.Length > 0 && !s.Any(ch => char.IsWhiteSpace(ch) || ch == '"') ? s : "\"" + s.Replace("\"", "\\\"") + "\"";
+    /// <summary>For the cmd.exe fallback: an argument stays one argument. An operator on its own (`&`, `|`, `>`, `2>&1`) or a redirection (`>file`) stays an operator.</summary>
+    static string Quote(string s)
+    {
+        bool plain = s.Length > 0 && !s.Any(ch => char.IsWhiteSpace(ch) || ch == '"');
+        if (plain && (!s.Any(ch => ch is '&' or '|' or '<' or '>' or '^') || Regex.IsMatch(s, @"^(&&?|\|\|?|[0-9]?>>?(&[0-9])?|<|[0-9]?(>>?|<)[^&|<>^]+)$"))) return s;
+        return "\"" + s.Replace("\"", "\\\"") + "\"";
+    }
 
     /// <summary>::directive handling; returns true if the line was a directive.</summary>
     static bool Directive(string line, Pending pd)
@@ -354,7 +360,7 @@ static class Runner
         }
     }
 
-    static void PollLoop(Client c, string tid, Process p, CancellationToken ct, Action<bool> setForwarding, IOutputPreset preset, object presetLock)
+    static void PollLoop(Client c, string tid, Process p, CancellationToken ct, Action<bool> setForwarding, Action interrupted, IOutputPreset preset, object presetLock)
     {
         while (!ct.IsCancellationRequested && !p.HasExited)
         {
@@ -375,6 +381,7 @@ static class Runner
                             if (GetConsoleWindow() == IntPtr.Zero) { ok = false; reply = "no console - use Kill"; break; }
                             setForwarding(true);
                             ok = GenerateConsoleCtrlEvent(0, 0);   // CTRL_C to every process on this console (we ignore it)
+                            if (ok) interrupted();   // at once, the child can end before the pause does; a non-zero exit after it is "cancelled", as with Ctrl+C in the console
                             Thread.Sleep(300);
                             setForwarding(false);
                             reply = ok ? "Ctrl+C sent" : "GenerateConsoleCtrlEvent failed";

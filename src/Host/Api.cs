@@ -170,7 +170,7 @@ sealed class Api
             return await Task.Run(() => (JsonNode)(conn switch
             {
                 GitHubConnector gh => gh.Configure(b),
-                MachineConnector mc => mc.Configure(b),
+                MachineConnector mc => mc.ConfigureHttp(b),
                 AwsConnector aw => aw.ConfigureHttp(b),
                 _ => throw new ApiError(404, "not configurable"),
             }));
