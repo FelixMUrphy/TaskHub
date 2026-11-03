@@ -219,6 +219,48 @@ try:
     check("copy step", selftest("copy", src, dst) == 0)
     check("no Mark of the Web on the copy", os.path.exists(dst) and not os.path.exists(dst + ":Zone.Identifier"))
 
+    # ---- an install stops the hubs in its way, not every copy: own ports and folders only, never the real hub
+    def own_hub(path, port):
+        d = tempfile.mkdtemp(prefix="taskhub-instdata-")
+        with open(os.path.join(d, "config.json"), "w") as f:
+            json.dump({"toasts": False, "autostart": False, "update_check": False}, f)
+        p = subprocess.Popen([path, "--port", str(port), "--data", d, "--no-tray"], env=dict(os.environ, TASKHUB_TEST_HOME=home))
+        op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        end = time.time() + 30
+        while time.time() < end:
+            try:
+                with op.open(f"http://127.0.0.1:{port}/api/health", timeout=2) as f:
+                    if f.status == 200:
+                        return p, d
+            except OSError:
+                time.sleep(0.2)
+        return p, d
+
+    def stop_others(port, folder):
+        return subprocess.run([exe, "--data", data, "--port", str(port), "--selftest-install", "stop-others", folder],
+                              env=dict(os.environ, TASKHUB_TEST_HOME=home), capture_output=True, timeout=60).returncode
+
+    inst = os.path.join(home, "inst")
+    os.makedirs(inst)
+    shutil.copy(exe, os.path.join(inst, os.path.basename(exe)))
+    h_inst, d_inst = own_hub(os.path.join(inst, os.path.basename(exe)), 47872)
+    h_other, d_other = own_hub(exe, 47871)
+    try:
+        check("the hubs for the check run", h_inst.poll() is None and h_other.poll() is None)
+        check("stop step", stop_others(47870, inst) == 0)
+        time.sleep(0.5)
+        check("the hub in the install folder is stopped", h_inst.poll() is not None)
+        check("a copy elsewhere on another port keeps running", h_other.poll() is None)
+        check("stop step, its port", stop_others(47871, inst) == 0)
+        time.sleep(0.5)
+        check("the hub on the install's port is stopped, wherever it runs from", h_other.poll() is not None)
+    finally:
+        for p, d in ((h_inst, d_inst), (h_other, d_other)):
+            if p.poll() is None:
+                p.kill()
+            p.wait(10)
+            shutil.rmtree(d, ignore_errors=True)
+
     # ---- the Telegram page's line: a bot that refuses to deliver doesn't read as connected
     d2 = os.path.join(home, "data-en")
     os.makedirs(d2, exist_ok=True)

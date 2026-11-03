@@ -386,8 +386,25 @@ static class Install
     }
 
     // ------------------------------------------------------------ install / uninstall
-    /// <summary>Stop other hub processes (they would lock the files / the port).</summary>
-    public static void StopOtherHubs() => StopHubs(_ => true);
+    /// <summary>Stop the hubs in the way: those running from the install folder or the current install (they lock the files) and the one
+    /// answering on this port. Other copies, on other ports and in other folders, are left alone.</summary>
+    public static void StopOtherHubs(int port, string dir)
+    {
+        var (current, onPort) = (IsInstalled ? InstallDir : null, HubOnPort(port));
+        StopHubs(p => p.Id == onPort || SameDir(Path.GetDirectoryName(p.MainModule!.FileName), dir)
+                      || (current != null && SameDir(Path.GetDirectoryName(p.MainModule!.FileName), current)));
+    }
+
+    /// <summary>The process id the hub on this port gives, or 0.</summary>
+    static int HubOnPort(int port)
+    {
+        try
+        {
+            using var http = new System.Net.Http.HttpClient(new System.Net.Http.HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(2) };
+            return (int)(J.Num((J.Parse(http.GetStringAsync($"http://127.0.0.1:{port}/api/health").GetAwaiter().GetResult()) as System.Text.Json.Nodes.JsonObject)?["pid"]) ?? 0);
+        }
+        catch { return 0; }
+    }
 
     /// <summary>The event a running hub waits on to quit (Program.Main); Local\ = this logon session only.</summary>
     public static string QuitEventName(int pid) => $@"Local\TaskHub_Quit_{pid}";
@@ -450,9 +467,9 @@ static class Install
 
     /// <summary>Copy this single-file exe into dir and unpack the CLI / client / docs next to it. Returns the installed exe.
     /// progress (0..1) follows the copy of the exe, which is nearly all of the work.</summary>
-    public static string InstallFiles(string dir, Action<double> progress = null)
+    public static string InstallFiles(string dir, int port, Action<double> progress = null)
     {
-        StopOtherHubs();
+        StopOtherHubs(port, dir);
         Directory.CreateDirectory(dir);
         // a previous installation in another folder: remove its files
         if (IsInstalled && !SameDir(InstallDir, dir)) { RemoveFiles(InstallDir); SetPath(InstallDir, false); }
@@ -673,6 +690,7 @@ static class Install
                 case "unregister": Unregister(s); return 0;
                 case "ensure-autostart": EnsureAutostart(s); return 0;
                 case "stop" when a.Length > 1 && int.TryParse(a[1], out var pid): StopHubs(p => p.Id == pid); return 0;
+                case "stop-others" when a.Length > 1: StopOtherHubs(s.Port, a[1]); return 0;
                 case "copy-missing" when a.Length > 2: CopyMissing(a[1], a[2]); return 0;
                 case "copy" when a.Length > 2: CopyFile(a[1], a[2], null); return 0;
                 case "tg-text" when a.Length > 2: File.WriteAllText(a[2], SettingsBridge.TgStateText(true, true, "", "test_bot", a[1])); return 0;

@@ -68,7 +68,7 @@ static class Program
         {
             var dir = Install.InstallDir;
             bool wasInstalled = Install.IsInstalled;
-            Install.StopOtherHubs();
+            Install.StopOtherHubs(S.Port, dir);
             Install.Unregister(S);
             Integrations.RemoveAll(S);
             try { ToastNotificationManagerCompat.Uninstall(); } catch { }
@@ -205,7 +205,7 @@ static class Program
                 installDir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(installDir));
                 var err = Install.CheckWritable(installDir);
                 if (err != null) { Msg(L.T("setup_no_access", installDir) + "\n\n" + err); return 1; }
-                var exe = Install.InstallFiles(installDir);
+                var exe = Install.InstallFiles(installDir, S.Port);
                 var a2 = "--register --quiet" + (optAuto ? "" : " --no-autostart") + (optPath ? "" : " --no-path") + optAgents;
                 Process.Start(new ProcessStartInfo(exe, a2) { UseShellExecute = true })?.Dispose();
                 return 0;
@@ -375,9 +375,9 @@ static class Program
                     Install.ReplaceStoreEdition(storePkg, S);
                 }
                 f.Step(L.T("step_stop"), 0.03);
-                Install.StopOtherHubs();
+                Install.StopOtherHubs(S.Port, dir);
                 f.Step(L.T("step_copy"), 0.05);
-                var exe = Install.InstallFiles(dir, p => f.Step(L.T("step_copy"), 0.05 + 0.7 * p));
+                var exe = Install.InstallFiles(dir, S.Port, p => f.Step(L.T("step_copy"), 0.05 + 0.7 * p));
                 f.Step(L.T("step_register"), 0.8);
                 var res = Path.Combine(Path.GetTempPath(), $"taskhub-setup-{Environment.ProcessId}.txt");
                 try { File.Delete(res); } catch { }
@@ -439,7 +439,7 @@ static class Program
                         return;
                     }
                     f.Step(L.T("step_stop"), 0.1);
-                    Install.StopOtherHubs();
+                    Install.StopOtherHubs(S.Port, Install.InstallDir);
                     f.Step(L.T("step_unregister"), 0.35);
                     Install.Unregister(S);
                     f.Step(L.T("step_agents"), 0.6);

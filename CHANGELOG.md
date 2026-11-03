@@ -16,6 +16,7 @@ from here), followed by the list of commits.
 - Windows notifications: a list with more than 5 options keeps its current value among the 5 shown, so the button can't send another one.
 - Install: a quiet install no longer carries the downloaded file's Mark of the Web. Uninstall removes this copy's autostart entries for other ports. The Apps list shows the install date and a link; `taskhub:` links have an icon.
 - A TaskHub that starts while another program answers on its port no longer sends that program its token. A command under `taskhub run` makes the same check as `taskhub` itself.
+- Install, update and uninstall stop only the TaskHub in their way (in the install folder or on its port), not a copy of yours running elsewhere on another port.
 
 ## 3.1.0 — 2026-11-03
 

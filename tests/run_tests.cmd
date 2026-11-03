@@ -48,5 +48,7 @@ for %%D in ("%EXE%") do "%PYTHON%" blender_test.py "%%~dpDtaskhub.exe" || set RC
 "%PYTHON%" log_test.py "%EXE%" "%DATA%" || set RC=1
 "%PYTHON%" i18n_test.py || set RC=1
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='TaskHubHost.exe'\" | Where-Object { $_.CommandLine -like '*47899*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
+rem WebView2 processes a killed test hub left behind: its own temp folders only, and only when the parent is gone
+powershell -NoProfile -Command "$all = Get-CimInstance Win32_Process; $ids = @{}; $all | ForEach-Object { $ids[[int]$_.ProcessId] = 1 }; $all | Where-Object { $_.Name -eq 'msedgewebview2.exe' -and $_.CommandLine -like '*\Temp\taskhub-*' -and -not $ids[[int]$_.ParentProcessId] } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 if %RC%==0 (echo ALL TESTS PASSED) else (echo TESTS FAILED)
 exit /b %RC%
