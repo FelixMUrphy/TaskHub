@@ -443,6 +443,16 @@ try:
     check("a deleted task: gone", code == 200, code)
     check("...and back while its host is listed", until(lambda: (task("box2") or {}).get("state") == "running" and "RAM" in status("box2")), task("box2"))
 
+    # a read-only file system is full by design, it can't fill up (found on a real host: WSL's /usr/lib/linux-tools)
+    ro_df = BASE["df"][:2] + ["/dev/sdb 98720 98720 0 100% /usr/lib/linux-tools", "/dev/sdc 1000 950 50 95% /my disk", "drivers 1000 910 90 91% /usr/lib/wsl/drivers"]
+    ro_mounts = ["/dev/sda1 / ext4 rw,relatime 0 0", "/dev/sdb /usr/lib/linux-tools ext4 ro,nosuid 0 0", "/dev/sdc /my\\040disk ext4 rw 0 0", "drivers /usr/lib/wsl/drivers 9p ro,nosuid 0 0"]
+    host_file("box2", mode="ok", sections=sections(df=ro_df, mounts=ro_mounts))
+    check("a writable disk that is full: counted, a name with a space too", until(lambda: "/my disk 95%" in status("box2")), status("box2"))
+    time.sleep(1)
+    check("read-only file systems: not counted", "100%" not in status("box2") and "linux-tools" not in status("box2"), status("box2"))
+    check("read-only file systems: no warning", not logged("box2", "linux-tools") and not logged("box2", "wsl/drivers"), task("box2")["log"])
+    host_file("box2", mode="ok", sections=sections())
+
     # a line made to be slow to parse doesn't pin a core
     host_file("flood", mode="ok", sections=sections(df=[f"x {'1' * 3990}" for _ in range(4900)]))
     add("box2", "flood")
@@ -453,6 +463,21 @@ try:
 finally:
     hub.kill()
     hub.wait(10)
+
+# the hub dies while ssh hangs (found on a real sshd: ssh.exe stayed, keepalives answered): nothing keeps running
+d5 = os.path.join(tmp, "data5")
+os.makedirs(d5)
+host_file("orphan1", mode="hang")
+hub = start(d=d5, cfg={"connectors": {"ssh": {"enabled": True, "hosts": ["orphan1"], "interval": 0.3}}})
+try:
+    check("a hung ssh: started", until(lambda: os.path.exists(os.path.join(fake, "orphan1.count"))))
+finally:
+    hub.kill()
+    hub.wait(10)
+ORPHANS = "@(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -like '*fake_ssh*orphan1*' })"
+count = lambda: subprocess.run(["powershell", "-NoProfile", "-Command", ORPHANS + ".Count"], capture_output=True, text=True).stdout.strip()
+check("the hub killed: a hung ssh doesn't stay behind", until(lambda: count() == "0", 8), count())
+subprocess.run(["powershell", "-NoProfile", "-Command", ORPHANS + " | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"], capture_output=True)
 
 # the default log level: a host's name stays out of the log
 d4 = os.path.join(tmp, "data4")

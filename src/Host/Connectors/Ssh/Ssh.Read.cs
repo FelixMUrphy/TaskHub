@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -20,6 +21,7 @@ sealed partial class SshConnector
         Part("boot", "cat /proc/sys/kernel/random/boot_id");
         Part("stat", "head -n 1 /proc/stat");
         Part("mem", "cat /proc/meminfo");
+        Part("mounts", "cat /proc/mounts");
         // local file systems when df can tell: a hung network mount would hang it
         Part("df", "df -kPl || df -kP");
         Part("gpu", "command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits");
@@ -106,12 +108,14 @@ sealed partial class SshConnector
             string topMount = null;
             var warn = DiskWarn;
             var seen = new HashSet<string>();
+            var readOnly = ReadOnlyMounts(r);
             foreach (var line in df)
             {
                 if (line.Length > MaxDfLine) continue;
                 var x = DfRx.Match(line);
                 if (!x.Success || !int.TryParse(x.Groups[2].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var pct)) continue;
                 var (fs, mount) = (x.Groups[1].Value, Clean(x.Groups[3].Value));
+                if (readOnly.Contains(mount)) continue;   // full by design and can't fill up: an image, a CD, WSL's own mounts
                 // docker's overlays and shm are per container; an overlay at / is the disk of a host that is a container
                 if (fs is "tmpfs" or "devtmpfs" or "udev" or "none" or "squashfs" or "efivarfs" or "shm" || (fs == "overlay" && mount != "/") || Regex.IsMatch(mount, "^/(snap|run|dev|sys|proc)(/|$)")) continue;
                 seen.Add(mount);
@@ -160,6 +164,22 @@ sealed partial class SshConnector
         }, trusted: true));
         SyncControls(w);
         return true;
+    }
+
+    /// <summary>From /proc/mounts: device, mount point with \040 for a space, type, options. The last line for a mount point is the one in force.</summary>
+    static HashSet<string> ReadOnlyMounts(Dictionary<string, List<string>> r)
+    {
+        var ro = new HashSet<string>();
+        if (!r.TryGetValue("mounts", out var lines)) return ro;
+        foreach (var line in lines)
+        {
+            var a = line.Split(' ');
+            if (a.Length < 4) continue;
+            var mount = Clean(Regex.Replace(a[1], @"\\([0-7]{3})", m => ((char)Convert.ToInt32(m.Groups[1].Value, 8)).ToString()));
+            if (a[3].Split(',').Contains("ro")) ro.Add(mount);
+            else ro.Remove(mount);
+        }
+        return ro;
     }
 
     static readonly HashSet<string> Shells = new(StringComparer.Ordinal) { "bash", "sh", "zsh", "fish", "dash", "ksh", "ash", "-bash", "-sh", "-zsh" };
@@ -243,6 +263,54 @@ sealed partial class SshConnector
     }
 
     // ------------------------------------------------------------ ssh.exe
+    /// <summary>A Job object nobody else holds: when the hub ends in any way the last handle closes and Windows ends what is in it, a ProxyCommand ssh
+    /// started too. A closed stdin isn't enough: ssh keeps waiting for a remote shell that hangs while its sshd answers keepalives. Best effort: without
+    /// a job, ssh still works.</summary>
+    static class DiesWithHub
+    {
+        const uint KillOnJobClose = 0x2000;
+        const int JobObjectExtendedLimitInformation = 9;
+        static readonly IntPtr Job = Create();
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct ExtendedLimits
+        {
+            public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
+            public uint LimitFlags;
+            public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
+            public uint ActiveProcessLimit;
+            public UIntPtr Affinity;
+            public uint PriorityClass, SchedulingClass;
+            public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes;
+            public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+        }
+
+        [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)] static extern IntPtr CreateJobObjectW(IntPtr attributes, string name);
+        [DllImport("kernel32", SetLastError = true)] static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref ExtendedLimits info, int length);
+        [DllImport("kernel32", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+        static IntPtr Create()
+        {
+            var job = CreateJobObjectW(IntPtr.Zero, null);
+            var limits = new ExtendedLimits { LimitFlags = KillOnJobClose };
+            if (job == IntPtr.Zero || !SetInformationJobObject(job, JobObjectExtendedLimitInformation, ref limits, Marshal.SizeOf<ExtendedLimits>()))
+            {
+                Log.W("ssh", "job: " + Marshal.GetLastWin32Error());
+                return IntPtr.Zero;
+            }
+            return job;   // held for the hub's whole life, on purpose
+        }
+
+        public static void Add(Process p)
+        {
+            try
+            {
+                if (Job != IntPtr.Zero && !AssignProcessToJobObject(Job, p.Handle)) Log.W("ssh", "job: " + Marshal.GetLastWin32Error());
+            }
+            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }   // it has already exited
+        }
+    }
+
     /// <summary>One ssh.exe with a shell at the other end, which waits for the next tick's script. The closed stdin ends it if the hub dies.</summary>
     sealed class Conn : IDisposable
     {
@@ -266,6 +334,7 @@ sealed partial class SshConnector
             psi.Environment["SSH_ASKPASS_REQUIRE"] = "never";
             psi.Environment["LC_ALL"] = "C";
             p = Process.Start(psi) ?? throw new IOException("ssh didn't start");
+            DiesWithHub.Add(p);
             new Thread(ReadOut) { IsBackground = true }.Start();
             new Thread(ReadErr) { IsBackground = true }.Start();
         }
