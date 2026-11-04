@@ -579,14 +579,17 @@ sealed class Notifier : INotifier
     readonly Dictionary<string, string> confirmValues = new();   // long values of confirmation toasts (key -> JSON)
 
     // ------------------------------------------------------------ activation (button clicks)
-    void OnActivated(ToastNotificationActivatedEventArgsCompat e)
+    void OnActivated(ToastNotificationActivatedEventArgsCompat e) => Activate(e.Argument, e.UserInput);
+
+    /// <summary>A toast or one of its buttons pressed. Also the tests' way in: Windows' activation can't be driven from a test.</summary>
+    public void Activate(string argument, IDictionary<string, object> userInput)
     {
         try
         {
-            var args = ToastArguments.Parse(e.Argument);
+            var args = ToastArguments.Parse(argument);
             args.TryGetValue("action", out string action);
             args.TryGetValue("task", out string tid);
-            Log.D("toast", $"toast activated: {e.Argument} inputs=[{string.Join(",", e.UserInput.Select(kv => kv.Key))}]");
+            Log.D("toast", $"toast activated: {argument} inputs=[{string.Join(",", userInput.Select(kv => kv.Key))}]");
             if (string.IsNullOrEmpty(tid)) tid = null;
             switch (action)
             {
@@ -608,7 +611,7 @@ sealed class Notifier : INotifier
                         if (kept == null) { DoOpenPanel(tid); break; }   // the hub restarted meanwhile: the panel asks again
                         value = J.Parse(kept);
                     }
-                    else if (ctl?["input"] is JsonObject inp && e.UserInput.TryGetValue("v_" + cid, out var raw))
+                    else if (ctl?["input"] is JsonObject inp && userInput.TryGetValue("v_" + cid, out var raw))
                     {
                         var s = raw?.ToString() ?? "";
                         var typ = J.Str(inp["type"]);
@@ -646,7 +649,7 @@ sealed class Notifier : INotifier
                     var t2 = Hub.GetTask(tid);
                     var l = (t2["links"] as JsonArray)?[i];
                     var url = l is JsonObject lo ? J.Str(lo["url"]) : J.Str(l);
-                    if (!string.IsNullOrEmpty(url)) Hub.OpenTarget(url);
+                    if (!string.IsNullOrEmpty(url)) Hub.OpenLink(url, true);
                     break;
                 case "update":
                     UpdateClicked?.Invoke();

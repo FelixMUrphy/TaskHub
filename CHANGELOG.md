@@ -7,6 +7,8 @@ from here), followed by the list of commits.
 
 - Telegram: when the Bot API answers with an error, TaskHub now waits (and honours Telegram's retry time) instead of asking again thousands of times a minute, says "offline" and writes it in the log.
 - GitHub: with many repositories, old runs no longer come back as new tasks and failure notifications; each repository keeps its own memory of runs.
+- A file link on a notification button is now only shown in its folder, as in the panel; it used to be run.
+- A task with a pid that isn't a Windows process (from WSL, say) no longer ends as "lost" after a few seconds; use `heartbeat_timeout` for such tasks.
 - The API now says when it can't do what was asked: a task without a name, an update with a wrong field, a wrong level or state, a finish without a state and a value for a widget that doesn't exist get an error that names the problem instead of a silent "ok". Scripts that send such requests need fixing; the `taskhub` command, the MCP tools and the Python client send valid ones.
 - A task's end stands: Kill on a `taskhub run` task stays "cancelled" instead of turning into "failed", and a second finish no longer overwrites the first. A process that has just ended is no longer called lost, with an error notification, while its finish is on the way.
 - Security: a request to a task's log could set which GitHub run its Cancel and Re-run buttons act on; the log route now only logs.

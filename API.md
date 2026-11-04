@@ -148,7 +148,8 @@ Every error is JSON `{"error": "<text>"}` with one of these statuses:
   "project": "shop-api",                  // panel groups (default: the folder name of "cwd")
   "attention": "Approve the deploy",      // the task waits for the user: shown on top of the panel ("" = no)
   "pid": 12345,                           // a Windows pid: lost-detection + automatic "Kill" control ("kill_control": false to disable);
-                                          // no Kill when the hub can't read the process's start time (not a Windows pid)
+                                          // no Kill and no lost-detection when the hub can't read the process's start time (not a Windows pid):
+                                          // use heartbeat_timeout there
   "heartbeat_timeout": 600,               // s without update -> "stale" + toast (0 = off)
   "expected_duration": 120,               // s it usually takes: the ETA comes from it (not from the pace) until overdue
   "notify": {"start": false, "finish": true, "fail": true, "stale": true, "milestones": []},

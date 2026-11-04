@@ -180,9 +180,39 @@ sealed partial class Hub
     });
     [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern uint GetOEMCP();
 
+    /// <summary>What an "open" control names: the task's owner chose to run it.</summary>
     public static void OpenTarget(string target)
     {
         Process.Start(new ProcessStartInfo(target) { UseShellExecute = true })?.Dispose();
+    }
+
+    static readonly string Explorer = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+
+    /// <summary>Opens a link, from the panel or a toast: http / https / mailto in the default handler. A local or network file
+    /// (file: URL or a plain path; only when <paramref name="local"/>, i.e. task links) is never run: a folder opens in
+    /// Explorer, a file is shown selected in its folder. Anything else is refused.</summary>
+    public static void OpenLink(string url, bool local)
+    {
+        try
+        {
+            if (!LinkOk(url, out var u)) { Log.W("panel", "refused to open " + (Uri.TryCreate(url, UriKind.Absolute, out var refused) ? refused.Scheme + "://" + refused.Host : "a malformed address")); return; }
+            if (!u.IsFile)
+            {
+                Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true })?.Dispose();
+                return;
+            }
+            if (!local) { Log.W("panel", "refused to open a local path from a page"); return; }
+            var path = u.LocalPath;
+            // the tests check the choice: an Explorer window would land on the desktop of whoever runs them
+            if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 }) { Log.I("panel", "would show in Explorer"); return; }
+            if (Directory.Exists(path))
+                Process.Start(new ProcessStartInfo(Explorer, "\"" + Path.TrimEndingDirectorySeparator(path) + "\"")
+                    { UseShellExecute = false })?.Dispose();
+            else if (File.Exists(path))
+                Process.Start(new ProcessStartInfo(Explorer, "/select,\"" + path + "\"") { UseShellExecute = false })?.Dispose();
+            else Log.W("panel", "open: path not found");
+        }
+        catch (Exception e) { Log.W("panel", "open failed: " + e.Message); }
     }
 
     /// <summary>Shell control as a list: the value may not choose the program, and .bat / .cmd targets (run through

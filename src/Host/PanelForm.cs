@@ -539,37 +539,13 @@ sealed class PanelForm : Form
     }
 
     readonly HashSet<ulong> cancelledNavs = new();
-    static readonly string Explorer = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
 
     /// <summary>The panel's own page (any #fragment / ?query) on this hub.</summary>
     bool IsPanelUrl(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var u)
         && string.Equals(u.GetLeftPart(UriPartial.Path), S.Url + "/ui", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Opens a link from the panel: http / https / mailto in the default handler. A local or network file
-    /// (file: URL or a plain path; only when <paramref name="local"/>, i.e. task links) is never run: a folder opens in
-    /// Explorer, a file is shown selected in its folder. Anything else is refused.</summary>
-    static void SafeOpen(string url, bool local)
-    {
-        try
-        {
-            if (!Hub.LinkOk(url, out var u)) { Log.W("panel", "refused to open " + (Uri.TryCreate(url, UriKind.Absolute, out var refused) ? refused.Scheme + "://" + refused.Host : "a malformed address")); return; }
-            if (!u.IsFile)
-            {
-                Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true })?.Dispose();
-                return;
-            }
-            if (!local) { Log.W("panel", "refused to open a local path from a page"); return; }
-            var path = u.LocalPath;
-            if (Directory.Exists(path))
-                Process.Start(new ProcessStartInfo(Explorer, "\"" + Path.TrimEndingDirectorySeparator(path) + "\"")
-                    { UseShellExecute = false })?.Dispose();
-            else if (File.Exists(path))
-                Process.Start(new ProcessStartInfo(Explorer, "/select,\"" + path + "\"") { UseShellExecute = false })?.Dispose();
-            else Log.W("panel", "open: path not found");
-        }
-        catch (Exception e) { Log.W("panel", "open failed: " + e.Message); }
-    }
+    static void SafeOpen(string url, bool local) => Hub.OpenLink(url, local);
 
     public SettingsBridge SettingsPage;
 

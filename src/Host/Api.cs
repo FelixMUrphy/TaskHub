@@ -124,6 +124,14 @@ sealed class Api
             return Telegram.State();
         });
         R("GET", "/api/discord", (c, q, g) => V(Discord?.State() ?? new JsonObject { ["status"] = "off" }));
+        // a toast's button as Windows would press it, for the isolated hubs of the tests
+        if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+            R("POST", "/api/test/toast", async (c, q, g) =>
+            {
+                var b = await Body(c);
+                ((Notifier)hub.Notifier).Activate(J.Str(b["argument"]), new Dictionary<string, object>());
+                return new JsonObject { ["ok"] = true };
+            });
         // setting it up is only on the settings page (WebView2 messages): this is for the isolated hubs of the tests
         if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
             R("POST", "/api/discord", async (c, q, g) =>
