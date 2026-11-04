@@ -6,6 +6,7 @@ from here), followed by the list of commits.
 ## Unreleased
 
 - A damaged `config.json` or `state.json` is no longer lost: the file is kept beside itself, the last good version comes back, and the panel says what happened. With no good version, default settings are used for that run but nothing is written over your file until you correct or delete it. An empty settings file of an AI agent is no longer overwritten.
+- Telegram: pairing is only on the settings page. `POST /api/telegram` is gone from the API and `GET /api/telegram` no longer shows the pairing link, so no local program can link another chat. When another chat is linked, the old chat is told.
 - Local API: a connector's task can't be pointed elsewhere any more. `meta.<connector>` from a request is dropped, a button acts on the machine in the task's id, and a connector task's buttons can't be changed or replaced (403).
 - MCP: buttons an agent adds through `task_start` only send a signal back to it. They can no longer make the hub run a command, open something or kill a process when you press them.
 - Runpod, Vast.ai: an unexpected answer to the machine list, or Vast's 200 with success false, no longer marks machines as gone and doesn't use up a pending stop. Runpod's billing mode is asked again at the next reading after a failure and the last known one is kept; if it is unknown at a stop, the announcement says so. On Vast.ai, auto-stop on idle waits until the GPU has been seen busy.

@@ -110,7 +110,15 @@ sealed class Api
         R("POST", "/api/hooks/(claude|codex)", async (c, q, g) => AgentHooks.Handle(hub, g[0], await Body(c)));
         R("POST", "/api/limits/(claude)", async (c, q, g) => hub.ReportLimits(g[0], await Body(c)));
         R("GET", "/api/limits", (c, q, g) => V(hub.LimitsView()));
-        R("GET", "/api/telegram", (c, q, g) => V(Telegram?.State() ?? new JsonObject { ["status"] = "off" }));
+        R("GET", "/api/telegram", (c, q, g) =>
+        {
+            var st = Telegram?.State() ?? new JsonObject { ["status"] = "off" };
+            if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is not { Length: > 0 }) st.Remove("link");   // the pairing code stays on the settings page
+            return V(st);
+        });
+        // setting it up is only on the settings page (WebView2 messages): a pairing code gives a chat the user's notifications and buttons.
+        // This is for the isolated hubs of the tests
+        if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
         R("POST", "/api/telegram", async (c, q, g) =>
         {
             var b = await Body(c);

@@ -25,7 +25,11 @@ mkdir "%DATA%"
 > "%DATA%\config.json" echo {"log_level": "debug", "toasts": false, "autostart": false, "toast_rate": 0, "toast_task_gap": 0, "telegram_api": "http://127.0.0.1:47897", "connectors": {"github": {"api": "http://127.0.0.1:47896"}, "runpod": {"api": "http://127.0.0.1:47891"}, "vastai": {"api": "http://127.0.0.1:47890"}, "aws": {"api": "http://127.0.0.1:47889"}}}
 set TASKHUB_URL=http://127.0.0.1:47899
 set TASKHUB_DATA=%DATA%
+rem the settings a user changes only on the settings page answer over HTTP here, as on every isolated test hub
+set TASKHUB_TEST_HOME=%DATA%\home
+mkdir "%TASKHUB_TEST_HOME%"
 start "" /b "%EXE%" --port 47899 --data "%DATA%" --no-tray
+set TASKHUB_TEST_HOME=
 rem wait until the hub answers (up to 30 s)
 powershell -NoProfile -Command "for($i=0;$i -lt 60;$i++){ try{ Invoke-RestMethod http://127.0.0.1:47899/api/health -TimeoutSec 1 | Out-Null; exit 0 }catch{ Start-Sleep -Milliseconds 500 } }; exit 1" || (echo hub did not start & exit /b 2)
 set RC=0
@@ -69,6 +73,7 @@ for %%D in ("%EXE%") do "%PYTHON%" run_one.py "%DATA%\results" blender_test.py "
 "%PYTHON%" run_one.py "%DATA%\results" guard_403_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" guard_unknown_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" connector_trust_test.py "%EXE%" || set RC=1
+"%PYTHON%" run_one.py "%DATA%\results" telegram_gate_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" unit_test.py || set RC=1
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='TaskHubHost.exe'\" | Where-Object { $_.CommandLine -like '*47899*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
 rem WebView2 processes a killed test hub left behind: its own temp folders only, and only when the parent is gone

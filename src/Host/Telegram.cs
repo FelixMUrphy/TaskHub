@@ -91,6 +91,7 @@ sealed class TelegramBridge
         }
     }
     long Chat => J.Num(S.Get("telegram_chat")) is double d ? (long)d : 0;
+    long relinkFrom;   // the chat a pairing in progress takes over from: told when another one is linked
     string Api(string method) => (J.Str(S.Get("telegram_api")) is { Length: > 0 } b ? b.TrimEnd('/') : "https://api.telegram.org")
                                  + "/bot" + Token + "/" + method;
     public bool Linked => Token.Length > 0 && Chat != 0;
@@ -114,6 +115,8 @@ sealed class TelegramBridge
         token = (token ?? "").Trim();
         if (!System.Text.RegularExpressions.Regex.IsMatch(token, @"^\d{5,}:[A-Za-z0-9_-]{30,}$"))
             throw new ApiError(400, "this does not look like a bot token from @BotFather (123456789:AA...)");
+        if (token != Token) relinkFrom = 0;   // another bot can't reach the old chat
+        else if (Chat != 0) relinkFrom = Chat;
         SaveToken(token);
         this.token = token;
         PairCode = Convert.ToHexString(RandomNumberGenerator.GetBytes(5)).ToLowerInvariant();
@@ -137,6 +140,7 @@ sealed class TelegramBridge
         catch (Exception e) { Log.W("telegram", "token not deleted: " + e.Message); }
         token = "";
         inConfig = vaultFailed = false;
+        relinkFrom = 0;
         S.Set(("telegram_token", null), ("telegram_chat", null));
         PairCode = null;
         Start();
@@ -582,10 +586,13 @@ sealed class TelegramBridge
                 Enqueue(from, "⚠️ " + Esc(L.T("tg_private_only")), null);
                 return;
             }
+            long old = relinkFrom;
+            relinkFrom = 0;
             S.Set(("telegram_chat", from));
             PairCode = null;
             Status = "connected";
             Log.I("telegram", "linked");
+            if (old != 0 && old != from) Enqueue(old, "⚠️ " + Esc(L.T("tg_relinked", Environment.MachineName)), null);
             Enqueue(from, "✅ " + Esc(L.T("tg_linked", Environment.MachineName)), null);
             return;
         }

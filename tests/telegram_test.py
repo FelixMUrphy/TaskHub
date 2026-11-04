@@ -388,7 +388,7 @@ def start_hub(port, cfg, env=None):
     with open(os.path.join(data, "config.json"), "w", encoding="utf-8") as f:
         json.dump(dict({"toasts": False, "autostart": False, "telegram_api": "http://127.0.0.1:47897"}, **cfg), f)
     url = "http://127.0.0.1:%d" % port
-    hub = subprocess.Popen([EXE, "--port", str(port), "--data", data, "--no-tray"], env=dict(os.environ, **(env or {})))
+    hub = subprocess.Popen([EXE, "--port", str(port), "--data", data, "--no-tray"], env=dict(os.environ, TASKHUB_TEST_HOME=os.path.join(data, "home"), **(env or {})))
     up = False
     for _ in range(60):
         try:
@@ -440,7 +440,7 @@ if EXE:
         _, old_key = button_task("Before restart", "first")
         hub4.kill()
         hub4.wait(10)
-        hub4 = subprocess.Popen([EXE, "--port", "47879", "--data", data4, "--no-tray"])
+        hub4 = subprocess.Popen([EXE, "--port", "47879", "--data", data4, "--no-tray"], env=dict(os.environ, TASKHUB_TEST_HOME=os.path.join(data4, "home")))
         for _ in range(60):
             try:
                 if call("GET", "/api/health", url=url4)[0] == 200:
