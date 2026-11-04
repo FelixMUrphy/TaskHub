@@ -256,6 +256,7 @@ Each provider has its own two thresholds in $: **warn** (default $10) and **stop
   spend — a snooze is capped the same way and says until when). A top-up above the stop threshold cancels it.
 - TaskHub reads the balance sooner as the stop threshold gets near, down to once a minute. A service can book charges in steps (Runpod: about every 10 minutes), so while its figure stands still TaskHub
   carries it down at the current spend, for at most 15 minutes, and says so when that estimate is what reached the threshold. A machine whose stop failed is tried again about a minute later.
+- If the service refuses an action for your key, auto-stop and the *Stop* button go off and TaskHub says so out loud. It asks again within minutes, then ever less often, up to once an hour, and turns them back on by itself; a page from something in between (a challenge, a proxy) changes nothing.
 - **Stop only — TaskHub never deletes, terminates or destroys a machine.** Machines marked *Never auto-stop* in the same
   settings are left alone. Each stop is confirmed (Runpod: *EXITED*, Vast.ai: no longer running); a machine that could not
   be stopped is reported as failed, never as stopped.

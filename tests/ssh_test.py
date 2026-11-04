@@ -50,7 +50,12 @@ def host_file(host, **spec):
     p = os.path.join(fake, host + ".json")
     with open(p + ".tmp", "w", encoding="utf-8") as f:
         json.dump(spec, f)
-    os.replace(p + ".tmp", p)
+    for attempt in range(50):   # the fake ssh may have it open: Windows refuses the replace for that moment
+        try:
+            os.replace(p + ".tmp", p)
+            break
+        except PermissionError:
+            time.sleep(.05)
 
 
 def task(host):

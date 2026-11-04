@@ -6,6 +6,7 @@ from here), followed by the list of commits.
 ## Unreleased
 
 - A damaged `config.json` or `state.json` is no longer lost: the file is kept beside itself, the last good version comes back, and the panel says what happened. With no good version, default settings are used for that run but nothing is written over your file until you correct or delete it. An empty settings file of an AI agent is no longer overwritten.
+- Runpod, Vast.ai: one refused action no longer switches off auto-stop and the Stop button for a day. TaskHub says so out loud, asks again within minutes and turns them back on by itself. A challenge page instead of the service's answer changes nothing.
 - Balance guard: it now stops in time when the balance would run out between two readings. It reads sooner as the stop threshold nears, carries a figure the service books in steps down at the current spend, and tries a failed stop again in about a minute.
 - One large request can no longer hold up the hub: big batches of log lines or chart points keep only what fits. A task now has limits, and the API answers 400 above them: 64 controls, 20 links, 20 milestones, 100 metrics, 64,000 characters in `meta` and in a widget's value, 2000 active tasks (API.md, Limits).
 - A value too big for a number in a task's progress no longer breaks the panel or stops the tasks being saved.

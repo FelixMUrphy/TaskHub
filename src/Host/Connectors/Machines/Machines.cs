@@ -123,7 +123,8 @@ abstract partial class MachineConnector : ISettingsConnector
     bool low;                                              // balance / runway under the limit (warned once per crossing)
     protected string status = "off";
     bool? canAct;                                          // null: not probed yet / probe failed
-    double probedAt, nextList, nextBilling, nextSpend, pausedUntil, backoff;
+    double probedAt, nextList, nextBilling, nextSpend, pausedUntil, backoff, probeBackoff;
+    bool actsOffSaid;                                      // "auto-stop is off" was said; the way back is said too
     string keyHash;
     // the last verdict on the saved key: "ok" | "revoked" (the service stopped accepting it) | "network" | "unavailable"
     // (saved but not checked yet); null = no key / not checked. Never anything of the key itself.
@@ -215,7 +216,7 @@ abstract partial class MachineConnector : ISettingsConnector
         if (J.IsStr(b["key"])) SetKey(J.Str(b["key"]));   // a rejected key: nothing is changed
         Connectors.SetConfig(S, Id, c);
         if (b.ContainsKey("idle_stop_minutes") && J.Num(b["idle_stop_minutes"]) == 0) CancelPending(_ => L.T("g_idle_off"), p => p.Idle);
-        if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); canAct = null; keyHash = null; keyCheck = null; balance = null; reading = null; }
+        if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); canAct = null; probeBackoff = 0; actsOffSaid = false; keyHash = null; keyCheck = null; balance = null; reading = null; }
         Start();
         return State();
     }
@@ -238,7 +239,7 @@ abstract partial class MachineConnector : ISettingsConnector
         try { Secrets.Write(S, Id, key); }
         catch (Exception e) { throw new ApiError(500, "the key was not saved: " + e.Message); }
         keyHash = null;   // probe again
-        canAct = null;
+        canAct = null; probeBackoff = 0; actsOffSaid = false;
         balance = null; reading = null;   // the old key's account
         SetCheck(r == null ? "network" : r.Code == 200 ? "ok" : "unavailable", r?.Code ?? 0);
         if (keyCheck != "ok") return;
@@ -534,21 +535,61 @@ abstract partial class MachineConnector : ISettingsConnector
     {
         var r = await Probe(key, ct);
         probedAt = J.Now();
-        bool? was = canAct;
-        canAct = r.Code switch
+        bool fromService = r.Code != 403 || r.Body != null;   // a page from something in between (a challenge, a proxy) says nothing about the key
+        bool? now = !fromService ? canAct : r.Code switch
         {
             403 => false,
             400 or 404 or 405 or 409 or 422 => true,
             401 => null,
-            _ => was,   // can't tell (network, 5xx, rate limit): keep what we knew
+            _ => canAct,   // can't tell (network, 5xx, rate limit): keep what we knew
         };
-        if (r.Code is not (400 or 401 or 403 or 404 or 405 or 409 or 422)) probedAt = J.Now() - 86400 + 600;   // again in 10 min
-        Log.W(Id, $"action probe -> HTTP {r.Code}, actions {(canAct == true ? "allowed" : canAct == false ? "not allowed" : "unknown")}");
-        if (was != canAct)
+        if (r.Code == 403 && fromService) ProbeAgainSoon();
+        else
         {
-            List<Track> all;
-            lock (gate) all = machines.Values.ToList();
-            foreach (var t in all) t.LastSig = null;   // controls change
+            probeBackoff = 0;
+            if (!fromService || r.Code is not (400 or 401 or 404 or 405 or 409 or 422)) probedAt = J.Now() - 86400 + 600;   // again in 10 min
+        }
+        SetCanAct(now);
+        Log.W(Id, $"action probe -> HTTP {r.Code}, actions {(canAct == true ? "allowed" : canAct == false ? "not allowed" : "unknown")}");
+    }
+
+    /// <summary>A 403 on an action, not a rate limit. The service's own answer: no actions for now, and asked again within
+    /// minutes (a refusal can be momentary; until the next probe nothing else would bring them back). A page from something
+    /// in between says nothing about the key.</summary>
+    void ActionForbidden(Resp r)
+    {
+        if (r.Body == null) { Log.W(Id, "action -> HTTP 403 that isn't the service's answer: actions stay as they were"); return; }
+        ProbeAgainSoon();
+        SetCanAct(false);
+    }
+
+    void ProbeAgainSoon()
+    {
+        probeBackoff = Math.Clamp(probeBackoff * 2, Mock ? 1 : 120, 3600);
+        probedAt = J.Now() - 86400 + probeBackoff;
+    }
+
+    /// <summary>What the key may do. Machines' controls follow; losing it while auto-stop is on is said out loud (it is about
+    /// money), and so is getting it back.</summary>
+    void SetCanAct(bool? now)
+    {
+        bool? was = canAct;
+        if (was == now) return;
+        canAct = now;
+        List<Track> all;
+        lock (gate) all = machines.Values.ToList();
+        foreach (var t in all) t.LastSig = null;   // controls change
+        if (was == true && now == false && (GCfg.On || Cfg.IdleStopMinutes > 0) && !actsOffSaid)
+        {
+            actsOffSaid = true;
+            GuardNotify(L.T("g_acts_off", Title), "error");
+            Log.W(Id, "actions refused: auto-stop and Stop are off until the next probe allows them");
+        }
+        if (now == true)
+        {
+            if (actsOffSaid) GuardNotify(L.T("g_acts_back", Title), "info");
+            actsOffSaid = false;
+            nextBilling = Math.Min(nextBilling, J.Now() + FastRead);   // below the threshold meanwhile: seen soon
         }
     }
 
@@ -891,7 +932,7 @@ abstract partial class MachineConnector : ISettingsConnector
         var r = Act(m, action, key, CancellationToken.None).GetAwaiter().GetResult();
         if (r.Code is not (200 or 201 or 202 or 204))
         {
-            if (r.Code == 403 && !r.Limited) { canAct = false; lock (gate) if (t != null) t.LastSig = null; }
+            if (r.Code == 403 && !r.Limited) ActionForbidden(r);
             var text = ActionError(r, action) ?? r.Code switch
             {
                 403 => L.T("m_err_403"),

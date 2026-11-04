@@ -514,7 +514,7 @@ abstract partial class MachineConnector
                     var r = await Act(m, "stop", key, CancellationToken.None);
                     if (r.Code is not (200 or 201 or 202 or 204))
                     {
-                        if (r.Code == 403 && !r.Limited) canAct = false;
+                        if (r.Code == 403 && !r.Limited) ActionForbidden(r);
                         err = ActionError(r, "stop") ?? r.Code switch
                         {
                             403 => L.T("m_err_403"), 409 => L.T("m_err_409"), 404 => L.T("m_err_404"), 429 => L.T("m_err_429"),
