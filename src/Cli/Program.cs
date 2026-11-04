@@ -67,8 +67,8 @@ sealed class Client
     /// run this exe without TASKHUB_TOKEN, so it finds it itself.</summary>
     static string OwnToken()
     {
-        if (HubConfig()?["token"] is JsonValue tv && tv.TryGetValue<string>(out var t) && t.Length > 0) return t;
-        try { return File.ReadAllText(Path.Combine(DataFolder(), "api.token")).Trim() is { Length: > 0 } text ? text : null; }
+        if (HubConfig()?["token"] is JsonValue tv && tv.ToString() is { Length: > 0 } t) return t;   // a number too, as the hub reads it
+        try { return File.ReadAllText(Path.Combine(DataFolder(), "api.token")).Trim() is { Length: > 0 } text ? text.ToUpperInvariant() : null; }   // the hub's form of the hex
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }
 
@@ -202,7 +202,8 @@ http://127.0.0.1:47800; env TASKHUB_URL / TASKHUB_TOKEN override them)
       given; --preset none turns it off.
       Adds Ctrl+C, 'Send input' (stdin) and Kill controls; exits with the command's exit code (1 when a preset saw
       the tool fail while it exited with 0).
-      The child gets TASKHUB_URL and TASKHUB_TASK_ID in its environment (so it can call the API itself).
+      The child gets TASKHUB_URL and TASKHUB_TASK_ID in its environment, not the token: the taskhub command finds it
+      itself, for a raw request see `taskhub token`.
 
 Global option: --url URL";
 
@@ -354,14 +355,15 @@ Global option: --url URL";
                     return 0;
                 case "token":
                 {
-                    if (c.Token() is not { Length: > 0 } tok) return Fail("no token found for this hub: see TASKHUB_TOKEN in API.md");
+                    if (c.Token() is not { Length: > 0 } tok) return NoToken(c);
                     Console.WriteLine(tok);
                     return 0;
                 }
                 case "ui":
                 {
                     bool print = TakeFlag(args, "--print");
-                    if (c.Token() is not { Length: > 0 } tok) return Fail("no token found for this hub: see TASKHUB_TOKEN in API.md");
+                    if (!c.Available()) return NoToken(c);   // no dead page
+                    if (c.Token() is not { Length: > 0 } tok) return NoToken(c);
                     var page = c.Url + "/ui#token=" + Uri.EscapeDataString(tok);
                     if (print) Console.WriteLine(page);
                     else System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(page) { UseShellExecute = true })?.Dispose();
@@ -384,6 +386,13 @@ Global option: --url URL";
             Console.Error.WriteLine("taskhub: " + e.Message);
             return e.Code == 0 ? 3 : 1;
         }
+    }
+
+    /// <summary>Why there's no token to give: the hub isn't there, or it can't be read or this address isn't this PC's hub.</summary>
+    static int NoToken(Client c)
+    {
+        if (!c.Available()) { Console.Error.WriteLine($"taskhub: the hub is not running at {c.Url}"); return 3; }
+        return Fail($"no token for {c.Url}: api.token in {Client.DataFolder()} can't be read, or this address isn't this PC's hub. See TASKHUB_TOKEN in API.md");
     }
 
     [DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int pid);

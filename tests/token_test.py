@@ -141,6 +141,79 @@ try:
     check("a token file with inherited rights gets this user's only", "(I)" in loose and "(I)" not in acl and "BUILTIN\\Users" not in acl, (loose, acl))
     check("...the token stays", call("GET", "/api/tasks", token=token)[0] == 200)
 
+    # ---- a limited caller's id stays an id: MCP can't reach another route through it
+    token = call("GET", "/api/hub-proof?nonce=" + "a" * 32) and open(path, encoding="ascii").read().strip()
+    mark2 = os.path.join(root, "ran2.txt")
+    s, _ = call("POST", "/api/tasks", {"id": "victim", "name": "x", "controls": [{"id": "go", "label": "Go", "kind": "shell", "command": f'cmd /c echo ran> "{mark2}"'}]}, token=token)
+    check("(a task with a button)", s == 200, s)
+    tools = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}}]
+    bad = ["victim/controls/go?", "../tasks/victim/controls/go?", "..", "."]
+    for i, b in enumerate(bad):
+        tools.append({"jsonrpc": "2.0", "id": 10 + i, "method": "tools/call", "params": {"name": "task_update", "arguments": {"id": b, "status": "x"}}})
+        tools.append({"jsonrpc": "2.0", "id": 30 + i, "method": "tools/call", "params": {"name": "task_finish", "arguments": {"id": b, "state": "done"}}})
+    tools.append({"jsonrpc": "2.0", "id": 90, "method": "tools/call", "params": {"name": "task_update", "arguments": {"id": "victim", "status": "plain id works"}}})
+    m = subprocess.Popen([CLI, "mcp"], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    m.stdin.write("".join(json.dumps(x) + chr(10) for x in tools))
+    m.stdin.flush()
+    replies = [m.stdout.readline() for _ in tools]
+    m.stdin.close()
+    m.wait(timeout=15)
+    time.sleep(1.5)
+    check("MCP: an id with a path in it doesn't press a button", not os.path.exists(mark2), replies[1:5])
+    check("...each one is refused", all('"result":{"content"' not in r or '"isError":true' in r for r in replies[1:-1]), replies[1:-1])
+    check("...a plain id still works", call("GET", "/api/tasks/victim", token=token)[1].get("status") == "plain id works", replies[-1])
+
+    # ---- a token file another account could read is closed too, even when it isn't inheriting
+    hub.kill()
+    hub.wait()
+    subprocess.run(["icacls", path, "/inheritance:r", "/grant:r", "*S-1-1-0:(R)", f"{os.environ['USERNAME']}:(F)"], capture_output=True)
+    loose = subprocess.run(["icacls", path], capture_output=True, text=True).stdout
+    hub = start()
+    acl = subprocess.run(["icacls", path], capture_output=True, text=True).stdout
+    check("a protected token file that lets Everyone read it is closed", "Everyone" in loose and "Everyone" not in acl, (loose, acl))
+
+    # ---- a token the hub takes, the clients take in the same form
+    hub.kill()
+    hub.wait()
+    with open(path, "w", encoding="ascii") as f:
+        f.write(token.lower())
+    hub = start()
+    r = cli("register", "--id", "lower-file", "--name", "x")
+    check("a hand-written lower-case token file: the CLI still gets in", r.returncode == 0, r)
+    r = cli("token")
+    check("...`taskhub token` prints what works", r.returncode == 0 and call("GET", "/api/tasks", token=r.stdout.strip())[0] == 200, r)
+    py = subprocess.run([sys.executable, "-c", "import taskhub_client as t; print(t.request('GET', '/api/tasks/lower-file')['id'])"],
+                        env=dict(env, PYTHONPATH=os.path.join(HERE, "..", "clients", "python"), TASKHUB_URL=URL), capture_output=True, text=True, timeout=30)
+    check("...the Python client too", py.returncode == 0 and py.stdout.strip() == "lower-file", (py.stdout, py.stderr[-300:]))
+    hub.kill()
+    hub.wait()
+    conf = json.load(open(os.path.join(data, "config.json"), encoding="utf-8"))
+    conf["token"] = 12345
+    json.dump(conf, open(os.path.join(data, "config.json"), "w", encoding="utf-8"))
+    hub = start()
+    r = cli("register", "--id", "num-token", "--name", "x")
+    check("a number as the config token: the CLI uses it like the hub", r.returncode == 0, r)
+    py = subprocess.run([sys.executable, "-c", "import taskhub_client as t; print(t.request('GET', '/api/tasks/num-token')['id'])"],
+                        env=dict(env, PYTHONPATH=os.path.join(HERE, "..", "clients", "python"), TASKHUB_URL=URL), capture_output=True, text=True, timeout=30)
+    check("...the Python client too", py.returncode == 0 and py.stdout.strip() == "num-token", (py.stdout, py.stderr[-300:]))
+    del conf["token"]
+    hub.kill()
+    hub.wait()
+    json.dump(conf, open(os.path.join(data, "config.json"), "w", encoding="utf-8"))
+    hub = start()
+
+    # ---- commands that hand out the token say what's wrong
+    token = open(path, encoding="ascii").read().strip()
+    dead = dict(env, TASKHUB_NO_AUTOSTART="1", TASKHUB_TOKEN="abc")
+    r = subprocess.run([CLI, "--url", "http://127.0.0.1:9", "ui", "--print"], env=dead, capture_output=True, text=True, timeout=30)
+    check("`taskhub ui` with the hub down: says so, gives no dead page", r.returncode != 0 and "127.0.0.1:9" not in r.stdout and "not running" in r.stderr, r)
+    r = subprocess.run([CLI, "--url", "http://127.0.0.1:9", "token"], env=dict(env, TASKHUB_NO_AUTOSTART="1"), capture_output=True, text=True, timeout=30)
+    check("`taskhub token` with the hub down: says so, not 'no token'", r.returncode != 0 and "not running" in r.stderr, r)
+
+    # ---- help about a child doesn't promise the API without the token
+    r = cli("--help")
+    check("help: a child uses the taskhub command or `taskhub token`", "taskhub token" in r.stdout and "so it can call the API itself" not in r.stdout, r.stdout[-400:])
+
     # ---- a user's own token
     hub.kill()
     hub.wait()

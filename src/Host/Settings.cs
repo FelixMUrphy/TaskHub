@@ -298,8 +298,9 @@ sealed class Settings
         return acl;
     }
 
-    /// <summary>32 random bytes kept as hex in a file of the data folder that only this user can read. A file that arrived with
-    /// inherited rights (copied, written by hand, a data folder of the user's choice) is closed. Not saved: kept in memory, logged.</summary>
+    /// <summary>32 random bytes kept as hex in a file of the data folder that only this user can read. A file that lets anyone else in
+    /// (copied, written by hand, a data folder of the user's choice) is closed; one another account owns is replaced, as that account
+    /// knows its value. Not saved: kept in memory, logged.</summary>
     byte[] LoadSecret(string name)
     {
         var path = File_(name);
@@ -308,8 +309,17 @@ sealed class Settings
             if (HexKey(File.ReadAllText(path)) is { } saved)
             {
                 var info = new FileInfo(path);
-                if (!info.GetAccessControl().AreAccessRulesProtected) info.SetAccessControl(OwnerOnly());
-                return saved;
+                var acl = info.GetAccessControl();
+                var me = System.Security.Principal.WindowsIdentity.GetCurrent().User;
+                var owner = acl.GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
+                if (owner != null && (owner == me || owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid) || owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid)))
+                {
+                    bool others = acl.GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier)).Cast<System.Security.AccessControl.FileSystemAccessRule>()
+                        .Any(r => r.AccessControlType == System.Security.AccessControl.AccessControlType.Allow && !r.IdentityReference.Equals(me));
+                    if (!acl.AreAccessRulesProtected || others) info.SetAccessControl(OwnerOnly());
+                    return saved;
+                }
+                Log.W("secret", name + " belongs to another account: replaced");
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException) { }

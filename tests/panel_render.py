@@ -148,6 +148,12 @@ def render(exe, lang, a, keys):
         words = set(re.findall(r"[a-z0-9]+(?:_[a-z0-9]+)+", ws.eval("document.body.innerText")))
         check(f"{lang}: no raw text keys", not (words & keys), sorted(words & keys))
         check(f"{lang}: no script errors", not ws.errors, ws.errors)
+        ws.eval('sessionStorage.clear(); ""')
+        ws.send("Page.navigate", {"url": BASE + "/ui"})
+        until(lambda: ws.eval('document.readyState === "complete" && typeof api === "function"'))
+        ws.eval('window.__no = null; api("POST", "/api/notify", {}).then(() => window.__no = ["ok"], e => window.__no = [e.message, T("no_token")]); ""')
+        no = until(lambda: ws.eval("window.__no"))
+        check(f"{lang}: no token: a button's error is the translated line", no and len(no) == 2 and no[0] == no[1], no)
     finally:
         if ws:
             ws.s.close()

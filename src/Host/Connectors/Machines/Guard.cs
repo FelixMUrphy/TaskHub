@@ -429,12 +429,14 @@ abstract partial class MachineConnector
                 await RunStop(p, "auto", key, ct, ver);
                 return;
             }
-            bool warn;
+            bool warn, wasHeld;
             lock (gate)
             {
                 if (pending != p || p.Ver != ver) return;   // snoozed / cancelled meanwhile
+                wasHeld = p.Held;
                 warn = !p.HeldWarned; p.HeldWarned = true; p.Held = true; p.Deadline = J.Now() + (Mock ? 1 : 60);
             }
+            if (!warn && !wasHeld) ShowPending(p, g, L.T("g_held"), register: false);   // told once, the card follows
             if (warn)
             {
                 ShowPending(p, g, L.T("g_held"), register: false);
@@ -450,12 +452,14 @@ abstract partial class MachineConnector
         if (b.NoStop is { Length: > 0 } ns) { CancelPending(ns); return; }
         if (call == GuardTiming.DeadlineCall.Wait)
         {
-            bool say;
+            bool say, wasHeld;
             lock (gate)
             {
                 if (pending != p || p.Ver != ver) return;
+                wasHeld = p.Held;
                 say = !p.Waiting; p.Waiting = true; p.Held = false; p.Deadline = J.Now() + FastRead;
             }
+            if (!say && wasHeld) ShowPending(p, g, L.T("g_wait_confirm", Money(a), Money(g.Stop)), register: false);   // told once, the card follows
             if (say)
             {
                 var text = L.T("g_wait_confirm", Money(a), Money(g.Stop));

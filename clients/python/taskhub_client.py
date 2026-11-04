@@ -70,12 +70,12 @@ def _own_token(url):
         token = ""
         try:
             with open(os.path.join(folder, "config.json"), encoding="utf-8") as f:
-                token = json.load(f).get("token") or ""
+                token = str(json.load(f).get("token") or "")   # a number too, as the hub reads it
         except (OSError, ValueError, AttributeError):
             pass
         if not token:
             with open(os.path.join(folder, "api.token"), encoding="ascii") as f:
-                token = f.read().strip()
+                token = f.read().strip().upper()   # the hub's form of the hex
         if token:
             _own_tokens[url] = token
         return token

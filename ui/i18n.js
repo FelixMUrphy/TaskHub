@@ -36,7 +36,7 @@ function snack(t){ const s=$("#snack"); s.textContent=t; s.classList.add("on"); 
 async function api(method, path, body){
   const r = await fetch(path, {method, headers:H, body: body===undefined?undefined:JSON.stringify(body)});
   const j = await r.json().catch(()=>({}));
-  if (!r.ok) throw new Error(j.error || r.status);
+  if (!r.ok) throw new Error(r.status===401 ? T("no_token") : j.error || r.status);
   return j;
 }
 function dur(s, coarse){ const u=T("u"), q=(n,i)=>n+(LANG==="zh"||LANG==="ja"?"":" ")+u[i]; s=Math.max(0,Math.floor(s));

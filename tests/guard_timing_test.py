@@ -200,6 +200,30 @@ try:
     with open(os.path.join(last_data, "taskhub.log"), encoding="utf-8", errors="replace") as f:
         check("...the log says why", "rests on the estimate" in f.read())
 
+    # a waiting stop gets a lower figure still above the threshold, so the estimate starts over from it; a failed reading then holds
+    # the stop, and a good one puts it back to waiting: the card says each
+    w = World(2.9, step=1000)
+    seen = []
+    mark = [0]
+    def status():
+        return call("GET", "/api/tasks/rp--guard")[1].get("status") or ""
+    def waiting_held_waiting():
+        st = status()
+        if not seen and "waits" in st:
+            seen.append("wait")
+            w.set_booked(2.85)
+            mark[0] = len(w.reads)
+        elif len(seen) == 1 and not w.fail_reads and len(w.reads) > mark[0]:
+            w.fail_reads = True
+        elif len(seen) == 1 and "held" in st:
+            seen.append("held")
+            w.fail_reads = False
+        elif len(seen) == 2 and "waits" in st:
+            seen.append("wait again")
+        return len(seen) == 3
+    scenario(w, 40, until=waiting_held_waiting)
+    check("waiting, held, waiting: the card says each", seen == ["wait", "held", "wait again"] and not w.stops, (seen, w.stops))
+
     # the warning goes by the estimate too, once
     w = World(20.1, step=1000)
     g = scenario(w, 9, billing=2)

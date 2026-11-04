@@ -273,7 +273,7 @@ sealed class Api
         if (!path.StartsWith("/api/")) return;
         if (path is not ("/api/health" or "/api/hub-proof") && !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
                 Encoding.UTF8.GetBytes(c.Request.Headers.Authorization.ToString()), Encoding.UTF8.GetBytes("Bearer " + S.Token)))
-            throw new ApiError(401, "token required");
+            throw new ApiError(401, "token required (an agent started before an update: restart it)");
         if (method is "POST" or "DELETE" or "PUT" or "PATCH" && string.IsNullOrEmpty(c.Request.Headers["X-TaskHub"].ToString()))
             throw new ApiError(403, "header 'X-TaskHub: 1' required on write requests");   // CSRF guard
     }

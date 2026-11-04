@@ -247,7 +247,10 @@ static class Mcp
     {
         var name = Program.S(p["name"]);
         var a = p["arguments"] as JsonObject ?? new JsonObject();
-        string Id() => Program.S(a["id"]) is { Length: > 0 } s ? s : throw new McpError(-32602, "id is required");
+        // goes into a URL path: an id stays one segment, or an agent could reach any route with its limited tools
+        string Id() => Program.S(a["id"]) is { Length: > 0 } s
+            ? System.Text.RegularExpressions.Regex.IsMatch(s, @"^[A-Za-z0-9_.:-]+\z") && s is not ("." or "..") ? s : throw new McpError(-32602, "id is not a task id")
+            : throw new McpError(-32602, "id is required");
         try
         {
             ensureHub();

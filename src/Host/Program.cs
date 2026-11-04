@@ -414,6 +414,7 @@ static class Program
     {
         try
         {
+            if (!ProvesHub(S)) { Log.W("app", "open panel: whoever answers on the port isn't this hub"); return; }   // it gets no token
             Native.AllowSetForegroundWindow(-1);
             Post(S, "/api/ui/open", new JsonObject { ["task"] = null });
         }
