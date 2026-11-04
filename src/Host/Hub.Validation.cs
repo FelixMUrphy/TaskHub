@@ -191,8 +191,10 @@ sealed partial class Hub
         var series = (w["series"] as JsonArray).Select(x => J.Str(x)).ToList();
         var pts = w["points"] as JsonArray;
         if (pts == null) w["points"] = pts = new JsonArray();
+        int max = J.Num(w["max_points"]) is double m ? (int)m : 120;
+        // of a batch only what the chart can keep; this runs under Hub.Lock
         List<JsonNode> batch = v is JsonArray va && va.Count > 0 && (va[0] is JsonArray || va[0] is JsonObject)
-            ? va.ToList() : new List<JsonNode> { v };
+            ? va.Skip(Math.Max(0, va.Count - max)).ToList() : new List<JsonNode> { v };
         foreach (var item in batch)
         {
             var row = new JsonArray();
@@ -214,9 +216,7 @@ sealed partial class Hub
             }
             pts.Add(row);
         }
-        int max = J.Num(w["max_points"]) is double m ? (int)m : 120;
-        int over = pts.Count - max;
-        for (int i = 0; i < over; i++) pts.RemoveAt(0);
+        if (pts.Count > max) pts.RemoveRange(0, pts.Count - max);
     }
 
     static void ApplyWidgetValues(JsonObject t, JsonObject vals)

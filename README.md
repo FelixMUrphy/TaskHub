@@ -134,7 +134,7 @@ The setup dialog (and later Settings → *AI agents*) has independent options pe
 | **TaskHub tools (MCP)** | the agent gets tools `notify`, `task_start/update/finish`, `task_commands`, `task_wait`, `task_list` and shows its long jobs in the panel by itself | Claude Code: `~/.claude.json` · Codex: `~/.codex/config.toml` |
 
 TaskHub adds — and on uninstall removes (Store edition: see below) — only its own entries and keeps everything else (backup of the original:
-`*.taskhub.bak`). What to do in the agent afterwards:
+`*.taskhub.bak`, and the version from just before TaskHub's last write: `*.taskhub.last`). An existing empty settings file is left alone and reported as an error. What to do in the agent afterwards:
 
 - **Claude Code** — start a new *local* session (desktop app → Code tab → environment *Local*, the CLI or VS Code).
   `/mcp` should list `taskhub` as connected. Cloud sessions run on Anthropic's servers and can't reach TaskHub on your PC.

@@ -211,21 +211,30 @@ static class AgentFiles
 
     public static void SaveJson(string path, JsonObject root)
     {
+        // an existing empty file may be another program halfway through its write: only TaskHub's entry would be left of it
+        if (File.Exists(path) && string.IsNullOrWhiteSpace(File.ReadAllText(path, Encoding.UTF8)))
+            throw new InvalidDataException($"{path} is empty: not changed. Open the agent once, or delete the file if it should be empty");
         Backup(path);
         WriteAtomic(path, root.ToJsonString(Pretty) + "\n");
     }
 
     static void Backup(string path)
     {
+        if (!File.Exists(path)) return;
         var bak = path + ".taskhub.bak";
-        if (File.Exists(path) && !File.Exists(bak)) File.Copy(path, bak);   // the version from before TaskHub touched it
+        if (!File.Exists(bak)) File.Copy(path, bak);          // the version from before TaskHub touched it
+        File.Copy(path, path + ".taskhub.last", true);        // and the one from just before this write
     }
 
     static void WriteAtomic(string path, string text)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var tmp = path + ".taskhub.tmp";
-        File.WriteAllText(tmp, text, new UTF8Encoding(false));
+        using (var f = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            f.Write(new UTF8Encoding(false).GetBytes(text));
+            f.Flush(true);
+        }
         File.Move(tmp, path, true);
     }
 }

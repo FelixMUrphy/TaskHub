@@ -198,8 +198,10 @@ What `GET /api/tasks/{id}` returns. Fields not listed here may change.
 | `milestones_hit`, `seen` | for the panel |
 
 Limits (longer text is cut, older lines dropped): `id` 64 characters of `[A-Za-z0-9_.-]`, `name` 200, `description`, `status` and `stage` 1000, `message` 2000,
-`project` 80, `attention` 300, `unit` 20, a metric's key 60 and text value 200, 40 widgets a task (more over `update` → 400), `max_points` of a chart 2000, the log 400 lines
-(`log_lines` in `config.json`).
+`project` 80, `attention` 300, `unit` 20, a metric's key 60 and text value 200, `max_points` of a chart 2000, the log 400 lines
+(`log_lines` in `config.json`); a batch of log lines or chart points keeps only its newest ones up to those limits.
+More than these → 400: 40 widgets, 64 controls, 20 links, 20 `notify.milestones`, 100 metrics a task, 64,000 characters of JSON in `meta` and in a widget's value (a chart's points don't count),
+2000 active tasks on the hub (an id that exists can always start again). A request's body is limited to 2 MB (413).
 
 ## Widgets
 Declared in `widgets[]` (or `add_widgets`), values via `update.widgets`. Common fields: `id`, `type`, `label`, `unit`,

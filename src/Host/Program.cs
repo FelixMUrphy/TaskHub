@@ -276,6 +276,7 @@ static class Program
         notifier.Telegram = telegram;
         var discord = new DiscordBridge(S, hub);
         notifier.Discord = discord;
+        hub.ReportDamagedFiles();
         var connectors = new Connectors(S, hub);
         connectors.Add(new GitHubConnector(S, hub));
         connectors.Add(new RunpodConnector(S, hub));

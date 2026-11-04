@@ -88,25 +88,59 @@ sealed partial class Hub
     // ------------------------------------------------------------ persistence
     void LoadState()
     {
-        try
+        if (!File.Exists(statePath)) return;
+        try { ReadState(statePath); }
+        catch (Exception e)
         {
-            if (!File.Exists(statePath)) return;
-            var st = J.Parse(File.ReadAllText(statePath)) as JsonObject;
-            Muted = J.Truthy(st?["muted"]);
-            foreach (var n in st?["tasks"] as JsonArray ?? new JsonArray())
+            Log.E("hub", "state.json unreadable: " + e.Message);
+            AtomicFile.Quarantine(statePath);
+            tasks.Clear(); internals.Clear();
+            try
             {
-                if (n is not JsonObject t0) continue;
-                var t = (JsonObject)t0.DeepClone();
-                var id = J.Str(t["id"]);
-                long? ct = J.Num(t["_ct"]) is double d && d > 1e12 ? (long)d : null;
-                t.Remove("_ct");
-                t.Remove("rate"); t.Remove("eta_at");   // measured again from the next updates
-                tasks[id] = t;
-                internals[id] = new Internal { Ct = ct };
+                ReadState(AtomicFile.Backup(statePath));
+                File.Copy(AtomicFile.Backup(statePath), statePath, true);   // also keeps the damaged file from becoming the next backup
+                stateDamaged = "damaged_state_restored";
             }
-            Log.I("hub", $"restored {tasks.Count} task(s)");
+            catch (Exception e2)
+            {
+                Log.E("hub", "no good copy of state.json: " + e2.Message);
+                tasks.Clear(); internals.Clear();
+                stateDamaged = "damaged_state_empty";
+            }
         }
-        catch (Exception e) { Log.E("hub", "state.json unreadable: " + e.Message); }
+    }
+
+    string stateDamaged;
+
+    void ReadState(string path)
+    {
+        var st = J.Parse(File.ReadAllText(path)) as JsonObject ?? throw new InvalidDataException("not a JSON object");
+        Muted = J.Truthy(st["muted"]);
+        foreach (var n in st["tasks"] as JsonArray ?? new JsonArray())
+        {
+            if (n is not JsonObject t0) continue;
+            var t = (JsonObject)t0.DeepClone();
+            var id = J.Str(t["id"]);
+            long? ct = J.Num(t["_ct"]) is double d && d > 1e12 ? (long)d : null;
+            t.Remove("_ct");
+            t.Remove("rate"); t.Remove("eta_at");   // measured again from the next updates
+            tasks[id] = t;
+            internals[id] = new Internal { Ct = ct };
+        }
+        Log.I("hub", $"restored {tasks.Count} task(s)");
+    }
+
+    /// <summary>Tells the user about a file that couldn't be read at start: a failed task in the panel, with its notification. Call once the notifier is set.</summary>
+    public void ReportDamagedFiles()
+    {
+        void Report(string id, string title, string message)
+        {
+            Register(new JsonObject { ["id"] = id, ["name"] = title, ["source"] = "taskhub" });
+            Finish(id, new JsonObject { ["state"] = "failed", ["message"] = message });
+        }
+        if (S.ConfigDamaged != null)
+            Report("taskhub-config-damaged", L.T("damaged_config_title"), L.T(S.ConfigDamaged == Settings.DamagedRestored ? "damaged_config_restored" : "damaged_config_defaults"));
+        if (stateDamaged != null) Report("taskhub-state-damaged", L.T("damaged_state_title"), L.T(stateDamaged));
     }
 
     readonly object saveLock = new();
@@ -115,25 +149,23 @@ sealed partial class Hub
     {
         lock (saveLock)   // watchdog and shutdown may save at the same time: one writer for state.json(.tmp)
         {
-            string text;
-            lock (Lock)
+            JsonObject snap;
+            lock (Lock)   // only the copy under the lock: text and disk don't hold up the API and the panel
             {
                 if (!dirty) return;
                 dirty = false;
-            var arr = new JsonArray();
+                var arr = new JsonArray();
                 foreach (var (id, t) in tasks)
                 {
                     var d = (JsonObject)t.DeepClone();
                     if (internals.TryGetValue(id, out var it) && it.Ct is long ct) d["_ct"] = ct;
                     arr.Add(d);
                 }
-                text = new JsonObject { ["muted"] = Muted, ["tasks"] = arr }.ToJsonString(J.Out);
+                snap = new JsonObject { ["muted"] = Muted, ["tasks"] = arr };
             }
             try
             {
-                var tmp = statePath + ".tmp";
-                File.WriteAllText(tmp, text);
-                File.Move(tmp, statePath, true);
+                AtomicFile.Write(statePath, snap.ToJsonString(J.Out));
             }
             catch (Exception e)
             {
@@ -209,7 +241,7 @@ sealed partial class Hub
         // a known usual duration (e.g. earlier runs of the same CI workflow) says more than uneven steps; none once overdue
         if (J.Num(t["expected_duration"]) is double exp && J.Num(t["started"]) is double st)
             eta = st + exp > now ? st + exp - now : null;
-        if (rate is double r) t["rate"] = Math.Round(r, 6); else t.Remove("rate");
+        if (rate is double r && double.IsFinite(r)) t["rate"] = Math.Round(r, 6); else t.Remove("rate");
         if (eta is double e && double.IsFinite(e)) t["eta_at"] = Math.Round(now + e, 1); else t.Remove("eta_at");
     }
 
@@ -238,15 +270,16 @@ sealed partial class Hub
     {
         var log = t["log"] as JsonArray;
         if (log == null) t["log"] = log = new JsonArray();
-        IEnumerable<JsonNode> lines = msg is JsonArray a ? a.ToList() : new List<JsonNode> { msg };
+        int keep = Math.Max(0, S.Int("log_lines", 400));
+        // of a batch only what the log can keep; this runs under Hub.Lock
+        IEnumerable<JsonNode> lines = msg is JsonArray a ? a.Skip(Math.Max(0, a.Count - keep)).ToList() : new List<JsonNode> { msg };
         foreach (var m0 in lines)
         {
             var m = J.Str(m0).TrimEnd('\r', '\n');
             if (m.Length == 0) continue;
             log.Add(new JsonObject { ["t"] = J.Now(), ["level"] = level, ["msg"] = J.Cut(m, 2000) });
         }
-        int over = log.Count - S.Int("log_lines", 400);
-        for (int i = 0; i < over; i++) log.RemoveAt(0);
+        if (log.Count > keep) log.RemoveRange(0, log.Count - keep);
     }
     void AddLog(JsonObject t, string msg, string level = "info") => AddLog(t, JsonValue.Create(msg), level);
 }

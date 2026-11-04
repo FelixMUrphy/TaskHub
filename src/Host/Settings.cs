@@ -176,16 +176,23 @@ sealed class Settings
         {
             foreach (var (k, v) in kv)
                 if (v == null) cfg.Remove(k); else cfg[k] = v;
+            // the user's damaged file with no good copy: defaults must not go over it. In effect until the next start.
+            if (ConfigDamaged == DamagedDefaults) { Log.W("config", "not saved: config.json is damaged"); return false; }
             try
             {
-                var tmp = cfgPath + ".tmp";
-                File.WriteAllText(tmp, cfg.ToJsonString(J.Pretty));
-                File.Move(tmp, cfgPath, true);
+                AtomicFile.Write(cfgPath, cfg.ToJsonString(J.Pretty));
                 return true;
             }
             catch (Exception e) { Log.E("config", "config save failed: " + e.Message); return false; }
         }
     }
+
+    public const string DamagedRestored = "restored", DamagedDefaults = "defaults";
+    /// <summary>config.json could not be read at start: null, DamagedRestored (the last good copy is back) or DamagedDefaults.</summary>
+    public string ConfigDamaged { get; private set; }
+
+    static JsonObject ReadObject(string path) =>
+        J.Parse(File.ReadAllText(path)) as JsonObject ?? throw new InvalidDataException(System.IO.Path.GetFileName(path) + " is not a JSON object");
 
     public static JsonObject ReadExeSettings()
     {
@@ -226,10 +233,26 @@ sealed class Settings
         {
             try
             {
-                if (J.Parse(File.ReadAllText(cfgPath)) is JsonObject user)
-                    foreach (var kv in user) cfg[kv.Key] = J.C(kv.Value);
+                foreach (var kv in ReadObject(cfgPath)) cfg[kv.Key] = J.C(kv.Value);
             }
-            catch (Exception e) { Log.E("config", "config.json unreadable: " + e.Message); }
+            catch (Exception e)
+            {
+                Log.E("config", "config.json unreadable: " + e.Message);
+                AtomicFile.Quarantine(cfgPath);
+                try
+                {
+                    foreach (var kv in ReadObject(AtomicFile.Backup(cfgPath))) cfg[kv.Key] = J.C(kv.Value);
+                    File.Copy(AtomicFile.Backup(cfgPath), cfgPath, true);   // also keeps the damaged file from becoming the next backup
+                    s.ConfigDamaged = DamagedRestored;
+                }
+                catch (Exception e2) when (e2 is not OutOfMemoryException)
+                {
+                    Log.E("config", "no good copy of config.json: " + e2.Message);
+                    s.ConfigDamaged = DamagedDefaults;
+                    // what the file said is unknown, so these are the defaults: the isolated hubs of the tests still show no notifications
+                    if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 }) cfg["toasts"] = false;
+                }
+            }
         }
         else
         {

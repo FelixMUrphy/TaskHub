@@ -12,9 +12,32 @@ sealed partial class Hub
         "expected_duration", "state", "controls", "add_controls", "remove_controls", "add_widgets", "remove_widgets", "widgets", "log", "level", "toast",
     };
 
-    const int MaxWidgets = 40;
+    const int MaxWidgets = 40, MaxControls = 64, MaxLinks = 20, MaxMilestones = 20, MaxMetrics = 100, MaxActiveTasks = 2000;
+    const int MaxMetaChars = 64_000, MaxWidgetValueChars = 64_000;
 
     static ApiError Bad(string why) => new(400, why);
+
+    static void CheckCount(JsonNode list, int max, string what)
+    {
+        if (list is JsonArray a && a.Count > max) throw Bad($"a task has at most {max} {what}");
+    }
+
+    static void CheckMeta(JsonNode meta)
+    {
+        if (meta != null && J.Dump(meta).Length > MaxMetaChars) throw Bad($"meta is limited to {MaxMetaChars} characters of JSON");
+    }
+
+    static void CheckWidgetValue(JsonNode value)
+    {
+        if (value != null && J.Dump(value).Length > MaxWidgetValueChars) throw Bad($"a widget's value is limited to {MaxWidgetValueChars} characters of JSON");
+    }
+
+    /// <summary>A chart's values are a batch of points, trimmed to its max_points; any other value is kept as it came.</summary>
+    static void CheckWidgetDeclared(JsonNode widgets)
+    {
+        foreach (var w in (widgets as JsonArray ?? new JsonArray()).OfType<JsonObject>())
+            CheckWidgetValue(w["value"]);
+    }
 
     static void CheckNumbers(JsonObject b, params string[] keys)
     {
@@ -47,6 +70,14 @@ sealed partial class Hub
         CheckNumbers(b, "total", "heartbeat_timeout", "expected_duration");
         CheckObjects(b, "notify", "meta");
         CheckLists(b, "controls", "widgets", "links");
+        CheckCount(b["controls"], MaxControls, "controls");
+        CheckCount(b["links"], MaxLinks, "links");
+        CheckCount((b["notify"] as JsonObject)?["milestones"], MaxMilestones, "milestones");
+        CheckMeta(b["meta"]);
+        CheckWidgetDeclared(b["widgets"]);
+        lock (Lock)
+            if (!(J.IsStr(b["id"]) && tasks.ContainsKey(J.Str(b["id"]))) && tasks.Values.Count(t => IsActive(St(t))) >= MaxActiveTasks)
+                throw Bad($"at most {MaxActiveTasks} tasks can be active: finish some first");
         return Register(b);
     }
 
@@ -60,14 +91,43 @@ sealed partial class Hub
         CheckLevel(b);
         if (b["state"] != null && J.Str(b["state"]) is not ("running" or "paused"))
             throw Bad($"state can be running or paused here; POST /api/tasks/{tid}/finish ends a task");
+        CheckCount(b["controls"], MaxControls, "controls");
+        CheckCount(b["links"], MaxLinks, "links");
+        CheckWidgetDeclared(b["add_widgets"]);
         if (b["widgets"] is JsonObject || b["add_widgets"] != null)
             lock (Lock)
             {
-                var known = (Get(tid)["widgets"] as JsonArray ?? new JsonArray()).Concat(b["add_widgets"] as JsonArray ?? new JsonArray())
-                    .Select(w => J.Str((w as JsonObject)?["id"])).ToHashSet();
+                var declared = (Get(tid)["widgets"] as JsonArray ?? new JsonArray()).Concat(b["add_widgets"] as JsonArray ?? new JsonArray()).ToList();
+                var known = declared.Select(w => J.Str((w as JsonObject)?["id"])).ToHashSet();
                 if (b["add_widgets"] != null && known.Count > MaxWidgets) throw Bad($"a task has at most {MaxWidgets} widgets");
-                foreach (var (id, _) in b["widgets"] as JsonObject ?? new JsonObject())
+                foreach (var (id, v) in b["widgets"] as JsonObject ?? new JsonObject())
+                {
                     if (!known.Contains(id)) throw Bad($"unknown widget '{J.Cut(id, 64)}': declare it in widgets or add_widgets first");
+                    bool chart = declared.OfType<JsonObject>().Any(w => J.Str(w["id"]) == id && J.Str(w["type"]) == "chart");
+                    if (!chart) CheckWidgetValue(v);
+                }
+            }
+        if (b["add_controls"] is JsonArray || b["meta"] is JsonObject || b["metrics"] is JsonObject)
+            lock (Lock)
+            {
+                var t = Get(tid);
+                if (b["add_controls"] is JsonArray ac)
+                {
+                    var ids = (t["controls"] as JsonArray ?? new JsonArray()).Concat(ac).Select(c => J.Str((c as JsonObject)?["id"])).ToHashSet();
+                    if (ids.Count > MaxControls) throw Bad($"a task has at most {MaxControls} controls");
+                }
+                if (b["meta"] is JsonObject bm)
+                {
+                    var merged = (t["meta"] as JsonObject)?.DeepClone() as JsonObject ?? new JsonObject();
+                    foreach (var (k, v) in bm) merged[k] = J.C(v);
+                    CheckMeta(merged);
+                }
+                if (b["metrics"] is JsonObject bx)
+                {
+                    var keys = (t["metrics"] as JsonObject ?? new JsonObject()).Select(kv => kv.Key).ToHashSet();
+                    foreach (var (k, v) in bx) { if (v == null) keys.Remove(J.Cut(k, 60)); else keys.Add(J.Cut(k, 60)); }
+                    if (keys.Count > MaxMetrics) throw Bad($"a task has at most {MaxMetrics} metrics");
+                }
             }
         return Update(tid, b);
     }
