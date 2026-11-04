@@ -204,9 +204,12 @@ sealed class RunpodConnector : MachineConnector
         return d;
     }
 
-    string billingMode;      // myself.billingMode: PREPAID | POSTPAID (null = unknown), read hourly, per key
+    string billingMode;      // myself.billingMode: PREPAID | POSTPAID (null = unknown), read hourly, per key, kept over a restart in state.json
     double billingModeAt;
-    int billingModeKey;
+    string billingModeKey;
+
+    /// <summary>Which key a saved mode belongs to: a few hex digits of its hash, enough to tell a new key from the old one.</summary>
+    static string KeyPrint(string key) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)))[..8];
 
     /// <summary>The balance; on a post-paid account (invoiced afterwards, pods aren't stopped at $0) clientBalance isn't
     /// money left before a stop: the guard only warns (<see cref="Balance.NoStop"/>, see .ai/gotchas.md).</summary>
@@ -216,14 +219,27 @@ sealed class RunpodConnector : MachineConnector
         Task<Resp> Post(JsonNode body, CancellationToken c) => Call(HttpMethod.Post, "/graphql", body, key, c);
         var b = await RunpodGraphQlBalance.Fetch(Post, ct);
         if (b is not { Error: null }) return b;
-        var kh = key.GetHashCode();
-        if (kh != billingModeKey) { billingMode = null; billingModeKey = kh; }
+        var print = KeyPrint(key);
+        if (print != billingModeKey)
+        {
+            // a saved mode stands until the first answer, so a failed question after a restart doesn't lose it
+            var saved = hub.ConnectorState(Id);
+            var mode0 = J.Str(saved?["billing_mode"]);
+            billingMode = J.Str(saved?["billing_mode_key"]) == print && mode0 is "PREPAID" or "POSTPAID" ? mode0 : null;
+            billingModeAt = 0;
+            billingModeKey = print;
+        }
         if (GuardTiming.AskMode(billingMode, billingModeAt, J.Now(), Mock ? 2 : 3600))
         {
             // the last known mode stays while the question fails; a failed one is asked again at the next reading
             try
             {
-                if (await RunpodGraphQlBalance.BillingMode(Post, ct) is { } mode) { billingMode = mode; billingModeAt = J.Now(); }
+                if (await RunpodGraphQlBalance.BillingMode(Post, ct) is { } mode)
+                {
+                    if (mode != billingMode) hub.SetConnectorState(Id, new JsonObject { ["billing_mode"] = mode, ["billing_mode_key"] = print });
+                    billingMode = mode;
+                    billingModeAt = J.Now();
+                }
             }
             catch (Exception e) when (!ct.IsCancellationRequested) { Log.W("runpod", "billingMode: " + e.GetBaseException().Message); }
         }

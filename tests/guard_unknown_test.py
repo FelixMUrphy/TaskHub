@@ -158,20 +158,38 @@ class Hub:
         global world
         world = w
         self.conn = conn
-        self.data, home = tempfile.mkdtemp(dir=root), tempfile.mkdtemp(dir=root)
+        self.data, self.home = tempfile.mkdtemp(dir=root), tempfile.mkdtemp(dir=root)
         with open(os.path.join(self.data, "config.json"), "w", encoding="utf-8") as f:
             json.dump({"log_level": "debug", "toasts": False, "autostart": False, "update_check": False, "language": "en",
                        "connectors": {"runpod": {"api": f"http://127.0.0.1:{RP}"}, "vastai": {"api": f"http://127.0.0.1:{VA}"}}}, f)
-        self.h = subprocess.Popen([EXE, "--port", str(PORT), "--data", self.data, "--no-tray"], env=dict(os.environ, TASKHUB_TEST_HOME=home))
+        self.start()
+        base = {"enabled": True, "key": RP_KEY if conn == "runpod" else VA_KEY, "list_interval": 1, "detail_interval": 1, "billing_interval": 1}
+        self.status = call("POST", f"/api/connectors/{conn}", dict(base, **cfg))
+        check(f"({conn} takes its settings)", self.status[0] == 200, self.status)
+
+    def start(self):
+        self.h = subprocess.Popen([EXE, "--port", str(PORT), "--data", self.data, "--no-tray"], env=dict(os.environ, TASKHUB_TEST_HOME=self.home))
         for _ in range(60):
             try:
                 call("GET", "/api/health", timeout=2)
                 break
             except OSError:
                 time.sleep(.5)
-        base = {"enabled": True, "key": RP_KEY if conn == "runpod" else VA_KEY, "list_interval": 1, "detail_interval": 1, "billing_interval": 1}
-        self.status = call("POST", f"/api/connectors/{conn}", dict(base, **cfg))
-        check(f"({conn} takes its settings)", self.status[0] == 200, self.status)
+
+    def down(self):
+        self.h.kill()
+        self.h.wait()
+        time.sleep(.3)
+
+    def state_path(self):
+        return os.path.join(self.data, "state.json")
+
+    def saved(self):
+        try:
+            with open(self.state_path(), encoding="utf-8") as f:
+                return json.load(f).get("connectors", {}).get("runpod") or {}
+        except (OSError, ValueError):
+            return {}
 
     def log(self):
         with open(os.path.join(self.data, "taskhub.log"), encoding="utf-8", errors="replace") as f:
@@ -245,6 +263,38 @@ try:
         w.balance = 1.0
         time.sleep(4)
         check("a failed question keeps the last known mode: nothing is stopped", w.running and not w.stops, w.stops)
+
+    # ---- the last known mode outlives a restart (state.json), for this key only, and goes with the key
+    w = World(balance=50.0, mode="POSTPAID")
+    with Hub(w, "runpod", **GUARD) as hub:
+        check("a known mode is saved in state.json", until(lambda: hub.saved().get("billing_mode") == "POSTPAID", 15), hub.saved())
+        check("...with no key in it", RP_KEY not in open(hub.state_path(), encoding="utf-8").read())
+        hub.down()
+        w.mode = None
+        w.balance = 1.0
+        hub.start()
+        time.sleep(5)
+        check("post-paid known before a restart, the question failing after it: nothing is stopped", w.running and not w.stops, w.stops)
+        hub.down()
+        s = json.load(open(hub.state_path(), encoding="utf-8"))
+        s["connectors"]["runpod"]["billing_mode_key"] = "00000000"
+        json.dump(s, open(hub.state_path(), "w", encoding="utf-8"))
+        hub.start()
+        check("a mode saved for another key doesn't count: the stop goes ahead", until(lambda: not w.running, 20), w.stops)
+        check("...and says the mode is unknown", "billing mode" in hub.log())
+
+    w = World(balance=50.0, mode="PREPAID")
+    with Hub(w, "runpod", **GUARD) as hub:
+        check("(pre-paid is saved)", until(lambda: hub.saved().get("billing_mode") == "PREPAID", 15), hub.saved())
+        hub.down()
+        w.mode = None
+        w.balance = 1.0
+        n = len(hub.log())
+        hub.start()
+        check("pre-paid known before a restart: stopped", until(lambda: not w.running, 20), w.stops)
+        check("...with no notice about an unknown mode", "billing mode" not in hub.log()[n:], hub.log()[n:][-400:])
+        call("POST", "/api/connectors/runpod", {"forget_key": True})
+        check("forgetting the key forgets the mode", until(lambda: not hub.saved(), 15), hub.saved())
 
     # ---- Vast: idle stop only after a GPU seen busy (as a fraction, every busy GPU would look idle)
     w = World(gpu=0.0)

@@ -219,7 +219,7 @@ abstract partial class MachineConnector : ISettingsConnector
         if (J.IsStr(b["key"])) SetKey(J.Str(b["key"]));   // a rejected key: nothing is changed
         Connectors.SetConfig(S, Id, c);
         if (b.ContainsKey("idle_stop_minutes") && J.Num(b["idle_stop_minutes"]) == 0) CancelPending(_ => L.T("g_idle_off"), p => p.Idle);
-        if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); canAct = null; probeBackoff = 0; actsOffSaid = false; keyHash = null; keyCheck = null; balance = null; reading = null; }
+        if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); hub.SetConnectorState(Id, null); canAct = null; probeBackoff = 0; actsOffSaid = false; keyHash = null; keyCheck = null; balance = null; reading = null; }
         Start();
         return State();
     }

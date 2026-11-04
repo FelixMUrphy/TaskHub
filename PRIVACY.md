@@ -4,7 +4,7 @@ TaskHub runs on your PC and has no servers, accounts, analytics, telemetry or ad
 it.
 
 ## What stays on your PC
-- Tasks, their progress, logs and charts, and your settings are kept in `%APPDATA%\TaskHub`. Beside `config.json` and `state.json` stay the previous version of each (`.bak`) and any copy of a file that could not be read (`.bad-` and the time), with the same content.
+- Tasks, their progress, logs and charts, and your settings are kept in `%APPDATA%\TaskHub`. `state.json` also keeps your Runpod account's billing mode (prepaid or post-paid) with a short fingerprint of the key it belongs to, not the key; forgetting the key removes both. Beside `config.json` and `state.json` stay the previous version of each (`.bak`) and any copy of a file that could not be read (`.bad-` and the time), with the same content.
 - TaskHub keeps a diagnostic log there, `taskhub.log`, at most about 8 MB, with no automatic sending. It holds the version, Windows, .NET and WebView2 versions, the language, monitors, the port, the
   data and program folders, task states and ids (a hash if the id comes from a job's or instance's name), machine ids, and errors, whose text can contain a file path, a repository name or what a service replied. Notification text, task
   names and account balances are written only if you set `"log_level": "debug"` in `config.json` (a beta build does this by itself, keeps up to 80 MB, and the command-line tool adds `cli.log`, at most about 2 MB,

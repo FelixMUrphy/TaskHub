@@ -43,6 +43,23 @@ static class GuardTiming
     /// A failed question doesn't count as asked.</summary>
     public static bool AskMode(string known, double answeredAt, double now, double every) => known == null || now - answeredAt > every;
 
+    public enum DeadlineCall { Stop, Cancel, Hold, Wait }
+
+    /// <summary>What a pending stop's deadline comes to. The estimate only brings the warning and the deadline forward: a stop
+    /// needs a fresh reading at or below the threshold, or, when the stop rests on the estimate alone, a reading that failed.
+    /// A figure above the threshold is no confirmation, so the stop waits for the next reading. With the service's own last
+    /// figure already below the threshold, a failed reading holds the stop, as it always did.</summary>
+    /// <param name="fresh">The figure read now, null when the reading failed.</param>
+    /// <param name="effective">The balance to decide by after that reading (after a failed one: the last figure carried to now).</param>
+    /// <param name="lastFigure">The service's figure before this reading, null when none is known (just restarted).</param>
+    public static DeadlineCall AtDeadline(double? fresh, double effective, double? lastFigure, double amountWhenAnnounced, double stop, double burn)
+    {
+        if (fresh is not double a)
+            return lastFigure is double last && last > stop && effective <= stop ? DeadlineCall.Stop : DeadlineCall.Hold;
+        if (Cancels(effective, a, amountWhenAnnounced, stop, burn)) return DeadlineCall.Cancel;
+        return a <= stop ? DeadlineCall.Stop : DeadlineCall.Wait;
+    }
+
     /// <summary>A pending stop goes away only when money came: the figure is above the threshold and it rose since the stop was
     /// announced, or nothing is being spent. A booked step that lands above the estimate is no top-up.</summary>
     public static bool Cancels(double effective, double amount, double amountWhenAnnounced, double stop, double burn) =>

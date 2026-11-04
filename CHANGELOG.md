@@ -5,6 +5,8 @@ from here), followed by the list of commits.
 
 ## Unreleased
 
+- Balance guard: the estimate between a service's booked steps now only brings the warning and the deadline forward. Machines are stopped when a fresh reading shows the threshold reached or can't be made; until then the stop waits and says so. Keep the stop threshold above one booked step of your spend (Runpod: about a sixth of your hourly spend).
+- Runpod: the last known billing mode now survives a restart, for the same key, so a failed question right after a restart can't stop pods on a post-paid account.
 - A damaged `config.json` or `state.json` is no longer lost: the file is kept beside itself, the last good version comes back, and the panel says what happened. With no good version, default settings are used for that run but nothing is written over your file until you correct or delete it. An empty settings file of an AI agent is no longer overwritten.
 - Telegram: pairing is only on the settings page. `POST /api/telegram` is gone from the API and `GET /api/telegram` no longer shows the pairing link, so no local program can link another chat. When another chat is linked, the old chat is told.
 - Local API: a connector's task can't be pointed elsewhere any more. `meta.<connector>` from a request is dropped, a button acts on the machine in the task's id, and a connector task's buttons can't be changed or replaced (403).

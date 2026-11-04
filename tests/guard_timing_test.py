@@ -32,6 +32,7 @@ class World:
         self.booked_value = None
         self.stops = []            # (seconds, true balance, answered)
         self.reads = []
+        self.fail_reads = False
 
     def clock(self):
         return time.time() - self.t0 if self.t0 else 0
@@ -94,6 +95,8 @@ class Runpod(BaseHTTPRequestHandler):
                     return self.reply(200, {"data": {"myself": {"billingMode": "PREPAID"}}})
                 if world.t0 is None:
                     world.t0 = time.time()
+                if world.fail_reads:
+                    return self.reply(500, {"detail": "try later"})
                 world.reads.append(world.clock())
                 return self.reply(200, {"data": {"myself": {"clientBalance": round(world.shown(), 4), "currentSpendPerHr": world.burn if world.running else 0, "spendLimit": 80}}})
             if m == "GET" and p == "/v2/pods":
@@ -126,11 +129,12 @@ def call(method, path, body=None, timeout=30):
         return e.code, {}
 
 
-def scenario(w, seconds, grace=0.02, until=None):
+def scenario(w, seconds, grace=0.02, until=None, billing=30):
     """A hub of its own, the guard on against this account; returns when `until` holds or the time is up."""
-    global world
+    global world, last_data
     world = w
     data, home = tempfile.mkdtemp(dir=root), tempfile.mkdtemp(dir=root)
+    last_data = data
     with open(os.path.join(data, "config.json"), "w", encoding="utf-8") as f:
         json.dump({"toasts": False, "autostart": False, "update_check": False, "language": "en", "connectors": {"runpod": {"api": f"http://127.0.0.1:{MOCK}"}}}, f)
     h = subprocess.Popen([EXE, "--port", str(PORT), "--data", data, "--no-tray"], env=dict(os.environ, TASKHUB_TEST_HOME=home))
@@ -141,7 +145,7 @@ def scenario(w, seconds, grace=0.02, until=None):
                 break
             except OSError:
                 time.sleep(.5)
-        s, r = call("POST", "/api/connectors/runpod", {"enabled": True, "key": KEY, "list_interval": 1, "detail_interval": 1, "billing_interval": 30,
+        s, r = call("POST", "/api/connectors/runpod", {"enabled": True, "key": KEY, "list_interval": 1, "detail_interval": 1, "billing_interval": billing,
                                                         "guard": True, "guard_warn": 20, "guard_stop": 2, "guard_grace_min": grace, "guard_snooze_min": 0.02})
         if s != 200:
             check("the guard takes its settings", False, (s, r))
@@ -171,11 +175,38 @@ try:
     scenario(w, 45, until=lambda: w.stops)
     check("a balance that moves: stopped with money left", w.stops and w.stops[0][1] > 0, w.stops)
 
-    # the same, booked in 30 s steps: the figure stays $2.90 for all of that time, so only carrying it down sees the threshold
-    w = World(2.9, step=30)
+    # booked in 15 s steps of $1.50: the estimate reaches the threshold after 10 s and brings the deadline forward, the stop
+    # itself waits for the figure, which lands at $1.50 after 15 s. A step bigger than the threshold can't be caught this way.
+    w = World(3.0, step=15)
     scenario(w, 45, until=lambda: w.stops)
     check("a balance booked in steps: stopped with money left", w.stops and w.stops[0][1] > 0, w.stops)
-    check("...the readings came sooner than the interval", len([r for r in w.reads if 1 < r < 25]) >= 3, w.reads)
+    check("...only when the figure confirmed it", w.stops and w.stops[0][0] >= 15, w.stops)
+    check("...the readings came sooner than the interval", len([r for r in w.reads if 1 < r < 9]) >= 3, w.reads)
+
+    # burn reported but never charged: the estimate says stop, the service's figure never does
+    w = World(2.9, step=1000)
+    g = scenario(w, 16)
+    check("a figure that never moves: the estimate alone stops nothing", not w.stops, w.stops)
+    check("...the stop waits and says so", (g.get("pending") or {}).get("waiting") is True, g)
+
+    # the reading fails at the deadline of a stop that rests on the estimate: it goes ahead
+    w = World(2.9, step=1000)
+    def fails_after_cross():
+        if w.clock() > 11:
+            w.fail_reads = True
+        return w.stops
+    scenario(w, 30, grace=0.1, until=fails_after_cross)
+    check("the reading fails at the deadline of an estimated stop: stopped", bool(w.stops) and w.stops[0][0] > 11, w.stops)
+    with open(os.path.join(last_data, "taskhub.log"), encoding="utf-8", errors="replace") as f:
+        check("...the log says why", "rests on the estimate" in f.read())
+
+    # the warning goes by the estimate too, once
+    w = World(20.1, step=1000)
+    g = scenario(w, 9, billing=2)
+    check("the warning comes by the estimate", g.get("warned") is True and not w.stops, g)
+    with open(os.path.join(last_data, "taskhub.log"), encoding="utf-8", errors="replace") as f:
+        n = f.read().count("guard warning")
+    check("...once", n == 1, n)
 
     # far from the threshold nothing changes: the configured interval
     w = World(50, burn=1.0)
@@ -188,14 +219,20 @@ try:
     gaps = [b[0] - a[0] for a, b in zip(w.stops, w.stops[1:])]
     check("a failed stop: tried again soon, each time", len(w.stops) == 3 and gaps and max(gaps) < 10 and not w.running, w.stops)
 
-    # a pending stop that came from the estimate: a step above the estimate is no top-up, money coming in is
+    # a pending stop that came from the estimate: a step above the estimate is no top-up and no confirmation, money coming in is
     w = World(2.9, step=1000)
+    early = []
     def after_cross():
-        if w.clock() > 11:
+        if w.clock() > 15:
+            if w.booked_value != 1.9:
+                early.extend(w.stops)
+                w.set_booked(1.9)
+        elif w.clock() > 11:
             w.set_booked(2.5)
         return w.stops
-    scenario(w, 45, grace=0.5, until=after_cross)
-    check("a booked step above the estimate doesn't cancel the stop", bool(w.stops), w.reads[-5:])
+    scenario(w, 45, until=after_cross)
+    check("a booked step above the threshold doesn't stop yet", not early, early)
+    check("...and doesn't cancel: the next figure at the threshold stops", bool(w.stops), w.reads[-5:])
 
     w = World(2.9, step=1000)
     def topped():

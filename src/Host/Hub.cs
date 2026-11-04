@@ -116,6 +116,7 @@ sealed partial class Hub
     {
         var st = J.Parse(File.ReadAllText(path)) as JsonObject ?? throw new InvalidDataException("not a JSON object");
         Muted = J.Truthy(st["muted"]);
+        connectorState = st["connectors"] is JsonObject cs ? (JsonObject)cs.DeepClone() : new JsonObject();
         foreach (var n in st["tasks"] as JsonArray ?? new JsonArray())
         {
             if (n is not JsonObject t0) continue;
@@ -161,7 +162,7 @@ sealed partial class Hub
                     if (internals.TryGetValue(id, out var it) && it.Ct is long ct) d["_ct"] = ct;
                     arr.Add(d);
                 }
-                snap = new JsonObject { ["muted"] = Muted, ["tasks"] = arr };
+                snap = new JsonObject { ["muted"] = Muted, ["connectors"] = connectorState.DeepClone(), ["tasks"] = arr };
             }
             try
             {
@@ -176,6 +177,21 @@ sealed partial class Hub
     }
 
     public void MarkDirty() { lock (Lock) dirty = true; }
+
+    JsonObject connectorState = new();
+
+    /// <summary>What a connector keeps over a restart beside the tasks (state.json, "connectors"): a copy, or null.</summary>
+    public JsonObject ConnectorState(string id) { lock (Lock) return connectorState[id]?.DeepClone() as JsonObject; }
+
+    /// <summary>Replaces it; null forgets it. Saved at the next round.</summary>
+    public void SetConnectorState(string id, JsonObject value)
+    {
+        lock (Lock)
+        {
+            if (value == null) connectorState.Remove(id); else connectorState[id] = value;
+            dirty = true;
+        }
+    }
 
     // ------------------------------------------------------------ change signalling
     void Bump()   // call under Lock
