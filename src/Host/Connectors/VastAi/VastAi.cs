@@ -19,6 +19,10 @@ sealed class VastAiConnector : MachineConnector
     public override string Id => "vastai";
     public override string Title => "Vast.ai";
     protected override string Prefix => "va";
+
+    /// <summary>Whether gpu_util is 0-100 or a fraction isn't settled (docs and CLI differ): as a fraction every busy GPU would
+    /// look idle, so idle stop waits until a value above 1 was seen on the machine.</summary>
+    protected override bool IdleStopNeedsBusySeen => true;
     protected override string DefaultApi => "https://console.vast.ai";
     protected override bool HasDisk => true;
     protected override string RestartAction => "reboot";
@@ -44,7 +48,10 @@ sealed class VastAiConnector : MachineConnector
             if (r.Code == 401) { KeyRejected(); return null; }
             if (r.Code == 403) { status = "no access to instances (instance_read)"; return null; }
             if (r.Code != 200) { if (!r.Limited) status = $"Vast.ai: HTTP {r.Code}" + (ErrText(r) is { Length: > 0 } e ? " · " + e : ""); return null; }
-            foreach (var p in (r.Body?["instances"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
+            // Vast can answer a failure with 200: an answer without the list isn't "no machines", nothing is declared gone
+            if (r.Body?["success"] is JsonNode ok && !J.Truthy(ok)) { status = "Vast.ai: " + J.Cut(ErrText(r), 100); Log.W("vastai", "list: success false"); return null; }
+            if (r.Body?["instances"] is not JsonArray list) { status = "Vast.ai: unexpected answer"; Log.W("vastai", "list: no instances in the answer"); return null; }
+            foreach (var p in list.OfType<JsonObject>())
                 if (Map(p) is { } m) res.Add(m);
             after = J.Str(r.Body?["next_token"]) is { Length: > 0 } nt ? nt : null;
             if (after == null) { Scheduling(res); return res; }

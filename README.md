@@ -263,14 +263,14 @@ Each provider has its own two thresholds in $: **warn** (default $10) and **stop
 - If the balance can't be read (no network, the service is down, the key was revoked) TaskHub warns once and, at the
   deadline, stops **nothing** ("auto-stop held, check manually") until it can read the balance again. A read-only key can
   only warn — the settings say so. So does an account the provider doesn't stop at $0 (Runpod post-paid; Vast.ai with a
-  card on file charged automatically): the guard only warns there.
+  card on file charged automatically): the guard only warns there. While Runpod's billing mode can't be read it is asked again at each reading; if it is still unknown at a stop, the account is treated as prepaid and the announcement says so.
 - *Stop now* asks for confirmation first. A machine that failed to stop is tried again at the next balance reading. A
   pending stop survives a TaskHub restart. The *low balance* warning keeps working with the guard on (no double
   warning at the guard's threshold).
 - **Auto-stop on GPU idle** — *Stop when the GPU is idle for, min* (0 = off, the default) in the
   same settings, also with the balance guard off. A running machine whose GPUs all stay idle that long gets the same
   announcement with *Stop now* / *Snooze*; the GPU busy again cancels it, and at the deadline it is stopped only if it is
-  still idle (a recent reading, idle for at least the current setting; unknown load: not stopped). *Never auto-stop*
+  still idle (a recent reading, idle for at least the current setting; unknown load: not stopped). On Vast.ai it waits until the machine's GPU has been seen busy, and its task says so: the unit of Vast's load figure isn't settled. *Never auto-stop*
   machines are left alone; a balance stop takes its place when both come at once.
 - After a stop TaskHub says what was stopped and what its storage costs while stopped — **≈, per the provider's price
   list**: Runpod — the container disk is wiped and not billed, the volume disk costs $0.20 / GB / month while stopped, a

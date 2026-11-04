@@ -42,6 +42,8 @@ sealed class Balance
     /// <summary>Not null: Amount isn't money left before the service stops the machines (post-paid, a card charged
     /// automatically, an unclear field) - the balance guard only warns; the text says why (UI language).</summary>
     public string NoStop;
+    /// <summary>Not null: said with an announced stop (UI language), e.g. what the guard couldn't find out.</summary>
+    public string StopNote;
     /// <summary>Not null: the reading failed (e.g. "HTTP 500"); <see cref="Code"/> is the answer's status (0 = none).</summary>
     public string Error;
     public int Code;
@@ -113,6 +115,7 @@ abstract partial class MachineConnector : ISettingsConnector
         public Machine M; public string LastSig; public double NextDetail;
         public double? IdleSince; public bool IdleWarned;
         public bool IdleStopAsked;   // an idle stop was started in this idle period (IdleStop.cs)
+        public bool GpuBusySeen, IdleUnprovenSaid;   // see IdleStopNeedsBusySeen
         public double? IdleSeenAt;   // the last load sample, when it was idle (null: busy or unknown load)
     }
     readonly Dictionary<string, Track> machines = new();   // machine id -> what we know / show
@@ -812,6 +815,7 @@ abstract partial class MachineConnector : ISettingsConnector
         var m = t.M;
         var tid = Tid(m.Id);
         var gpuMax = m.GpuUtil.Where(x => x != null).Select(x => x.Value).DefaultIfEmpty(double.NaN).Max();
+        if (gpuMax > 1) t.GpuBusySeen = true;
         var w = new JsonObject
         {
             ["gpu"] = new JsonArray(double.IsNaN(gpuMax) ? null : JsonValue.Create(Math.Round(gpuMax, 1)), Pct(m.GpuMem)),

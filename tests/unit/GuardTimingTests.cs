@@ -72,6 +72,13 @@ public class GuardTimingTests
         Assert.Equal(10, r.Effective);
     }
 
+    [Fact] public void BillingMode_AskedAtEachReadingUntilKnown_ThenHourly()
+    {
+        Assert.True(GuardTiming.AskMode(null, 0, 1, 3600));              // never answered, a failure a second ago doesn't count
+        Assert.False(GuardTiming.AskMode("PREPAID", 1000, 4600, 3600));
+        Assert.True(GuardTiming.AskMode("PREPAID", 1000, 4601, 3600));
+    }
+
     [Fact] public void Cancel_OnlyWhenMoneyCame()
     {
         Assert.False(GuardTiming.Cancels(2.5, 2.5, 2.9, 2, 36));   // a step, above the threshold, but lower than announced

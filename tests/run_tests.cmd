@@ -67,6 +67,7 @@ for %%D in ("%EXE%") do "%PYTHON%" run_one.py "%DATA%\results" blender_test.py "
 "%PYTHON%" run_one.py "%DATA%\results" durable_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" guard_timing_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" guard_403_test.py "%EXE%" || set RC=1
+"%PYTHON%" run_one.py "%DATA%\results" guard_unknown_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" unit_test.py || set RC=1
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='TaskHubHost.exe'\" | Where-Object { $_.CommandLine -like '*47899*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
 rem WebView2 processes a killed test hub left behind: its own temp folders only, and only when the parent is gone

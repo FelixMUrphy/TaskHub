@@ -38,6 +38,9 @@ abstract partial class MachineConnector
     /// <summary>Where the balance comes from is on (Runpod: the GraphQL module).</summary>
     protected virtual bool BalanceSource => true;
 
+    /// <summary>Idle stop only on a machine whose GPU was seen above 1: the service's load figure isn't settled.</summary>
+    protected virtual bool IdleStopNeedsBusySeen => false;
+
     /// <summary>What a stopped machine still costs for its storage, $/day (≈, from the service's price list), and a note
     /// (e.g. a network volume billed as before); null = unknown.</summary>
     protected virtual (double? PerDay, string Note) StoppedStorage(Machine m) => (null, "");
@@ -323,6 +326,7 @@ abstract partial class MachineConnector
         var names = string.Join(", ", targets.Select(m => m.Name ?? m.Id));
         var text = L.T("g_pending", Money(effective), Money(g.Stop), Usd.Rate(burn), J.Cut(names, 600), When(dl));
         if (Money(effective) != Money(a)) text += " " + L.T("g_projected", Money(a));
+        if (balance?.StopNote is { Length: > 0 } sn) text += " " + sn;
         if (capped && ZeroAt() is double z2) text += " " + L.T("g_capped", When(z2));
         ShowPending(p, g, text, register: true);
         GuardNotify(text, "warn", withButtons: true);

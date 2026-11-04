@@ -39,6 +39,10 @@ static class GuardTiming
         return Math.Clamp(toStop / 3, least, billing);
     }
 
+    /// <summary>Time to ask for the billing mode: at every reading while it isn't known, else every <paramref name="every"/> seconds.
+    /// A failed question doesn't count as asked.</summary>
+    public static bool AskMode(string known, double answeredAt, double now, double every) => known == null || now - answeredAt > every;
+
     /// <summary>A pending stop goes away only when money came: the figure is above the threshold and it rose since the stop was
     /// announced, or nothing is being spent. A booked step that lands above the estimate is no top-up.</summary>
     public static bool Cancels(double effective, double amount, double amountWhenAnnounced, double stop, double burn) =>

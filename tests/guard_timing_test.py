@@ -90,6 +90,8 @@ class Runpod(BaseHTTPRequestHandler):
             if self.headers.get("Authorization") != "Bearer " + KEY:
                 return self.reply(401, {"detail": "invalid api key"})
             if m == "POST" and p == "/graphql":
+                if "billingMode" in (body or {}).get("query", ""):
+                    return self.reply(200, {"data": {"myself": {"billingMode": "PREPAID"}}})
                 if world.t0 is None:
                     world.t0 = time.time()
                 world.reads.append(world.clock())
