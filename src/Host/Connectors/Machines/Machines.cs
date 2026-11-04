@@ -123,7 +123,7 @@ abstract partial class MachineConnector : ISettingsConnector
     bool low;                                              // balance / runway under the limit (warned once per crossing)
     protected string status = "off";
     bool? canAct;                                          // null: not probed yet / probe failed
-    double probedAt, nextList, nextBilling, pausedUntil, backoff;
+    double probedAt, nextList, nextBilling, nextSpend, pausedUntil, backoff;
     string keyHash;
     // the last verdict on the saved key: "ok" | "revoked" (the service stopped accepting it) | "network" | "unavailable"
     // (saved but not checked yet); null = no key / not checked. Never anything of the key itself.
@@ -215,7 +215,7 @@ abstract partial class MachineConnector : ISettingsConnector
         if (J.IsStr(b["key"])) SetKey(J.Str(b["key"]));   // a rejected key: nothing is changed
         Connectors.SetConfig(S, Id, c);
         if (b.ContainsKey("idle_stop_minutes") && J.Num(b["idle_stop_minutes"]) == 0) CancelPending(_ => L.T("g_idle_off"), p => p.Idle);
-        if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); canAct = null; keyHash = null; keyCheck = null; balance = null; }
+        if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); canAct = null; keyHash = null; keyCheck = null; balance = null; reading = null; }
         Start();
         return State();
     }
@@ -239,7 +239,7 @@ abstract partial class MachineConnector : ISettingsConnector
         catch (Exception e) { throw new ApiError(500, "the key was not saved: " + e.Message); }
         keyHash = null;   // probe again
         canAct = null;
-        balance = null;   // the old key's account
+        balance = null; reading = null;   // the old key's account
         SetCheck(r == null ? "network" : r.Code == 200 ? "ok" : "unavailable", r?.Code ?? 0);
         if (keyCheck != "ok") return;
         try
@@ -382,7 +382,7 @@ abstract partial class MachineConnector : ISettingsConnector
     {
         Stop();
         var c = Cfg;
-        lock (gate) { pausedUntil = 0; backoff = 0; nextList = 0; nextBilling = 0; }
+        lock (gate) { pausedUntil = 0; backoff = 0; nextList = 0; nextBilling = 0; nextSpend = 0; }
         if (!c.Enabled) { status = "off"; return; }
         cts = new CancellationTokenSource();
         var ct = cts.Token;
@@ -489,8 +489,12 @@ abstract partial class MachineConnector : ISettingsConnector
     async Task Billing(string key, Conf c, CancellationToken ct)
     {
         nextBilling = J.Now() + BalanceEvery(c);
-        var sp = await Spend(key, ct);
-        if (sp != null) spent = sp;
+        if (J.Now() >= nextSpend)   // the charges keep to billing_interval, only the balance is read sooner
+        {
+            nextSpend = J.Now() + c.BillingEvery;
+            var sp = await Spend(key, ct);
+            if (sp != null) spent = sp;
+        }
         // a 429 on the charges pauses everything: the balance waits too (an answer would also reset the back-off)
         Balance b = null;
         bool tried = J.Now() >= pausedUntil;
@@ -501,10 +505,11 @@ abstract partial class MachineConnector : ISettingsConnector
             if (offline) status = "offline: " + why;
             if (b == null && code == 429) tried = false;   // rate limit: not an outage
         }
-        if (b != null) { balance = b; balanceAt = J.Now(); }
+        if (b != null) { balance = b; balanceAt = J.Now(); NoteReading(); }
         CheckLow(c);
         // an answer without an amount is a missed reading too (the guard is never silently off)
         if (tried) GuardOnBalance(b?.Amount != null, b != null && b.Amount == null ? "no balance in the answer" : why, key);
+        nextBilling = Math.Min(nextBilling, J.Now() + BalanceEvery(c));   // by what was just read
         List<Track> all;
         lock (gate) all = machines.Values.Where(t => t.M.State != "terminated").ToList();
         foreach (var t in all) Show(t, c, false);

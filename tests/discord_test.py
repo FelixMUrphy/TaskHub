@@ -111,7 +111,7 @@ class Gw:
     def close(self, code):
         try:
             self.frame(8, struct.pack(">H", code))
-        except OSError:
+        except (OSError, ValueError):   # the hub may have closed it already
             pass
         self.alive = False
 
