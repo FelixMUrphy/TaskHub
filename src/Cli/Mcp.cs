@@ -219,6 +219,23 @@ static class Mcp
             Obj(("all", Obj(("type", "boolean"), ("description", "Include finished tasks"))))),
     };
 
+    /// <summary>Buttons from an agent only send a signal back to it: an agent's words decide what a button says, so they must not
+    /// decide what the hub runs or opens when the user presses it. Only the fields of a signal control pass; the hub checks them.</summary>
+    static JsonNode SignalControls(JsonNode controls)
+    {
+        if (controls is not JsonArray list) return controls.DeepClone();
+        var res = new JsonArray();
+        foreach (var c in list)
+        {
+            if (c is not JsonObject o) { res.Add((JsonNode)c?.DeepClone()); continue; }
+            var r = new JsonObject { ["kind"] = "signal" };
+            foreach (var k in new[] { "id", "label", "style", "confirm", "hint", "input", "toast", "states" })
+                if (o[k] != null) r[k] = o[k].DeepClone();
+            res.Add((JsonNode)r);
+        }
+        return res;
+    }
+
     static JsonObject Text(string t, bool error = false)
     {
         var r = new JsonObject { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = t }) };
@@ -246,8 +263,9 @@ static class Mcp
                 case "task_start":
                 {
                     var b = new JsonObject { ["source"] = source };
-                    foreach (var k in new[] { "name", "description", "total", "unit", "heartbeat_timeout", "controls", "widgets" })
+                    foreach (var k in new[] { "name", "description", "total", "unit", "heartbeat_timeout", "widgets" })
                         if (a[k] != null) b[k] = a[k].DeepClone();
+                    if (a["controls"] != null) b["controls"] = SignalControls(a["controls"]);
                     b["notify"] = new JsonObject
                     {
                         ["start"] = a["notify_start"] is JsonValue ns && ns.TryGetValue<bool>(out var st) && st,

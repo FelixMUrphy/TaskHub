@@ -6,6 +6,7 @@ from here), followed by the list of commits.
 ## Unreleased
 
 - A damaged `config.json` or `state.json` is no longer lost: the file is kept beside itself, the last good version comes back, and the panel says what happened. With no good version, default settings are used for that run but nothing is written over your file until you correct or delete it. An empty settings file of an AI agent is no longer overwritten.
+- MCP: buttons an agent adds through `task_start` only send a signal back to it. They can no longer make the hub run a command, open something or kill a process when you press them.
 - Runpod, Vast.ai: an unexpected answer to the machine list, or Vast's 200 with success false, no longer marks machines as gone and doesn't use up a pending stop. Runpod's billing mode is asked again at the next reading after a failure and the last known one is kept; if it is unknown at a stop, the announcement says so. On Vast.ai, auto-stop on idle waits until the GPU has been seen busy.
 - Runpod, Vast.ai: one refused action no longer switches off auto-stop and the Stop button for a day. TaskHub says so out loud, asks again within minutes and turns them back on by itself. A challenge page instead of the service's answer changes nothing.
 - Balance guard: it now stops in time when the balance would run out between two readings. It reads sooner as the stop threshold nears, carries a figure the service books in steps down at the current spend, and tries a failed stop again in about a minute.

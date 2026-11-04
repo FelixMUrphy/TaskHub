@@ -486,7 +486,8 @@ trusted once in Codex (`/hooks`). Do **not** replace an existing `notify = [...]
 `task_wait` (blocks up to 50 s until a task finishes - instead of polling with sleep; call again while it runs)
 and `task_list`. It starts the hub on the first tool call. Calls run side by side (a waiting `task_wait` does
 not hold other requests), `notifications/cancelled` stops a call (no answer for it), and the server ends when stdin
-closes or the program that started it exits. Enable it in the setup dialog / Settings → *AI agents*, or by hand:
+closes or the program that started it exits. Buttons in `task_start` are always `signal` controls with `id`, `label`, `style`, `confirm`, `hint`, `input`, `toast` and `states`; `kind`, `command`, `target` and the rest are dropped, so what an agent writes doesn't decide what the hub runs when you press it.
+Enable it in the setup dialog / Settings → *AI agents*, or by hand:
 - Claude Code (user scope, `~/.claude.json`): `"mcpServers": {"taskhub": {"type": "stdio", "command": "<install dir>\\taskhub.exe", "args": ["mcp", "--source", "claude"]}}`
   (or `claude mcp add --scope user taskhub -- "<install dir>\taskhub.exe" mcp --source claude`)
 - Codex (`~/.codex/config.toml`; TaskHub's setup writes the same and keeps the rest of the file):
