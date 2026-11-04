@@ -8,6 +8,9 @@ namespace TaskHub;
 sealed partial class Hub
 {
     // ------------------------------------------------------------ controls & commands
+    /// <summary>A task source that is a built-in connector: its tasks and buttons are the connector's.</summary>
+    public Func<string, bool> IsConnector;
+
     /// <summary>A "connector" control pressed: (source, task, control, value, via) -> the connector that made the task.
     /// via: null from the HTTP API (also the panel's ordinary buttons), "toast", "telegram", or "panel" (the panel's WebView2
     /// bridge - the only way to panel_only controls).</summary>

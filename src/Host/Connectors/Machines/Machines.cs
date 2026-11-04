@@ -427,7 +427,7 @@ abstract partial class MachineConnector : ISettingsConnector
             try { full = hub.GetTask(J.Str(t["id"])); } catch { continue; }
             if (J.Str(full["source"]) != Id || full["meta"]?[Id] is not JsonObject g) continue;
             var id = J.Str(g["id"]);
-            if (id.Length == 0) continue;
+            if (id.Length == 0 || Tid(id) != J.Str(t["id"])) continue;
             var st = J.Str(full["state"]);
             var m = new Machine
             {
@@ -916,6 +916,7 @@ abstract partial class MachineConnector : ISettingsConnector
         var task = hub.GetTask(tid);
         if (J.Str(task["source"]) != Id || task["meta"]?[Id] is not JsonObject g) throw new ApiError(404, $"not a {Title} machine");
         var id = J.Str(g["id"]);
+        if (Tid(id) != tid) throw new ApiError(404, $"not a {Title} machine");   // the task's id says which machine, whatever meta says
         Track t;
         lock (gate) machines.TryGetValue(id, out t);
         var m = t?.M ?? new Machine { Id = id, Name = J.Str(g["name"], id) };

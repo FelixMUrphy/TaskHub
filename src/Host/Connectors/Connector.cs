@@ -34,6 +34,7 @@ sealed class Connectors
     {
         S = s;
         hub.ConnectorControl = Route;
+        hub.IsConnector = id => all.ContainsKey(id);
     }
 
     public T Add<T>(T c) where T : IConnector { all.Add(c.Id, c); order.Add(c); return c; }

@@ -64,6 +64,8 @@ sealed partial class Hub
             throw Bad($"level must be info, warn or error, not {J.Cut(J.Str(b["level"]), 40)}");
     }
 
+    bool OwnedByConnector(JsonObject t) => IsConnector?.Invoke(J.Str(t["source"])) == true;
+
     public JsonObject RegisterApi(JsonObject b)
     {
         if (!J.IsStr(b["name"]) || J.Str(b["name"]).Trim().Length == 0) throw Bad("name is required: a text that isn't empty");
@@ -76,8 +78,12 @@ sealed partial class Hub
         CheckMeta(b["meta"]);
         CheckWidgetDeclared(b["widgets"]);
         lock (Lock)
+        {
+            if (J.IsStr(b["id"]) && tasks.TryGetValue(J.Str(b["id"]), out var old) && OwnedByConnector(old))
+                throw new ApiError(403, "this task belongs to a connector");
             if (!(J.IsStr(b["id"]) && tasks.ContainsKey(J.Str(b["id"]))) && tasks.Values.Count(t => IsActive(St(t))) >= MaxActiveTasks)
                 throw Bad($"at most {MaxActiveTasks} tasks can be active: finish some first");
+        }
         return Register(b);
     }
 
@@ -94,6 +100,9 @@ sealed partial class Hub
         CheckCount(b["controls"], MaxControls, "controls");
         CheckCount(b["links"], MaxLinks, "links");
         CheckWidgetDeclared(b["add_widgets"]);
+        if (b.ContainsKey("controls") || b.ContainsKey("add_controls") || b.ContainsKey("remove_controls"))
+            lock (Lock)
+                if (OwnedByConnector(Get(tid))) throw new ApiError(403, "the buttons of this task belong to a connector");
         if (b["widgets"] is JsonObject || b["add_widgets"] != null)
             lock (Lock)
             {

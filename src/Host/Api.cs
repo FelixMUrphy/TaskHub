@@ -86,10 +86,10 @@ sealed class Api
                 await hub.WaitChange(since, Math.Min(w, 55), c.RequestAborted);
             return hub.Snapshot(Flag(q, "active"), Flag(q, "brief"));
         });
-        R("POST", "/api/tasks", async (c, q, g) => hub.RegisterApi(NoRunReference(await Body(c))));
+        R("POST", "/api/tasks", async (c, q, g) => hub.RegisterApi(NoConnectorReference(await Body(c))));
         R("GET", $"/api/tasks/{Id}", (c, q, g) => V(hub.GetTask(g[0])));
         R("DELETE", $"/api/tasks/{Id}", (c, q, g) => V(hub.Delete(g[0], Flag(q, "force"))));
-        R("POST", $"/api/tasks/{Id}/update", async (c, q, g) => hub.UpdateApi(g[0], NoRunReference(await Body(c))));
+        R("POST", $"/api/tasks/{Id}/update", async (c, q, g) => hub.UpdateApi(g[0], NoConnectorReference(await Body(c))));
         R("POST", $"/api/tasks/{Id}/log", async (c, q, g) => hub.AddLogApi(g[0], await Body(c)));
         R("POST", $"/api/tasks/{Id}/heartbeat", async (c, q, g) => { await Body(c); return hub.Heartbeat(g[0]); });
         R("POST", $"/api/tasks/{Id}/finish", async (c, q, g) => hub.FinishApi(g[0], await Body(c)));
@@ -241,12 +241,13 @@ sealed class Api
     static Task Json(HttpContext c, int code, JsonNode n) =>
         Raw(c, code, Encoding.UTF8.GetBytes(J.Dump(n)), "application/json; charset=utf-8");
 
-    /// <summary>meta.github says which run a task's Cancel and Re-run act on, meta.github_pr which pull request is read, with the user's token:
-    /// only the connector sets them.</summary>
-    static JsonObject NoRunReference(JsonObject b)
+    /// <summary>meta.&lt;connector&gt; says what a connector's buttons act on (a run, a pull request, a machine), with the user's key:
+    /// only the connector sets it.</summary>
+    JsonObject NoConnectorReference(JsonObject b)
     {
-        (b["meta"] as JsonObject)?.Remove("github");
-        (b["meta"] as JsonObject)?.Remove("github_pr");
+        if (b["meta"] is not JsonObject m) return b;
+        m.Remove("github_pr");
+        foreach (var k in Conns?.All ?? Enumerable.Empty<IConnector>()) m.Remove(k.Id);
         return b;
     }
 
