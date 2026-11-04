@@ -39,7 +39,13 @@ sealed partial class GitHubConnector : ISettingsConnector
         public double NextPoll; public int AwaitAttempt; public double AwaitUntil;
         public double? Usual;   // usual duration of the workflow, s
     }
-    sealed class RepoState { public string Etag; public double NextPoll; public bool Baseline = true; public string Status = ""; }
+    sealed class RepoState
+    {
+        public string Etag; public double NextPoll; public bool Baseline = true; public string Status = "";
+        public readonly HashSet<long> Seen = new();   // this repository's ids in `known`
+        public long Forgotten;                        // the highest id dropped from `known`: older ids aren't new runs
+    }
+    const int KnownPerRepo = 1000;
     readonly Dictionary<long, Run> active = new();                 // runs being followed
     readonly Dictionary<long, int> known = new();                  // run id -> attempt already shown (or skipped)
     readonly Dictionary<string, RepoState> repos = new();
@@ -503,7 +509,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         // more new runs than one page (a burst of pushes): the next pages too, while everything on a page is new
         var all = new List<JsonObject>(page);
         var next = r.Next;
-        for (int pages = 1; !rs.Baseline && next != null && pages < 5 && page.Count > 0 && AllNew(page); pages++)
+        for (int pages = 1; !rs.Baseline && next != null && pages < 5 && page.Count > 0 && AllNew(page, rs); pages++)
         {
             var rn = await Send(HttpMethod.Get, next, null, token, ct);
             if (rn.Code != 200) break;
@@ -522,10 +528,24 @@ sealed partial class GitHubConnector : ISettingsConnector
             {
                 if (active.ContainsKey(id)) continue;
                 bool seen = known.TryGetValue(id, out var ka);
-                // first look after start: only what is still going; later: every new run / new attempt (re-run)
-                follow = rs.Baseline ? !done : !seen || attempt > ka;
+                // first look after start: only what is still going; later: every new run / new attempt (re-run).
+                // A run older than what this repository remembers isn't new: only a re-run still going is followed.
+                follow = rs.Baseline ? !done
+                    : !seen && id <= rs.Forgotten ? attempt > 1 && !done
+                    : !seen || attempt > ka;
                 known[id] = Math.Max(attempt, seen ? ka : 0);
-                if (known.Count > 3000) foreach (var k in known.Keys.OrderBy(x => x).Take(1000).ToList()) known.Remove(k);
+                rs.Seen.Add(id);
+                if (rs.Seen.Count > KnownPerRepo)
+                {
+                    // each repository has its own bound, and what its current page shows stays
+                    var onPage = runs.Select(x => (long)(J.Num(x["id"]) ?? 0)).ToHashSet();
+                    foreach (var k in rs.Seen.Where(x => !onPage.Contains(x)).OrderBy(x => x).Take(KnownPerRepo / 3).ToList())
+                    {
+                        rs.Seen.Remove(k);
+                        known.Remove(k);
+                        rs.Forgotten = Math.Max(rs.Forgotten, k);
+                    }
+                }
             }
             if (!follow) continue;
             var run = new Run { Id = id, Repo = repo, Attempt = attempt, WorkflowId = (long)(J.Num(j["workflow_id"]) ?? 0), Json = j };
@@ -536,10 +556,10 @@ sealed partial class GitHubConnector : ISettingsConnector
         rs.Baseline = false;
     }
 
-    bool AllNew(List<JsonObject> page)
+    bool AllNew(List<JsonObject> page, RepoState rs)
     {
         lock (gate)
-            return page.All(x => (long)(J.Num(x["id"]) ?? 0) is var id && !known.ContainsKey(id) && !active.ContainsKey(id));
+            return page.All(x => (long)(J.Num(x["id"]) ?? 0) is var id && id > rs.Forgotten && !known.ContainsKey(id) && !active.ContainsKey(id));
     }
 
     /// <summary>Finished for good. "action_required" (a run that needs someone's approval, e.g. from a fork) is not:

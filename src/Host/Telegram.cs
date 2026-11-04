@@ -507,6 +507,14 @@ sealed class TelegramBridge
                 }, 70, ct);
                 if (c2 is 401 or 404) { Status = "invalid token"; return; }
                 if (c2 == 409) { Status = "another program uses this bot (webhook / getUpdates)"; await Task.Delay(30000, ct); continue; }
+                if (c2 == 429 && J.Num(r?["parameters"]?["retry_after"]) is double after && after > 0)
+                {
+                    Status = "offline: getUpdates: HTTP 429";
+                    if (failures++ == 0) Log.W("telegram", $"getUpdates: HTTP 429, waiting {after:0} s");
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(after, 3600)), ct);
+                    continue;
+                }
+                if (c2 != 200) throw new HttpRequestException("getUpdates: HTTP " + c2);   // the wait below; an answer can't be read as "no updates"
                 failures = 0;
                 foreach (var u in (r?["result"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
                 {
@@ -519,6 +527,7 @@ sealed class TelegramBridge
             catch (Exception e)
             {
                 Status = "offline: " + e.GetBaseException().Message;
+                if (failures == 0) Log.W("telegram", Status);
                 // a dropped connection is usually gone at once: retry soon, back off only if it keeps failing
                 var wait = TimeSpan.FromSeconds(Math.Min(30, 2 << Math.Min(failures++, 4)));
                 try { await Task.Delay(wait, ct); } catch { return; }
