@@ -11,26 +11,26 @@ public class GuardTimingTests
 
     const double Stop = 2, Burn = 18;
 
-    static GuardTiming.DeadlineCall At(double? fresh, double effective, double? last, double announced = 2.9, double burn = Burn) =>
-        GuardTiming.AtDeadline(fresh, effective, last, announced, Stop, burn);
+    static GuardTiming.DeadlineCall At(double? fresh, double effective, double announced = 2.9, double burn = Burn) =>
+        GuardTiming.AtDeadline(fresh, effective, announced, Stop, burn);
 
-    [Fact] public void Deadline_FigureAtTheThreshold_Stops() => Assert.Equal(GuardTiming.DeadlineCall.Stop, At(2, 2, 2.9));
+    [Fact] public void Deadline_FigureAtTheThreshold_Stops() => Assert.Equal(GuardTiming.DeadlineCall.Stop, At(2, 2));
 
-    [Fact] public void Deadline_FigureStillAbove_Waits_HoweverLowTheEstimate() => Assert.Equal(GuardTiming.DeadlineCall.Wait, At(2.9, 0.5, 2.9));
+    [Fact] public void Deadline_FigureStillAbove_Waits_HoweverLowTheEstimate() => Assert.Equal(GuardTiming.DeadlineCall.Wait, At(2.9, 0.5));
 
-    [Fact] public void Deadline_StepAboveTheThreshold_Waits() => Assert.Equal(GuardTiming.DeadlineCall.Wait, At(2.5, 2.5, 2.9));
+    [Fact] public void Deadline_StepAboveTheThreshold_Waits() => Assert.Equal(GuardTiming.DeadlineCall.Wait, At(2.5, 2.5));
 
-    [Fact] public void Deadline_MoneyCame_Cancels() => Assert.Equal(GuardTiming.DeadlineCall.Cancel, At(50, 50, 2.9));
+    [Fact] public void Deadline_MoneyCame_Cancels() => Assert.Equal(GuardTiming.DeadlineCall.Cancel, At(50, 50));
 
-    [Fact] public void Deadline_NothingSpent_Cancels() => Assert.Equal(GuardTiming.DeadlineCall.Cancel, At(2.9, 2.9, 2.9, burn: 0));
+    [Fact] public void Deadline_NothingSpent_Cancels() => Assert.Equal(GuardTiming.DeadlineCall.Cancel, At(2.9, 2.9, burn: 0));
 
-    [Fact] public void Deadline_ReadFails_OnTheEstimateAlone_Stops() => Assert.Equal(GuardTiming.DeadlineCall.Stop, At(null, 1.5, 2.9));
+    [Fact] public void Deadline_ReadFails_OnTheEstimateAlone_Holds() => Assert.Equal(GuardTiming.DeadlineCall.Hold, At(null, 1.5));
 
-    [Fact] public void Deadline_ReadFails_FigureAlreadyBelow_Holds() => Assert.Equal(GuardTiming.DeadlineCall.Hold, At(null, 1.5, 1.8));
+    [Fact] public void Deadline_ReadFails_FigureAlreadyBelow_Holds() => Assert.Equal(GuardTiming.DeadlineCall.Hold, At(null, 1.5));
 
-    [Fact] public void Deadline_ReadFails_EstimateNotThere_Holds() => Assert.Equal(GuardTiming.DeadlineCall.Hold, At(null, 2.4, 2.9));
+    [Fact] public void Deadline_ReadFails_EstimateNotThere_Holds() => Assert.Equal(GuardTiming.DeadlineCall.Hold, At(null, 2.4));
 
-    [Fact] public void Deadline_ReadFails_NoFigureKnown_Holds() => Assert.Equal(GuardTiming.DeadlineCall.Hold, At(null, double.MaxValue, null));
+    [Fact] public void Deadline_ReadFails_NoFigureKnown_Holds() => Assert.Equal(GuardTiming.DeadlineCall.Hold, At(null, double.MaxValue));
 
     [Fact] public void Constants() { Assert.Equal(60, GuardTiming.FastRead); Assert.Equal(900, GuardTiming.MaxCarry); }
 

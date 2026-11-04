@@ -189,16 +189,29 @@ try:
     check("a figure that never moves: the estimate alone stops nothing", not w.stops, w.stops)
     check("...the stop waits and says so", (g.get("pending") or {}).get("waiting") is True, g)
 
-    # the reading fails at the deadline of a stop that rests on the estimate: it goes ahead
+    # the reading fails at the deadline of a stop that rests on the estimate: held, the user decides
     w = World(2.9, step=1000)
     def fails_after_cross():
         if w.clock() > 11:
             w.fail_reads = True
-        return w.stops
-    scenario(w, 30, grace=0.1, until=fails_after_cross)
-    check("the reading fails at the deadline of an estimated stop: stopped", bool(w.stops) and w.stops[0][0] > 11, w.stops)
+        return False
+    g = scenario(w, 24, grace=0.1, until=fails_after_cross)
+    check("the reading fails at the deadline of an estimated stop: nothing is stopped", not w.stops, w.stops)
+    check("...it's held", (g.get("pending") or {}).get("held") is True, g)
     with open(os.path.join(last_data, "taskhub.log"), encoding="utf-8", errors="replace") as f:
-        check("...the log says why", "rests on the estimate" in f.read())
+        check("...the log says so", "auto-stop held" in f.read())
+
+    # the reading works again and shows the threshold reached: stopped then
+    w = World(2.9, step=1000)
+    def fails_then_confirms():
+        if w.clock() > 11 and not w.fail_reads and not w.stops and w.booked_value is None:
+            w.fail_reads = True
+        if w.clock() > 20 and w.fail_reads:
+            w.set_booked(1.5)
+            w.fail_reads = False
+        return w.stops
+    scenario(w, 40, grace=0.1, until=fails_then_confirms)
+    check("...the reading works again at the threshold: stopped", bool(w.stops) and w.stops[0][0] > 20, w.stops)
 
     # a waiting stop gets a lower figure still above the threshold, so the estimate starts over from it; a failed reading then holds
     # the stop, and a good one puts it back to waiting: the card says each

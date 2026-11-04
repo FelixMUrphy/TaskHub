@@ -10,7 +10,7 @@ namespace TaskHub;
 /// time runs out (never later than the projected $0, minus a margin). Stop only - never delete / terminate / destroy.
 /// At the deadline the balance is read again and <see cref="GuardTiming.AtDeadline"/> decides: at or below the threshold
 /// stopped; above it the stop waits for the figure (the estimate alone stops nothing while the service answers); unreadable
-/// -> "held", the user is told, unless the stop rests on the estimate alone, then it goes ahead. A top-up
+/// -> "held", the user is warned and decides. A top-up
 /// above the stop threshold cancels it. Every stop goes to guard_log.json (<see cref="GuardLog"/>). A machine whose stop
 /// failed is tried again at the next reading, about a minute later (no new grace). The pending stop survives a restart (guard_&lt;id&gt;.json).
 /// How often the balance is read and what it is taken to be between a service's booked steps: <see cref="GuardTiming"/>.
@@ -420,15 +420,6 @@ abstract partial class MachineConnector
         var (b, why, _, _) = await ReadBalance(key, ct);
         if (b?.Amount is not double a)
         {
-            double? last = balance?.Amount;
-            double carried = last is double la ? GuardTiming.Next(reading, la, SpendRate() ?? 0, J.Now()).Effective : double.MaxValue;
-            if (balance?.NoStop == null && GuardTiming.AtDeadline(null, carried, last, p.Balance, g.Stop, SpendRate() ?? 0) == GuardTiming.DeadlineCall.Stop)
-            {
-                Try(() => hub.Update(GuardTid, new JsonObject { ["log"] = L.T("g_stop_unread", Money(carried), Money(last ?? 0)), ["level"] = "warn" }, trusted: true));
-                Log.W(Id, $"guard: balance unreadable at the deadline ({why}), the stop rests on the estimate: going ahead");
-                await RunStop(p, "auto", key, ct, ver);
-                return;
-            }
             bool warn, wasHeld;
             lock (gate)
             {
@@ -447,7 +438,7 @@ abstract partial class MachineConnector
         }
         balance = b; balanceAt = J.Now();
         NoteReading();
-        var call = GuardTiming.AtDeadline(a, EffectiveBalance ?? a, a, p.Balance, g.Stop, SpendRate() ?? 0);
+        var call = GuardTiming.AtDeadline(a, EffectiveBalance ?? a, p.Balance, g.Stop, SpendRate() ?? 0);
         if (call == GuardTiming.DeadlineCall.Cancel) { CancelPending(L.T("g_topup", Money(a), Money(g.Stop))); return; }
         if (b.NoStop is { Length: > 0 } ns) { CancelPending(ns); return; }
         if (call == GuardTiming.DeadlineCall.Wait)

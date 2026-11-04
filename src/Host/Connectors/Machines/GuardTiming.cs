@@ -46,16 +46,13 @@ static class GuardTiming
     public enum DeadlineCall { Stop, Cancel, Hold, Wait }
 
     /// <summary>What a pending stop's deadline comes to. The estimate only brings the warning and the deadline forward: a stop
-    /// needs a fresh reading at or below the threshold, or, when the stop rests on the estimate alone, a reading that failed.
-    /// A figure above the threshold is no confirmation, so the stop waits for the next reading. With the service's own last
-    /// figure already below the threshold, a failed reading holds the stop, as it always did.</summary>
+    /// needs a fresh reading at or below the threshold. A figure above the threshold is no confirmation, so the stop waits for
+    /// the next reading. A failed reading holds the stop: the user is warned and decides.</summary>
     /// <param name="fresh">The figure read now, null when the reading failed.</param>
-    /// <param name="effective">The balance to decide by after that reading (after a failed one: the last figure carried to now).</param>
-    /// <param name="lastFigure">The service's figure before this reading, null when none is known (just restarted).</param>
-    public static DeadlineCall AtDeadline(double? fresh, double effective, double? lastFigure, double amountWhenAnnounced, double stop, double burn)
+    /// <param name="effective">The balance to decide by after that reading.</param>
+    public static DeadlineCall AtDeadline(double? fresh, double effective, double amountWhenAnnounced, double stop, double burn)
     {
-        if (fresh is not double a)
-            return lastFigure is double last && last > stop && effective <= stop ? DeadlineCall.Stop : DeadlineCall.Hold;
+        if (fresh is not double a) return DeadlineCall.Hold;
         if (Cancels(effective, a, amountWhenAnnounced, stop, burn)) return DeadlineCall.Cancel;
         return a <= stop ? DeadlineCall.Stop : DeadlineCall.Wait;
     }
