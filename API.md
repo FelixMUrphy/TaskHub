@@ -18,11 +18,15 @@ Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/
 
 **Rules for every client (scripts, Claude, ChatGPT/Codex, PowerShell, curl):**
 - Write requests (`POST`/`DELETE`) MUST send header `X-TaskHub: 1` (CSRF guard). Browser requests from other origins are rejected.
-- <a id="token"></a>If `config.json` has `"token"` (you set it there yourself, any text, then restart the hub), send `Authorization: Bearer <token>` on every `/api/` request except
-  `GET /api/health` and `GET /api/hub-proof` (without it: 401). `config.json` is `%APPDATA%\TaskHub\config.json` (Store edition:
-  `%LOCALAPPDATA%\Packages\<package family>\LocalCache\Roaming\TaskHub\config.json`). Env `TASKHUB_TOKEN` for the Python
-  client; the `taskhub` CLI and MCP server also read it from the hub's `config.json`. The token keeps out pages in a browser, which a foreign
-  `Origin` stops anyway. It is no wall against other programs on this PC: the panel's page `/ui` carries it and is served to anything local.
+- <a id="token"></a>Send `Authorization: Bearer <token>` on every `/api/` request except `GET /api/health` and `GET /api/hub-proof` (without it: 401). TaskHub generates the token and keeps it in `api.token` in its data folder (`%APPDATA%\TaskHub`), readable only by your Windows account. `taskhub token` prints it for your own scripts. The `taskhub` CLI, the MCP server, agent hooks and the Python client find it themselves, and send it only to a hub that proves it holds `hub.key`. `TASKHUB_TOKEN` in the environment takes precedence, for the hub and for those clients (use it with a hub on its own `--data`); next comes `"token"` in `config.json` (any text, then restart the hub). A hook that gets no token stays silent and doesn't hold up the agent. `/ui` needs no token and carries none: the panel gets it in the address's fragment, and `taskhub ui` opens your browser the same way.
+  The token keeps out other Windows accounts on this PC and whatever can reach the port without reading your files. It is no wall against programs running as you: they can read the file, as they can read everything else of yours. What each caller may do:
+
+  | Caller | How it gets the token | What it may do |
+  |---|---|---|
+  | The panel | fragment of its address, from the hub | everything on this API; system-changing actions go through its WebView2 messages, not HTTP |
+  | `taskhub` CLI, hooks, Python client, your scripts | the file, after the hub's proof, or `TASKHUB_TOKEN` | this API, except what answers 403 ("only in Settings") |
+  | MCP server (AI agents) | as the CLI | only its tools: `notify`, `task_start`, `task_update`, `task_finish`, `task_commands`, `task_list`, `task_wait`. Its buttons only send a signal. No tool switches the balance guard or changes a connector |
+  | Anyone else | none | `GET /api/health`, `GET /api/hub-proof`, `/ui` (a page with no data) |
 - `meta.github` and `meta.github_pr` are the connector's: over this API they are dropped from what you send.
 - A request the hub can't honour gets a `400` that says why, never a `200` that does nothing ([Errors](#errors)). Check the status of what you send: the `error` text names the field.
 - Be fail-soft: if the hub is not reachable (`GET /api/health` fails), keep working without it.

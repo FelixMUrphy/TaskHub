@@ -304,7 +304,7 @@ install the setup shows the installed version and folder (the version is read fr
   TaskHub says so (with Microsoft's download link) when the runtime is missing, and the panel recovers by itself
   if WebView2 crashes. If Windows has TaskHub's notifications turned off, Settings → *Notifications* shows a warning with a
   button to the Windows setting.
-- Port 47800, `127.0.0.1` only, CSRF header + Host/Origin checks; optional bearer token (`"token"` in `config.json`).
+- Port 47800, `127.0.0.1` only, CSRF header + Host/Origin checks; a generated bearer token is required on the API (`api.token` in the data folder, readable only by your Windows account). The `taskhub` command, MCP server, hooks and Python client find it themselves; your own scripts get it from `taskhub token`, and `taskhub ui` opens the panel's page in a browser. See [API.md](API.md#token).
 
 Updates: once a day the installed hub looks up the latest release on GitHub (one request to `api.github.com`, nothing is
 downloaded or installed; also when the settings page opens and the last check is older than 15 minutes) and shows a notification when a newer version is out; Settings → *System* has *Check now* and the

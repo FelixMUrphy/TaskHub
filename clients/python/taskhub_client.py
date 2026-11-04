@@ -28,21 +28,59 @@ CLI (any language / agent):
     python taskhub_client.py register --name X  -> prints id;  update ID --percent 40 --status ..
 """
 import argparse
+import hashlib
+import hmac
 import json
 import math
 import os
 import re
+import secrets
 import subprocess
 import sys
 import threading
 import time
 import traceback
 import urllib.error
+from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
 
 URL = os.environ.get("TASKHUB_URL", "http://127.0.0.1:47800").rstrip("/")
 TOKEN = os.environ.get("TASKHUB_TOKEN", "")
 _opener = build_opener(ProxyHandler({}))  # never route localhost through a proxy
+
+
+_own_tokens = {}
+
+
+def _own_token(url):
+    """The token of this account's hub, for a hub that proves it holds hub.key; "" if it doesn't or none is found."""
+    if url in _own_tokens:
+        return _own_tokens[url]
+    home = os.environ.get("TASKHUB_TEST_HOME")
+    folder = os.path.join(home, "TaskHub") if home else os.path.join(os.environ.get("APPDATA", ""), "TaskHub")
+    try:
+        with open(os.path.join(folder, "hub.key"), encoding="ascii") as f:
+            key = bytes.fromhex(f.read().strip())
+        nonce = secrets.token_hex(16)
+        with _opener.open(Request(f"{url}/api/hub-proof?nonce={nonce}"), timeout=5) as r:
+            proof = json.loads(r.read())["proof"]
+        good = hmac.new(key, f"taskhub-hub-proof|{urlsplit(url).port}|{nonce}".encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(str(proof).lower(), good):
+            return ""
+        token = ""
+        try:
+            with open(os.path.join(folder, "config.json"), encoding="utf-8") as f:
+                token = json.load(f).get("token") or ""
+        except (OSError, ValueError, AttributeError):
+            pass
+        if not token:
+            with open(os.path.join(folder, "api.token"), encoding="ascii") as f:
+                token = f.read().strip()
+        if token:
+            _own_tokens[url] = token
+        return token
+    except (OSError, ValueError, KeyError, TypeError):
+        return ""
 
 
 class HubError(Exception):
@@ -64,8 +102,9 @@ def request(method, path, body=None, timeout=5.0, url=None):
     data = json.dumps(_finite(body), allow_nan=False).encode("utf-8") if body is not None else None
     req = Request((url or URL) + path, data=data, method=method,
                   headers={"Content-Type": "application/json", "X-TaskHub": "1"})
-    if TOKEN:
-        req.add_header("Authorization", f"Bearer {TOKEN}")
+    token = TOKEN or _own_token(url or URL)
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
     try:
         with _opener.open(req, timeout=timeout) as r:
             raw = r.read()

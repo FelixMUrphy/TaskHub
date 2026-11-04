@@ -264,7 +264,21 @@ sealed class Settings
         return s;
     }
 
-    public string Token => J.Str(Get("token"));
+    /// <summary>What a client must send on /api/. TASKHUB_TOKEN, else "token" in config.json (the user's own), else generated
+    /// on first need and kept in api.token in the data folder, this user only. Never empty.</summary>
+    public string Token
+    {
+        get
+        {
+            var env = Environment.GetEnvironmentVariable("TASKHUB_TOKEN");
+            if (!string.IsNullOrEmpty(env)) return env;
+            var own = J.Str(Get("token"));
+            if (own.Length > 0) return own;
+            lock (secretLock) return generatedToken ??= Convert.ToHexString(LoadSecret("api.token"));
+        }
+    }
+    string generatedToken;
+    readonly object secretLock = new();
     public bool Bool(string k, bool def = false) { lock (cfgLock) return cfg.ContainsKey(k) ? J.Truthy(cfg[k]) : def; }
     public int Int(string k, int def) => J.Num(Get(k)) is double d ? (int)d : def;
     public string Url => $"http://127.0.0.1:{Port}";
@@ -272,27 +286,42 @@ sealed class Settings
 
     /// <summary>The key taskhub.exe uses to tell this hub from another program on its port (hub.key in the data folder, this user only).
     /// It is never sent: the hub only signs what the CLI asks with it.</summary>
-    public byte[] HubKey => hubKey ??= LoadHubKey();
+    public byte[] HubKey { get { lock (secretLock) return hubKey ??= LoadSecret("hub.key"); } }
     byte[] hubKey;
 
-    byte[] LoadHubKey()
+    static System.Security.AccessControl.FileSecurity OwnerOnly()
     {
-        var path = File_("hub.key");
-        try { if (HexKey(File.ReadAllText(path)) is { } saved) return saved; }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        var acl = new System.Security.AccessControl.FileSecurity();
+        acl.SetAccessRuleProtection(true, false);
+        acl.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(System.Security.Principal.WindowsIdentity.GetCurrent().User,
+            System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+        return acl;
+    }
+
+    /// <summary>32 random bytes kept as hex in a file of the data folder that only this user can read. A file that arrived with
+    /// inherited rights (copied, written by hand, a data folder of the user's choice) is closed. Not saved: kept in memory, logged.</summary>
+    byte[] LoadSecret(string name)
+    {
+        var path = File_(name);
+        try
+        {
+            if (HexKey(File.ReadAllText(path)) is { } saved)
+            {
+                var info = new FileInfo(path);
+                if (!info.GetAccessControl().AreAccessRulesProtected) info.SetAccessControl(OwnerOnly());
+                return saved;
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException) { }
         var key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
         var text = System.Text.Encoding.ASCII.GetBytes(Convert.ToHexString(key));
         try
         {
             File.Delete(path);
-            var acl = new System.Security.AccessControl.FileSecurity();
-            acl.SetAccessRuleProtection(true, false);
-            acl.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(System.Security.Principal.WindowsIdentity.GetCurrent().User,
-                System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
-            using var f = new FileInfo(path).Create(FileMode.CreateNew, System.Security.AccessControl.FileSystemRights.Write, FileShare.None, 4096, FileOptions.None, acl);
+            using var f = new FileInfo(path).Create(FileMode.CreateNew, System.Security.AccessControl.FileSystemRights.Write, FileShare.None, 4096, FileOptions.None, OwnerOnly());
             f.Write(text);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException) { Log.W("hubkey", "not saved: " + e.GetType().Name); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException) { Log.W("secret", name + " not saved: " + e.GetType().Name); }
         return key;
     }
 

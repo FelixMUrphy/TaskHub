@@ -10,7 +10,7 @@ it.
   names and account balances are written only if you set `"log_level": "debug"` in `config.json` (a beta build does this by itself, keeps up to 80 MB, and the command-line tool adds `cli.log`, at most about 2 MB,
   also written at that level). Before writing, TaskHub removes what looks like a token or key, and when it starts at the default level it deletes a log holding lines written at that debug level, `cli.log` and a beta build's extra log files. Look through a log before you share it with anyone.
 - Programs on the same PC talk to TaskHub over a local HTTP API on `127.0.0.1`, which other computers cannot reach.
-- `hub.key` in that folder, readable only by your Windows account, lets the `taskhub` command check it is talking to TaskHub before it sends anything. The key is never sent.
+- `hub.key` in that folder, readable only by your Windows account, lets the `taskhub` command check it is talking to TaskHub before it sends anything. The key is never sent. `api.token` beside it, also readable only by your account, is the password of the local API. It only goes to TaskHub on your own PC.
 - If you turn on the Claude Code or Codex connection, TaskHub adds its entries to those programs' settings files in your
   user profile (keeping beside them a copy of each file from before its first change and its last, `*.taskhub.bak` and `*.taskhub.last`) and removes them when you turn the connection off. The version installed from GitHub also removes them
   when it is uninstalled. Windows does not let the Microsoft Store version run anything on uninstall, so it points the

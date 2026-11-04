@@ -41,8 +41,7 @@ sealed class Api
         R("GET", "/ui", async (c, q, g) =>
         {
             var html = UiPage.Html();
-            html = html.Replace("__TOKEN__", J.Dump(JsonValue.Create(S.Token)))
-                .Replace("__VERSION__", Settings.Version)
+            html = html.Replace("__VERSION__", Settings.Version)
                 .Replace("__AUTOHIDE__", S.Bool("panel_autohide", true) ? "true" : "false");
             await Raw(c, 200, Encoding.UTF8.GetBytes(html), "text/html; charset=utf-8");
             return null;
@@ -272,8 +271,8 @@ sealed class Api
             if (o != $"http://127.0.0.1:{port}" && o != $"http://localhost:{port}") throw new ApiError(403, "cross-origin requests are not allowed");
         }
         if (!path.StartsWith("/api/")) return;
-        var tok = S.Token;
-        if (!string.IsNullOrEmpty(tok) && c.Request.Headers.Authorization.ToString() != "Bearer " + tok && path is not ("/api/health" or "/api/hub-proof"))
+        if (path is not ("/api/health" or "/api/hub-proof") && !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(c.Request.Headers.Authorization.ToString()), Encoding.UTF8.GetBytes("Bearer " + S.Token)))
             throw new ApiError(401, "token required");
         if (method is "POST" or "DELETE" or "PUT" or "PATCH" && string.IsNullOrEmpty(c.Request.Headers["X-TaskHub"].ToString()))
             throw new ApiError(403, "header 'X-TaskHub: 1' required on write requests");   // CSRF guard
@@ -330,6 +329,7 @@ sealed class Api
             if (ipv6) o.Listen(IPAddress.IPv6Loopback, S.Port);
         });
         var a = b.Build();
+        _ = S.Token;   // the file is there before the first client looks for it
         a.Run(Dispatch);
         return a;
     }

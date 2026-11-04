@@ -16,7 +16,7 @@ sealed class HubError : Exception
 sealed class Client
 {
     public readonly string Url;
-    readonly string token;
+    readonly string envToken;
     readonly HttpClient http;
     readonly bool addressChosen;
 
@@ -26,9 +26,7 @@ sealed class Client
         var env = Environment.GetEnvironmentVariable("TASKHUB_URL");
         addressChosen = url != null || (!string.IsNullOrEmpty(env) && !string.Equals(env.TrimEnd('/'), OwnUrl(), StringComparison.OrdinalIgnoreCase));
         Url = (url ?? DefaultUrl()).TrimEnd('/');
-        token = Environment.GetEnvironmentVariable("TASKHUB_TOKEN");
-        // the agents' MCP server and hooks run this exe without TASKHUB_TOKEN: use the hub's own token
-        if (string.IsNullOrEmpty(token) && HubConfig()?["token"] is JsonValue tv && tv.TryGetValue<string>(out var t)) token = t;
+        envToken = Environment.GetEnvironmentVariable("TASKHUB_TOKEN");
         http = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
@@ -65,27 +63,45 @@ sealed class Client
         : ExeSettings()?["data"] is JsonValue dv && dv.TryGetValue<string>(out var d) ? Environment.ExpandEnvironmentVariables(d)
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaskHub");
 
-    /// <summary>With TaskHub closed, another program can listen on its port: before any token or data leaves, whoever answers must show it
-    /// holds the hub's key. Skipped for an address the user chose, and where the key can't be seen (an edition whose copy of the CLI doesn't
-    /// share the hub's folder): another user's program can't remove the file, so that works as before.</summary>
-    void ProveHub(CancellationToken ct)
+    /// <summary>The token this account's hub wants: "token" in its config.json, else its api.token. The agents' MCP server and hooks
+    /// run this exe without TASKHUB_TOKEN, so it finds it itself.</summary>
+    static string OwnToken()
     {
-        if (addressChosen) return;
+        if (HubConfig()?["token"] is JsonValue tv && tv.TryGetValue<string>(out var t) && t.Length > 0) return t;
+        try { return File.ReadAllText(Path.Combine(DataFolder(), "api.token")).Trim() is { Length: > 0 } text ? text : null; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>What to send: TASKHUB_TOKEN as it is; the hub's own token only to whoever has just proved it holds the hub's key.</summary>
+    string TokenFor(CancellationToken ct) => ProveHub(ct) ? OwnToken() : null;
+
+    /// <summary>The token for a command that hands it to the user, or null.</summary>
+    public string Token() => !string.IsNullOrEmpty(envToken) ? envToken : TokenFor(CancellationToken.None);
+
+    /// <summary>With TaskHub closed, another program can listen on its port: before any token or data leaves, whoever answers must show it
+    /// holds the hub's key. True when it did. An address the user chose that can't is just not this hub: it gets no token, and no error here.
+    /// Where the key can't be seen, false: another user's program can't remove the file, so nothing is refused, only no token goes.</summary>
+    bool ProveHub(CancellationToken ct)
+    {
         byte[] key;
         try
         {
             var text = File.ReadAllText(Path.Combine(DataFolder(), "hub.key")).Trim();
-            if (text.Length != 64) return;
+            if (text.Length != 64) return false;
             key = Convert.FromHexString(text);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException) { return; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException) { return false; }
         var nonce = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
         string answer = null;
         using var req = new HttpRequestMessage(HttpMethod.Get, Url + "/api/hub-proof?nonce=" + nonce);
         HttpResponseMessage r;
         try { r = http.Send(req, ct); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        catch (Exception e) { throw new HubError(0, $"hub not reachable at {Url}: {e.GetBaseException().Message}"); }
+        catch (Exception e)
+        {
+            if (addressChosen) return false;
+            throw new HubError(0, $"hub not reachable at {Url}: {e.GetBaseException().Message}");
+        }
         using (r)
             if (r.IsSuccessStatusCode)
                 try { answer = Program.S((JsonNode.Parse(r.Content.ReadAsStringAsync(ct).GetAwaiter().GetResult()) as JsonObject)?["proof"]); }
@@ -94,15 +110,17 @@ sealed class Client
         var good = System.Security.Cryptography.HMACSHA256.HashData(key, Encoding.UTF8.GetBytes($"taskhub-hub-proof|{port}|{nonce}"));
         byte[] got = null;
         try { got = Convert.FromHexString(answer ?? ""); } catch (FormatException) { }
-        if (got == null || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(got, good))
-            throw new HubError(0, $"the program at {Url} isn't TaskHub (it can't prove it): nothing was sent. Close it or restart TaskHub.");
+        if (got != null && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(got, good)) return true;
+        if (addressChosen) return false;
+        throw new HubError(0, $"the program at {Url} isn't TaskHub (it can't prove it): nothing was sent. Close it or restart TaskHub.");
     }
 
     public JsonNode Call(string method, string path, JsonNode body = null, double timeoutSec = 10, CancellationToken ct = default)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(timeoutSec));
-        try { ProveHub(cts.Token); }
+        string token = envToken;
+        try { var own = TokenFor(cts.Token); if (string.IsNullOrEmpty(token)) token = own; }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested) { throw new HubError(0, $"hub not reachable at {Url}: no answer"); }
         var req = new HttpRequestMessage(new HttpMethod(method), Url + path);
         if (method != "GET")
@@ -159,6 +177,8 @@ http://127.0.0.1:47800; env TASKHUB_URL / TASKHUB_TOKEN override them)
   taskhub ack ID CMD [--fail] [--message M]
   taskhub wait ID [--timeout SEC]                  (block until finished; exit 0 done, 1 failed/lost, 2 cancelled, 124 timeout)
   taskhub panel [ID]                               (open the panel, optionally focused on a task)
+  taskhub ui [--print]                             (open the panel's page in your browser, the token in the address's fragment; --print: only show the address)
+  taskhub token                                    (print the token the local API wants, for your own scripts)
   taskhub delete ID [--force]
   taskhub api                                      (print API.md served by the hub)
   taskhub mcp [--source NAME]                      (MCP server over stdio for AI agents: notify, task_start/update/finish,
@@ -332,6 +352,21 @@ Global option: --url URL";
                     try { AllowSetForegroundWindow(-1); } catch { }
                     c.Call("POST", "/api/ui/open", new JsonObject { ["task"] = args.Count > 0 ? args[0] : null });
                     return 0;
+                case "token":
+                {
+                    if (c.Token() is not { Length: > 0 } tok) return Fail("no token found for this hub: see TASKHUB_TOKEN in API.md");
+                    Console.WriteLine(tok);
+                    return 0;
+                }
+                case "ui":
+                {
+                    bool print = TakeFlag(args, "--print");
+                    if (c.Token() is not { Length: > 0 } tok) return Fail("no token found for this hub: see TASKHUB_TOKEN in API.md");
+                    var page = c.Url + "/ui#token=" + Uri.EscapeDataString(tok);
+                    if (print) Console.WriteLine(page);
+                    else System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(page) { UseShellExecute = true })?.Dispose();
+                    return 0;
+                }
                 case "delete":
                 {
                     bool force = TakeFlag(args, "--force");

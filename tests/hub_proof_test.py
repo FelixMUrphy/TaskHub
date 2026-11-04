@@ -186,7 +186,7 @@ try:
     with Listener() as other:
         env = dict(ENV, TASKHUB_URL=URL)
         r = notify(env)
-        check("TASKHUB_URL with another address: the user chose it, no check", r.returncode == 0 and any(MARK in q["body"] for q in other.seen) and not any("hub-proof" in q["path"] for q in other.seen), (r, other.seen))
+        check("TASKHUB_URL with another address: it can't prove anything, it still gets the request, without the token", r.returncode == 0 and any(MARK in q["body"] for q in other.seen) and not any(q["auth"] for q in other.seen), (r, other.seen))
     config(token=TOKEN)
     os.remove(KEY)
     with Listener() as other:

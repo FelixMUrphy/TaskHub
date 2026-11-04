@@ -101,7 +101,7 @@
 
 <script>
 const q = new URLSearchParams(location.search);
-document.getElementById("panel").src = (q.get("hub") || "http://127.0.0.1:47898") + "/ui";
+document.getElementById("panel").src = (q.get("hub") || "http://127.0.0.1:47898") + "/ui" + (q.get("token") ? "#token=" + encodeURIComponent(q.get("token")) : "");
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function tick() {
   const d = new Date();

@@ -518,7 +518,7 @@ static class Program
         var req = new HttpRequestMessage(HttpMethod.Post, s.Url + path)
         { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
         req.Headers.Add("X-TaskHub", "1");
-        if (!string.IsNullOrEmpty(s.Token)) req.Headers.Add("Authorization", "Bearer " + s.Token);
+        req.Headers.Add("Authorization", "Bearer " + s.Token);
         http.Send(req).Dispose();
     }
 }

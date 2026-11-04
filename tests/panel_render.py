@@ -9,6 +9,7 @@ LANGS = ["en", "uk", "es", "de", "fr", "it", "pt", "pl", "zh", "ja"]
 PORT, CDP = 47898, 9339
 EDGE = os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "Microsoft", "Edge", "Application", "msedge.exe")
 BASE = f"http://127.0.0.1:{PORT}"
+os.environ.setdefault("TASKHUB_TOKEN", "panel-render-token")   # the hub reads it; sitecustomize.py isn't there by hand, see the requests below
 op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 fails = 0
 
@@ -22,7 +23,7 @@ def check(name, ok, info=None):
 
 def call(method, path, body=None):
     req = urllib.request.Request(BASE + path, method=method, data=None if body is None else json.dumps(body).encode(),
-                                 headers={"X-TaskHub": "1", "Content-Type": "application/json"})
+                                 headers={"X-TaskHub": "1", "Content-Type": "application/json", "Authorization": "Bearer " + os.environ["TASKHUB_TOKEN"]})
     with op.open(req, timeout=20) as r:
         return json.loads(r.read() or b"null")
 
@@ -132,7 +133,7 @@ def render(exe, lang, a, keys):
         ws.send("Runtime.enable")
         ws.send("Page.enable")
         ws.send("Emulation.setDeviceMetricsOverride", {"width": a.width, "height": a.height, "deviceScaleFactor": 1, "mobile": False})
-        ws.send("Page.navigate", {"url": BASE + "/ui"})
+        ws.send("Page.navigate", {"url": BASE + "/ui#token=" + os.environ["TASKHUB_TOKEN"]})
         seen = until(lambda: ws.eval('document.readyState === "complete" && document.body.innerText.includes("Video render")'))
         check(f"{lang}: the tasks are shown", seen, ws.eval("document.body.innerText.slice(0, 300)"))
         time.sleep(0.7)

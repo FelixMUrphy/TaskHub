@@ -454,7 +454,7 @@ sealed class PanelForm : Form
         };
         cw.ProcessFailed += (_, e) => OnProcessFailed(e.ProcessFailedKind);
         ApplyLook();
-        web.Source = new Uri(S.Url + "/ui");
+        web.Source = new Uri(S.Url + "/ui#token=" + Uri.EscapeDataString(S.Token));   // a fragment never reaches the server or a log
     }
 
     /// <summary>A WebView2 process died. The browser process takes the whole control with it: a new one is made; a page

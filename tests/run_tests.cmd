@@ -24,6 +24,9 @@ rem the test hub must not show Windows notifications (the burst test would queue
 mkdir "%DATA%"
 > "%DATA%\config.json" echo {"log_level": "debug", "toasts": false, "autostart": false, "toast_rate": 0, "toast_task_gap": 0, "telegram_api": "http://127.0.0.1:47897", "connectors": {"github": {"api": "http://127.0.0.1:47896"}, "runpod": {"api": "http://127.0.0.1:47891"}, "vastai": {"api": "http://127.0.0.1:47890"}, "aws": {"api": "http://127.0.0.1:47889"}}}
 set TASKHUB_URL=http://127.0.0.1:47899
+rem one token for this run's hubs (they read TASKHUB_TOKEN); sitecustomize.py sends it on the tests' own requests. token_test.py takes it away and checks the real path
+set TASKHUB_TOKEN=taskhub-test-run-token
+set PYTHONPATH=%~dp0
 set TASKHUB_DATA=%DATA%
 rem the settings a user changes only on the settings page answer over HTTP here, as on every isolated test hub
 set TASKHUB_TEST_HOME=%DATA%\home
@@ -55,6 +58,7 @@ for %%D in ("%EXE%") do "%PYTHON%" run_one.py "%DATA%\results" blender_test.py "
 "%PYTHON%" run_one.py "%DATA%\results" aws_test.py || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" aws_http_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" hub_proof_test.py "%EXE%" || set RC=1
+for %%D in ("%EXE%") do "%PYTHON%" run_one.py "%DATA%\results" token_test.py "%EXE%" "%%~dpDtaskhub.exe" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" cli_console_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" ssh_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" limits_test.py "%EXE%" || set RC=1

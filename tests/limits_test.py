@@ -8,6 +8,7 @@ EXE = sys.argv[1]
 CLI = os.path.join(os.path.dirname(EXE), "taskhub.exe")
 PORT = 47894
 URL = f"http://127.0.0.1:{PORT}"
+os.environ["TASKHUB_TOKEN"] = "test"   # this test's hub and CLI use this token, for its own requests too (sitecustomize.py)
 home = tempfile.mkdtemp(prefix="taskhub-limits-home-")
 data = tempfile.mkdtemp(prefix="taskhub-limits-data-")
 appdata = tempfile.mkdtemp(prefix="taskhub-limits-appdata-")

@@ -1,6 +1,7 @@
 """The SSH connector against a stand-in for ssh.exe (fake_ssh.py through TASKHUB_TEST_SSH): own hub on 47869, temp data. No real host, no real ssh config.
 At the end the real ssh.exe, without a network, checks that the options TaskHub passes parse (-G -F none), and a real sh, when there is one, that the script parses."""
 import json, os, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.request
+os.environ.pop("TASKHUB_TOKEN", None)   # this test sets its own token in config.json
 
 EXE = sys.argv[1]
 PORT = 47869

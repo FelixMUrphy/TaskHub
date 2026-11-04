@@ -8,7 +8,7 @@ PORT = 47865
 URL = f"http://127.0.0.1:{PORT}"
 HERE = os.path.dirname(os.path.abspath(__file__))
 tmp = tempfile.mkdtemp(prefix="taskhub-contract-")
-ENV = dict(os.environ, TASKHUB_TEST_HOME=tmp, TASKHUB_NO_AUTOSTART="1", TASKHUB_URL=URL, TASKHUB_TOKEN="")
+ENV = dict(os.environ, TASKHUB_TEST_HOME=tmp, TASKHUB_NO_AUTOSTART="1", TASKHUB_URL=URL)
 op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 fails = 0
 
