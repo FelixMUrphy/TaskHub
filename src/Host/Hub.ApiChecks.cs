@@ -64,7 +64,12 @@ sealed partial class Hub
             throw Bad($"level must be info, warn or error, not {J.Cut(J.Str(b["level"]), 40)}");
     }
 
-    bool OwnedByConnector(JsonObject t) => IsConnector?.Invoke(J.Str(t["source"])) == true;
+    /// <summary>A task a connector made. Not by its source alone, which is a word any client can pick: meta.&lt;connector&gt; only comes from the connector.</summary>
+    bool OwnedByConnector(JsonObject t)
+    {
+        var source = J.Str(t["source"]);
+        return IsConnector?.Invoke(source) == true && (t["meta"]?[source] is JsonObject || t["meta"]?["github_pr"] is JsonObject);
+    }
 
     public JsonObject RegisterApi(JsonObject b)
     {

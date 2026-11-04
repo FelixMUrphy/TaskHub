@@ -727,7 +727,8 @@ sealed partial class AwsConnector : ISettingsConnector
         var i = t.I;
         var tid = Tid(i.Id);
         var task = TryTask(tid);
-        bool taskActive = task != null && Hub.IsActive(J.Str(task["state"]));
+        // a task under this id that some client made isn't this machine's: it is registered over
+        bool taskActive = task != null && J.Str(task["source"]) == Id && Hub.IsActive(J.Str(task["state"]));
         if (i.Active)
         {
             if (!taskActive) Register(t, quiet: false);

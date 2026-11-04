@@ -35,7 +35,7 @@ it.
 - **Discord** (off by default). If you connect your own Discord bot, TaskHub sends your notifications, task progress and charts from your PC straight to Discord (`discord.com`, and its gateway under `discord.gg`), as direct messages to you, and receives your button presses and commands over the same connection. That includes the labels and list options of a task's buttons, the value last entered in an input (shown in its input window), and the list of active tasks when you use `/tasks`. The computer's name appears in the first message and in *Send test*. These messages stay on Discord after you disconnect; Discord's own privacy policy applies to them. The token is kept only in the Windows Credential Manager; if that is unavailable TaskHub doesn't connect. Your Discord user id, the chat's id and the application's id are stored in `config.json`. *Disconnect* stops this and removes the token and the ids.
 - **Telegram** (off by default). If you connect a Telegram bot, TaskHub sends your notifications, task progress and
   charts from your PC straight to Telegram's Bot API, to the chat you linked, and receives your button presses and
-  replies from it. The chat ID is stored in `%APPDATA%\TaskHub\config.json`; the bot token is kept in the Windows Credential
+  replies from it. When you link another chat, the previous one gets one last message with your PC's name. The chat ID is stored in `%APPDATA%\TaskHub\config.json`; the bot token is kept in the Windows Credential
   Manager of your user account.
   If the Credential Manager is unavailable in your Windows session, the token stays in `config.json` and
   TaskHub's settings show a warning (it moves the token on a later start once the Credential Manager works). Telegram's own privacy policy

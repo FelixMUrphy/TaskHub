@@ -156,6 +156,24 @@ try:
     check("a client's own task keeps working", s2 == 200 and "go" in ctl(task(t["id"])) and task(t["id"]).get("meta", {}).get("ok") == 2, (s2, task(t["id"])))
     call("POST", f"/api/tasks/{t['id']}/finish", {"state": "done", "notify": False})
 
+    # a connector's id can't be taken: deleted and registered again, or registered before the connector sees the machine
+    s, _ = call("DELETE", "/api/tasks/rp-pB?force=1")
+    s2, _ = call("POST", "/api/tasks", {"id": "rp-pB", "name": "not a machine", "source": "cli", "controls": [shell]})
+    check("(deleted and registered by a client)", s == 200 and s2 == 200, (s, s2))
+    check("the connector takes its machine's task back", until(lambda: task("rp-pB").get("source") == "runpod" and "x" not in ctl(task("rp-pB")) and "stop" in ctl(task("rp-pB"))), task("rp-pB"))
+    s2, _ = call("POST", "/api/tasks", {"id": "rp-pC", "name": "first", "source": "cli", "controls": [shell]})
+    with lock:
+        pods["pC"] = "RUNNING"
+    check("a task registered before the machine is seen: the machine's task replaces it", until(lambda: task("rp-pC").get("source") == "runpod" and "x" not in ctl(task("rp-pC")) and "stop" in ctl(task("rp-pC"))), task("rp-pC"))
+
+    # a source is only a word a client chooses: it makes nothing the connector's
+    s, _ = call("POST", "/api/tasks", {"id": "own-job", "name": "backup", "source": "aws"})
+    s2, _ = call("POST", "/api/tasks", {"id": "own-job", "name": "backup", "source": "aws"})
+    check("a client's task with a connector's name as source can run again", s == 200 and s2 == 200, (s, s2))
+    s, _ = call("POST", "/api/tasks/own-job/update", {"add_controls": [{"id": "go", "label": "Go"}]})
+    check("...and keeps its buttons its own", s == 200 and "go" in ctl(task("own-job")), s)
+    call("POST", "/api/tasks/own-job/finish", {"state": "done", "notify": False})
+
     # a press acts on the machine in the task's id
     s, _ = call("POST", "/api/tasks/rp-pA/controls/stop", {})
     check("Stop on alpha's task stops alpha", s == 200 and stopped == ["pA"], (s, stopped))

@@ -645,7 +645,8 @@ abstract partial class MachineConnector : ISettingsConnector
         var m = t.M;
         var tid = Tid(m.Id);
         var task = TryTask(tid);
-        bool taskActive = task != null && Hub.IsActive(J.Str(task["state"]));
+        // a task under this id that some client made isn't this machine's: it is registered over
+        bool taskActive = task != null && J.Str(task["source"]) == Id && Hub.IsActive(J.Str(task["state"]));
         if (m.Active)
         {
             if (!taskActive) { Register(t, c, quiet: false); return; }
