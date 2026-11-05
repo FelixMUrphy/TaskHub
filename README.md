@@ -260,6 +260,7 @@ Each provider has its own two thresholds in $: **warn** (default $10) and **stop
 - **Stop only — TaskHub never deletes, terminates or destroys a machine.** Machines marked *Never auto-stop* in the same
   settings are left alone. Each stop is confirmed (Runpod: *EXITED*, Vast.ai: no longer running); a machine that could not
   be stopped is reported as failed, never as stopped.
+- If a saved key stops working later (Runpod, Vast.ai, AWS, GitHub), TaskHub warns once, with the guard on or off, and says when it works again.
 - If the balance can't be read (no network, the service is down, the key was revoked) TaskHub warns once and, at the
   deadline, stops **nothing** ("auto-stop held, check manually") until it can read the balance again. About 15 minutes before
   the estimated $0 it warns once more, as at $0 the service acts on its own. A read-only key can

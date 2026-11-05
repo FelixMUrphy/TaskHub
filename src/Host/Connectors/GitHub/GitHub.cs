@@ -54,6 +54,7 @@ sealed partial class GitHubConnector : ISettingsConnector
     string login, status = "off", gcmToken;
     // the last verdict on the saved token: "ok" | "revoked" | "network" | "unavailable"; null = none / not checked
     string tokenCheck;
+    readonly KeyWatch keyWatch = new();
     int tokenCheckCode;
     double gcmAt, pausedUntil, lastExpiryWarn;
     DateTimeOffset? expires;
@@ -140,7 +141,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             if (b.ContainsKey(k)) c[k] = J.Truthy(b[k]);
         if (J.IsStr(b["token"])) SetToken(J.Str(b["token"]));   // a rejected token: nothing is changed
         Connectors.SetConfig(S, Id, c);
-        if (J.Truthy(b["forget_token"])) { Secrets.Delete(S, Id); login = null; expires = null; tokenCheck = null; }
+        if (J.Truthy(b["forget_token"])) { Secrets.Delete(S, Id); login = null; expires = null; tokenCheck = null; keyWatch.Reset(); }
         Start();
         return State();
     }
@@ -170,6 +171,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         if (login == "") login = null;
         tokenCheck = r == null ? "network" : r.Code == 200 ? "ok" : "unavailable";
         tokenCheckCode = r?.Code ?? 0;
+        keyWatch.Note(hub, Title, tokenCheck, force: false);
     }
 
     /// <summary>The verdict on the saved token in words ("Connected as @login" / revoked / no network / unavailable).</summary>
@@ -365,7 +367,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             login = J.Str(me.Body?["login"]);
         }
         status = "ok";
-        if (c.Auth == "token") tokenCheck = "ok";
+        if (c.Auth == "token") { tokenCheck = "ok"; keyWatch.Note(hub, Title, "ok", force: false); }
         WarnExpiry();
         bool slow = rateLeft >= 0 && rateLeft < 500;   // close to the hourly limit: everything at a quarter of the pace
         foreach (var repo in c.Repos)
@@ -393,7 +395,7 @@ sealed partial class GitHubConnector : ISettingsConnector
     void Rejected(Conf c)
     {
         status = "token rejected";
-        if (c.Auth == "token") tokenCheck = "revoked";
+        if (c.Auth == "token") { tokenCheck = "revoked"; keyWatch.Note(hub, Title, "revoked", force: false); }
         login = null;
         gcmToken = null;
         pausedUntil = J.Now() + 300;

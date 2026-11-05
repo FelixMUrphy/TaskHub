@@ -74,7 +74,8 @@ abstract partial class MachineConnector
     bool gStopping;                       // a stop is running (no new pending stop meanwhile)
     bool gLoaded;                         // guard_<id>.json read
     int gMisses;                          // balance readings missed in a row (guard on)
-    bool gOutage;                         // the "balance unreadable" warning was sent
+    bool gOutage;                         // the balance is unreadable, and that was told
+    bool gOutageByKey;                    // ...by the warning about the key
     string gMissWhy = "";
     double gLastMiss;
     readonly SemaphoreSlim stopRun = new(1, 1);
@@ -208,7 +209,7 @@ abstract partial class MachineConnector
         if (!g.On || !BalanceSource) { lock (gate) { gMisses = 0; gOutage = false; } return; }
         if (!ok) { GuardMiss(why); return; }
         bool recovered;
-        lock (gate) { recovered = gOutage; gOutage = false; gMisses = 0; }
+        lock (gate) { recovered = gOutage && !gOutageByKey; gOutage = false; gMisses = 0; }
         if (recovered) GuardNotify(L.T("g_readable", BalanceText()), "info");
         if (balance?.Amount is not double a) return;
         double burn = SpendRate() ?? 0;
@@ -291,11 +292,11 @@ abstract partial class MachineConnector
             gMisses++;
             gMissWhy = why ?? "";
             send = gMisses >= 2 && !gOutage;
-            if (send) gOutage = true;
+            if (send) { gOutage = true; gOutageByKey = keyCheck == "revoked"; }
         }
         if (!send) return;
-        GuardNotify(L.T("g_unreadable", gMissWhy.Length > 0 ? J.Cut(gMissWhy, 100) : "?"));
         Log.W(Id, $"guard: balance unreadable ({gMissWhy})");
+        if (keyCheck != "revoked") GuardNotify(L.T("g_unreadable", gMissWhy.Length > 0 ? J.Cut(gMissWhy, 100) : "?"));
     }
 
     /// <summary>A poll failed altogether (exception in the loop): counts as a missed balance reading once per reading slot.</summary>

@@ -24,6 +24,31 @@ interface IConnector
 }
 
 /// <summary>The connectors of this hub: started with it, controls routed back by task.</summary>
+/// <summary>A saved key that stops working: one warning, and one note when it works again. A key refused when it's saved never gets
+/// here, the settings page says that at once. "network" and "unavailable" say nothing about the key, so they change nothing.</summary>
+sealed class KeyWatch
+{
+    bool told;
+
+    public void Note(Hub hub, string title, string verdict, string more = "", bool force = true)
+    {
+        bool warn = false, back = false;
+        lock (this)
+        {
+            if (verdict == "revoked") { warn = !told; told = true; }
+            else if (verdict == "ok") { back = told; told = false; }
+        }
+        if (!warn && !back) return;
+        var msg = warn ? L.T("k_stopped", title) + (more.Length > 0 ? " " + more : "") : L.T("k_back", title);
+        Log.W("connector", title + (warn ? ": the saved key stopped working" : ": the key works again"));
+        try { hub.Notify(new JsonObject { ["title"] = "TaskHub · " + title, ["level"] = warn ? "warn" : "info", ["message"] = msg, ["force"] = force, ["click"] = "dismiss" }); }
+        catch (Exception e) { Log.W("connector", "key warning: " + e.Message); }
+    }
+
+    /// <summary>The key is gone: nothing to tell about it.</summary>
+    public void Reset() { lock (this) told = false; }
+}
+
 sealed class Connectors
 {
     readonly Dictionary<string, IConnector> all = new();

@@ -24,7 +24,7 @@ CHAT = 4242
 fails = 0
 lock = threading.RLock()
 calls = []                     # (service, method, path)
-faults = {"gql500": False, "stop500": set(), "gqlslow": 0, "probe500": False, "probeslow": 0}
+faults = {"rp_revoked": False, "gql500": False, "stop500": set(), "gqlslow": 0, "probe500": False, "probeslow": 0}
 EXE = sys.argv[1] if len(sys.argv) > 1 else None
 balance = {"clientBalance": 50.0, "currentSpendPerHr": 1.0, "spendLimit": 80}
 
@@ -98,7 +98,7 @@ class Runpod(Mock):
             time.sleep(faults["probeslow"])   # outside the lock
         with lock:
             calls.append(("rp", m, p))
-            if auth not in ("Bearer " + RP_KEY_RO, "Bearer " + RP_KEY_RW):
+            if auth not in ("Bearer " + RP_KEY_RO, "Bearer " + RP_KEY_RW) or faults["rp_revoked"]:
                 return self.reply(401, {"detail": "invalid api key"})
             rw = auth == "Bearer " + RP_KEY_RW
             if m == "POST" and p == "/graphql":
@@ -517,6 +517,19 @@ ok = wait_sent(lambda m: "Auto-stop — stopped: 1, failed: 0" in m["text"] and 
 check("retry works once the service answers -> delta stopped, said so; its unreadable network volume noted, not counted",
       ok is not None and "≈ $0.00/day" in ok["text"] and "network volume (billed as before)" in ok["text"] and wait(lambda: guard().get("retry") == []),
       (ok, guard()))
+
+# ---- the key revoked with the guard on: the key's warning says it, not "can't be read" too
+n_key = len(sent)
+with lock:
+    faults["rp_revoked"] = True
+check("key revoked, guard on: a warning about the key", wait_sent(lambda m: "no longer accepts" in m["text"], n_key, timeout=15) is not None, sent[n_key:])
+time.sleep(4)
+check("...not the unreadable one as well", n_sent(lambda m: "can't be read (" in m["text"], n_key) == 0, sent[n_key:])
+with lock:
+    faults["rp_revoked"] = False
+check("key works again: said so", wait_sent(lambda m: "accepts the key again" in m["text"], n_key, timeout=15) is not None, sent[n_key:])
+time.sleep(2)
+check("...once, not 'readable again' as well", n_sent(lambda m: "can be read again" in m["text"], n_key) == 0, sent[n_key:])
 
 # ---- balance unreadable: warning, nothing stopped at the deadline, readable again
 with lock:

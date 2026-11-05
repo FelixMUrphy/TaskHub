@@ -132,6 +132,7 @@ abstract partial class MachineConnector : ISettingsConnector
     // the last verdict on the saved key: "ok" | "revoked" (the service stopped accepting it) | "network" | "unavailable"
     // (saved but not checked yet); null = no key / not checked. Never anything of the key itself.
     string keyCheck;
+    readonly KeyWatch keyWatch = new();
     int keyCheckCode;
 
     protected MachineConnector(Settings s, Hub h)
@@ -219,7 +220,7 @@ abstract partial class MachineConnector : ISettingsConnector
         if (J.IsStr(b["key"])) SetKey(J.Str(b["key"]));   // a rejected key: nothing is changed
         Connectors.SetConfig(S, Id, c);
         if (b.ContainsKey("idle_stop_minutes") && J.Num(b["idle_stop_minutes"]) == 0) CancelPending(_ => L.T("g_idle_off"), p => p.Idle);
-        if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); hub.SetConnectorState(Id, null); canAct = null; probeBackoff = 0; actsOffSaid = false; keyHash = null; keyCheck = null; balance = null; reading = null; }
+        if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); hub.SetConnectorState(Id, null); canAct = null; probeBackoff = 0; actsOffSaid = false; keyHash = null; keyCheck = null; keyWatch.Reset(); balance = null; reading = null; }
         Start();
         return State();
     }
@@ -253,7 +254,7 @@ abstract partial class MachineConnector : ISettingsConnector
         catch (Exception e) { Log.W(Id, $"balance after the key: " + e.GetBaseException().Message); }
     }
 
-    protected void SetCheck(string verdict, int code = 0) { keyCheck = verdict; keyCheckCode = code; }
+    protected void SetCheck(string verdict, int code = 0) { keyCheck = verdict; keyCheckCode = code; keyWatch.Note(hub, Title, verdict, L.T("k_stopped_money")); }
 
     /// <summary>The service said 401 to the saved key (the adapters' list call): revoked / expired.</summary>
     protected void KeyRejected() { status = "key rejected"; SetCheck("revoked"); }

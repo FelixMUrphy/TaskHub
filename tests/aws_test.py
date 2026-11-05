@@ -444,9 +444,11 @@ with mock:
         # ------------------------------------------------------------ revoked while in use
         wait(lambda: (task("aws-i-0a1") or {}).get("state") == "running")   # the list follows a saved key a moment later
         before = task("aws-i-0a1")
+        warned0 = sum("no longer accepts" in l for l in toasts())
         with lock:
             regions_fault["on"] = (403, "AuthFailure")
         wait(lambda: state()["key_check"] == "revoked")
+        check("key revoked later: a warning", wait(lambda: sum("no longer accepts" in l for l in toasts()) == warned0 + 1), warned0)
         st, rw, after = state(), row(), task("aws-i-0a1")
         check("key revoked: said so, how-to link back, tasks not declared gone", st["key_check"] == "revoked" and rw["key_check"] == "revoked" and after["state"] == before["state"],
               (st["key_check"], rw["key_check"], before["state"], after["state"], after.get("status")))

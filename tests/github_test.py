@@ -9,6 +9,7 @@ URL = os.environ.get("TASKHUB_URL", "http://127.0.0.1:47899")
 DATA = os.environ.get("TASKHUB_DATA", os.path.join(os.environ.get("TEMP", "."), "taskhub-tests"))
 PORT = 47896
 TOKEN = "github_pat_" + "A" * 60
+token_revoked = {"on": False}
 fails = 0
 lock = threading.RLock()
 calls = []                 # (method, path, auth header)
@@ -115,7 +116,7 @@ class Api(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if auth != "Bearer " + TOKEN:
+        if auth != "Bearer " + TOKEN or token_revoked["on"]:
             return self.reply(401, {"message": "Bad credentials"})
         if path == "/user":
             return self.reply(200, {"login": "tester"})
@@ -192,6 +193,13 @@ def call(method, path, body=None):
 def task(tid):
     s, r = call("GET", f"/api/tasks/{tid}")
     return r if s == 200 else None
+
+
+def key_toasts(text):
+    """Notifications with this text so far (the hub's log has a line per toast, also with toasts off in config)."""
+    time.sleep(0.6)   # they pass a queue
+    with open(os.path.join(DATA, "taskhub.log"), encoding="utf-8", errors="replace") as f:
+        return sum(1 for l in f if "TOAST [" in l and text in l)
 
 
 def wait(pred, timeout=15):
@@ -485,6 +493,12 @@ n = len(calls)
 s, r = call("POST", "/api/connectors/github", {"enabled": True})
 check("on again: polls with the saved token, no re-entry", s == 200 and wait(lambda: any(c[2] == "Bearer " + TOKEN for c in calls[n:])),
       calls[n:][:3])
+
+# ---- a token that stops working later
+warned0 = key_toasts("no longer accepts")
+token_revoked["on"] = True
+check("token revoked later: a warning", wait(lambda: key_toasts("no longer accepts") == warned0 + 1), key_toasts("no longer accepts") - warned0)
+token_revoked["on"] = False
 
 # ---- off / forget
 s, r = call("POST", "/api/connectors/github", {"enabled": False, "forget_token": True})
