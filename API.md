@@ -401,7 +401,7 @@ pending: {seq, deadline, held, waiting, capped, machines, task, kind: "balance"|
   `va--guard`; source = the connector) with the buttons `gstop.<seq>` (Stop now, asks for confirmation first — panel,
   toast, Telegram) and `gsnooze.<seq>` (Snooze), also in the notification and Telegram. Deadline = now + grace, capped at the projected $0 minus 5 min; Snooze adds `guard_snooze_min`
   (same cap; the reply says until when). A press on a button of an earlier pending stop answers "already handled". A balance
-  above stop cancels it. At the deadline the balance is read again. At or below stop: stopped. Above it, with money being spent: nothing is stopped on the estimate alone, `waiting`, read each minute until the figure reaches stop or money comes in. Unreadable: `held`, one warning, retried each
+  above stop cancels it. At the deadline the balance is read again. At or below stop: stopped. Above it, with money being spent: nothing is stopped on the estimate alone, `waiting`, read each minute until the figure reaches stop or money comes in. Unreadable: `held`, one warning and one more when the estimated $0 is 15 minutes away, retried each
   minute. *Stop now* still acts. Stop = the connector's stop action (never delete), confirmed by polling the list; one result
   per machine in `guard_log.json` (at most 200 entries, data folder) and in the summary (Windows + Telegram). A machine
   whose stop failed is tried again at each following reading while the balance stays below stop (no new grace; quiet until

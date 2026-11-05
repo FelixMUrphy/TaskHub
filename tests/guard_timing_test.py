@@ -201,6 +201,47 @@ try:
     with open(os.path.join(last_data, "taskhub.log"), encoding="utf-8", errors="replace") as f:
         check("...the log says so", "auto-stop held" in f.read())
 
+    def near_zero_lines():
+        with open(os.path.join(last_data, "taskhub.log"), encoding="utf-8", errors="replace") as f:
+            return f.read().count("estimated $0 is near")
+
+    def guard_log():
+        s, t = call("GET", "/api/tasks/rp--guard")
+        return json.dumps(t.get("log") or [], ensure_ascii=False)
+
+    # held, and the estimated $0 comes close (8 s here, 29 s is the $0): warned once more, nothing stopped
+    w = World(2.9, step=1000)
+    seen = {}
+    def watch_zero():
+        fails_after_cross_w(w)
+        if 16 < w.clock() < 19:
+            seen["before"] = guard_log()
+        if w.clock() > 25:
+            seen["after"] = guard_log()
+            return True
+        return False
+    def fails_after_cross_w(x):
+        if x.clock() > 11:
+            x.fail_reads = True
+    scenario(w, 40, grace=0.1, until=watch_zero)
+    check("held: no $0 warning while it's far", "reaches $0" not in seen.get("before", "reaches $0"), seen)
+    check("held, $0 close: warned", "reaches $0" in seen.get("after", ""), seen)
+    check("...once", near_zero_lines() == 1, near_zero_lines())
+    check("...still nothing stopped", not w.stops, w.stops)
+
+    # held when $0 is already close: one warning that says both
+    w = World(2.9, step=1000)
+    def watch_both():
+        fails_after_cross_w(w)
+        if w.clock() > 27:
+            seen["both"] = guard_log()
+            return True
+        return False
+    scenario(w, 40, grace=0.25, until=watch_both)
+    both = [x for x in json.loads(seen.get("both", "[]")) if "reaches $0" in json.dumps(x, ensure_ascii=False)]
+    check("held with $0 close: one entry, with the hold in it", len(both) == 1 and "can't be read" in json.dumps(both[0], ensure_ascii=False), seen.get("both"))
+    check("...once", near_zero_lines() == 1, near_zero_lines())
+
     # the reading works again and shows the threshold reached: stopped then
     w = World(2.9, step=1000)
     def fails_then_confirms():

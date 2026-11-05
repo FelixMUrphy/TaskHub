@@ -261,7 +261,8 @@ Each provider has its own two thresholds in $: **warn** (default $10) and **stop
   settings are left alone. Each stop is confirmed (Runpod: *EXITED*, Vast.ai: no longer running); a machine that could not
   be stopped is reported as failed, never as stopped.
 - If the balance can't be read (no network, the service is down, the key was revoked) TaskHub warns once and, at the
-  deadline, stops **nothing** ("auto-stop held, check manually") until it can read the balance again. A read-only key can
+  deadline, stops **nothing** ("auto-stop held, check manually") until it can read the balance again. About 15 minutes before
+  the estimated $0 it warns once more, as at $0 the service acts on its own. A read-only key can
   only warn — the settings say so. So does an account the provider doesn't stop at $0 (Runpod post-paid; Vast.ai with a
   card on file charged automatically): the guard only warns there. While Runpod's billing mode can't be read it is asked again at each reading; if it is still unknown at a stop, the account is treated as prepaid and the announcement says so.
 - *Stop now* asks for confirmation first. A machine that failed to stop is tried again at the next balance reading. A

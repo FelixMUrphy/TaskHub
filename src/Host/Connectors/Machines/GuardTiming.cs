@@ -43,6 +43,14 @@ static class GuardTiming
     /// A failed question doesn't count as asked.</summary>
     public static bool AskMode(string known, double answeredAt, double now, double every) => known == null || now - answeredAt > every;
 
+    /// <summary>A held stop warns again when the estimated $0 is this close (seconds): at $0 the service acts on its own.</summary>
+    public const double ZeroWarnAhead = 900;
+
+    /// <summary>Seconds until $0 going by the last figure known (it was <paramref name="amount"/> at <paramref name="at"/>), null when
+    /// nothing is being spent. Not capped like <see cref="Next"/>: this is about the worst case while no reading comes in.</summary>
+    public static double? SecondsToZero(double amount, double at, double burn, double now) =>
+        burn > 0 ? amount / burn * 3600 - (now - at) : null;
+
     public enum DeadlineCall { Stop, Cancel, Hold, Wait }
 
     /// <summary>What a pending stop's deadline comes to. The estimate only brings the warning and the deadline forward: a stop

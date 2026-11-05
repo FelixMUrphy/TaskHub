@@ -24,6 +24,12 @@ public class GuardTimingTests
 
     [Fact] public void Deadline_NothingSpent_Cancels() => Assert.Equal(GuardTiming.DeadlineCall.Cancel, At(2.9, 2.9, burn: 0));
 
+    [Fact] public void Zero_GoesByTheLastFigure_AndTheTimeSinceIt() => Assert.Equal(1200, GuardTiming.SecondsToZero(2, 1000, 2, 3400)!.Value, 6);
+
+    [Fact] public void Zero_IsNotCappedLikeTheCarry() => Assert.True(GuardTiming.SecondsToZero(1, 0, 1, GuardTiming.MaxCarry * 10) < 0);
+
+    [Fact] public void Zero_NothingSpent_NoEstimate() => Assert.Null(GuardTiming.SecondsToZero(2, 0, 0, 100));
+
     [Fact] public void Deadline_ReadFails_OnTheEstimateAlone_Holds() => Assert.Equal(GuardTiming.DeadlineCall.Hold, At(null, 1.5));
 
     [Fact] public void Deadline_ReadFails_FigureAlreadyBelow_Holds() => Assert.Equal(GuardTiming.DeadlineCall.Hold, At(null, 1.5));

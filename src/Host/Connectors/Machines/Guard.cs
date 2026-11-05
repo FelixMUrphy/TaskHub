@@ -10,7 +10,7 @@ namespace TaskHub;
 /// time runs out (never later than the projected $0, minus a margin). Stop only - never delete / terminate / destroy.
 /// At the deadline the balance is read again and <see cref="GuardTiming.AtDeadline"/> decides: at or below the threshold
 /// stopped; above it the stop waits for the figure (the estimate alone stops nothing while the service answers); unreadable
-/// -> "held", the user is warned and decides. A top-up
+/// -> "held", the user is warned and decides, and warned again when the estimated $0 is near. A top-up
 /// above the stop threshold cancels it. Every stop goes to guard_log.json (<see cref="GuardLog"/>). A machine whose stop
 /// failed is tried again at the next reading, about a minute later (no new grace). The pending stop survives a restart (guard_&lt;id&gt;.json).
 /// How often the balance is read and what it is taken to be between a service's booked steps: <see cref="GuardTiming"/>.
@@ -59,6 +59,7 @@ abstract partial class MachineConnector
         public double Balance, Burn;
         public bool Held, HeldWarned, Capped;
         public bool Waiting;               // the deadline passed, a fresh figure hasn't confirmed the estimate yet
+        public bool ZeroWarned;            // held, and the warning that $0 is near was sent
         public List<string> Ids = new();
         public Dictionary<string, string> Names = new();   // id -> name when the stop was announced (kept over a restart)
     }
@@ -81,6 +82,15 @@ abstract partial class MachineConnector
     string GuardTid => Prefix + "--guard";
 
     double Margin => Mock ? 0 : 300;   // the stop never lands later than this before the projected $0
+
+    double ZeroAhead => Mock ? 8 : GuardTiming.ZeroWarnAhead;
+
+    /// <summary>A held stop's way to $0: from the last figure read, or after a restart from the one the stop was announced with.</summary>
+    double? HeldSecondsToZero(PendingStop p)
+    {
+        double burn = SpendRate() ?? p.Burn;
+        return reading is { } r ? GuardTiming.SecondsToZero(r.Effective, r.ReadAt, burn, J.Now()) : GuardTiming.SecondsToZero(p.Balance, p.Created, burn, J.Now());
+    }
 
     // ------------------------------------------------------------ settings
     static readonly (string Key, double Lo, double Hi, double LoMock)[] GuardNums =
@@ -420,20 +430,31 @@ abstract partial class MachineConnector
         var (b, why, _, _) = await ReadBalance(key, ct);
         if (b?.Amount is not double a)
         {
-            bool warn, wasHeld;
+            bool warn, wasHeld, nearZero;
+            var left = HeldSecondsToZero(p);
             lock (gate)
             {
                 if (pending != p || p.Ver != ver) return;   // snoozed / cancelled meanwhile
                 wasHeld = p.Held;
                 warn = !p.HeldWarned; p.HeldWarned = true; p.Held = true; p.Deadline = J.Now() + (Mock ? 1 : 60);
+                nearZero = !p.ZeroWarned && left is double s && s <= ZeroAhead;
+                if (nearZero) p.ZeroWarned = true;
             }
+            var zeroText = nearZero ? L.T("g_held_zero", When(J.Now() + Math.Max(0, left.Value))) : "";
             if (!warn && !wasHeld) ShowPending(p, g, L.T("g_held"), register: false);   // told once, the card follows
             if (warn)
             {
-                ShowPending(p, g, L.T("g_held"), register: false);
-                GuardNotify(L.T("g_held"), "warn", withButtons: true);
+                var text = L.T("g_held") + (nearZero ? " " + zeroText : "");
+                ShowPending(p, g, text, register: false);
+                GuardNotify(text, "warn", withButtons: true);
                 Log.W(Id, $"guard: balance unreadable at the deadline ({why}) - auto-stop held");
             }
+            else if (nearZero)
+            {
+                ShowPending(p, g, zeroText, register: false);
+                GuardNotify(zeroText, "warn", withButtons: true);
+            }
+            if (nearZero) Log.W(Id, "guard: auto-stop held and the estimated $0 is near");
             return;
         }
         balance = b; balanceAt = J.Now();
