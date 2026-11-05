@@ -233,8 +233,9 @@ try:
     w = World(2.9, step=1000)
     def watch_both():
         fails_after_cross_w(w)
-        if w.clock() > 27:
-            seen["both"] = guard_log()
+        log = guard_log()   # the hold comes at about 24 s here, later on a slow runner: wait for it, past the $0 at 29 s if need be
+        if "reaches $0" in log or w.clock() > 35:
+            seen["both"] = log
             return True
         return False
     scenario(w, 40, grace=0.25, until=watch_both)
