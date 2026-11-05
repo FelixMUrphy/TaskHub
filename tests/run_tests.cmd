@@ -61,6 +61,7 @@ for %%D in ("%EXE%") do "%PYTHON%" run_one.py "%DATA%\results" blender_test.py "
 for %%D in ("%EXE%") do "%PYTHON%" run_one.py "%DATA%\results" token_test.py "%EXE%" "%%~dpDtaskhub.exe" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" cli_console_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" ssh_test.py "%EXE%" || set RC=1
+"%PYTHON%" run_one.py "%DATA%\results" worktime_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" limits_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" hooks_offer_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" codex_limits_test.py "%EXE%" || set RC=1

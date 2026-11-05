@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace TaskHub;
 
 /// <summary>HTTP API (Kestrel on loopback) - same routes and guards as the Python version.</summary>
-sealed class Api
+sealed partial class Api
 {
     readonly Settings S;
     readonly Hub hub;
@@ -19,6 +19,7 @@ sealed class Api
     public TelegramBridge Telegram;
     public DiscordBridge Discord;
     public Connectors Conns;
+    public readonly Worktime Work;
     WebApplication app;
 
     delegate Task<JsonNode> Handler(HttpContext ctx, Dictionary<string, string> q, string[] g);
@@ -28,7 +29,9 @@ sealed class Api
     {
         S = s;
         hub = h;
+        Work = new Worktime(s);
         Routes();
+        WorktimeRoutes();
     }
 
     void R(string method, string pattern, Handler h) => routes.Add((method, new Regex("^" + pattern + "$"), h));
