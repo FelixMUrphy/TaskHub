@@ -135,10 +135,12 @@ try:
     os.remove(path)
     with open(path, "w", encoding="ascii") as f:
         f.write(token)
+    # whether a new file inherits depends on the folder (not on a CI runner), so the loose right is given by hand: Everyone, by its SID
+    subprocess.run(["icacls", path, "/grant", "*S-1-1-0:R"], capture_output=True, text=True, check=True)
     loose = subprocess.run(["icacls", path], capture_output=True, text=True).stdout
     hub = start()
     acl = subprocess.run(["icacls", path], capture_output=True, text=True).stdout
-    check("a token file with inherited rights gets this user's only", "(I)" in loose and "(I)" not in acl and "BUILTIN\\Users" not in acl, (loose, acl))
+    check("a token file with loose rights gets this user's only", loose.count(":(") >= 2 and acl.count(":(") == 1 and "(I)" not in acl and "BUILTIN\\Users" not in acl, (loose, acl))
     check("...the token stays", call("GET", "/api/tasks", token=token)[0] == 200)
 
     # ---- a limited caller's id stays an id: MCP can't reach another route through it

@@ -115,7 +115,7 @@ with Task("Train", total=100, unit="epochs", source="codex",
 ```
 
 ```bash
-curl -s -X POST localhost:47800/api/notify -H "X-TaskHub: 1" -d '{"title":"Done","message":"backup ok"}'
+curl -s -X POST localhost:47800/api/notify -H "X-TaskHub: 1" -H "Authorization: Bearer $(taskhub token)" -d '{"title":"Done","message":"backup ok"}'
 ```
 
 **With AI agents** — Claude Code and Codex: enable *TaskHub tools (MCP)* (next section), nothing else to do. Other

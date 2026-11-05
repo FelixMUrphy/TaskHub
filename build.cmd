@@ -6,7 +6,7 @@ setlocal
 cd /d "%~dp0"
 set DOTNET_CLI_TELEMETRY_OPTOUT=1
 set DOTNET_NOLOGO=1
-set VER=3.1.0
+set VER=4.0.0
 rem build.cmd beta: the same version with the full log (visible as "beta" in the About page, the setup file name says so); never a release
 set BETAARG=
 set BETASUF=
