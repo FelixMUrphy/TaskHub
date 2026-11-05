@@ -169,7 +169,7 @@ sealed partial class Api
                 });
             }
             var o = new JsonObject();
-            foreach (var k in Conns?.All ?? Enumerable.Empty<IConnector>()) o[k.Id] = k.State();
+            foreach (var k in Conns?.All ?? Enumerable.Empty<IConnector>()) if (k is not WorktimeReminders) o[k.Id] = k.State();   // reminders: no settings, not a connector to the user
             return V(o);
         });
         R("GET", "/api/connectors/([a-z0-9]{1,20})", (c, q, g) => V(Conn(g[0]).State()));

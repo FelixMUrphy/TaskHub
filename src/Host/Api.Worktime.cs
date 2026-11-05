@@ -43,6 +43,12 @@ sealed partial class Api
                 try { Work.PageSet(b); } catch (ApiError e) { return new JsonObject { ["error"] = e.Ui ?? e.Message }; }
                 return Work.PageView();
             });
+            // one reminder check at the hub's clock + offset seconds, with the given idle time and lock state
+            R("POST", "/api/test/worktime-remind", async (c, q, g) =>
+            {
+                var b = await Body(c);
+                return Work.RemindTick(Worktime.Clock + (long)(J.Num(b["offset"]) ?? 0), J.Num(b["idle"]) ?? 0, J.Truthy(b["locked"]));
+            });
         }
     }
 }

@@ -161,10 +161,11 @@ sealed class TelegramBridge
 
     // ------------------------------------------------------------ outgoing
     /// <summary>Called for every notification TaskHub shows (already filtered by mute).</summary>
-    public void Notify(string title, string msg, string level, string tid, JsonObject task, bool controls)
+    /// <param name="away">Sent because the user is away (a reminder): the away-only filter is already passed.</param>
+    public void Notify(string title, string msg, string level, string tid, JsonObject task, bool controls, bool away = false)
     {
         if (!Linked) return;
-        if (AwayOnly && IdleSeconds() < 60 * S.Int("telegram_away_minutes", 5)) return;
+        if (AwayOnly && !away && IdleSeconds() < 60 * S.Int("telegram_away_minutes", 5)) return;
         var icon = level == "error" ? "❌ " : level == "warn" ? "⚠️ " : "";
         if (title != null && (title.StartsWith("❌") || title.StartsWith("⚠"))) icon = "";
         // cut the raw text, then escape: cutting escaped HTML could split a tag or an entity (400, message lost)

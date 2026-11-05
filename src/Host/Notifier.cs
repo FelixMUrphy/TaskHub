@@ -137,7 +137,7 @@ sealed class Notifier : INotifier
     // without a task coalesce too). Finished / failed tasks and errors are never replaced or dropped first.
     sealed class Pending
     {
-        public string Title, Msg, Level, Tid;
+        public string Title, Msg, Level, Tid, Only;
         public JsonObject Task;
         public bool DismissOnly, Controls, Final;
         public int More;                       // notifications folded into this one
@@ -155,11 +155,12 @@ sealed class Notifier : INotifier
     double Rate => J.Num(S.Get("toast_rate")) is double r && r >= 0 ? r : 10;
     double TaskGap => J.Num(S.Get("toast_task_gap")) is double g && g >= 0 ? g : 2;
 
-    public void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false, bool controls = true)
+    /// <param name="only">null: everywhere as set; "toast": no messengers; "messengers": no toast, unless no messenger is linked.</param>
+    public void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false, bool controls = true, string only = null)
     {
         var p = new Pending
         {
-            Title = title, Msg = msg, Level = level, Tid = taskId, Task = task, DismissOnly = dismissOnly, Controls = controls,
+            Title = title, Msg = msg, Level = level, Tid = taskId, Task = task, DismissOnly = dismissOnly, Controls = controls, Only = only,
             Final = level == "error" || (task != null && Hub.IsFinal(J.Str(task["state"]))),
         };
         lock (gate)
@@ -243,18 +244,23 @@ sealed class Notifier : INotifier
                     dropped = 0;
                 }
                 var msg = more > 0 ? (string.IsNullOrEmpty(p.Msg) ? "" : p.Msg + "\n") + L.N("toast_more", more) : p.Msg;
-                Deliver(p.Title, msg, p.Level, p.Tid, p.Task, p.DismissOnly, p.Controls);
+                Deliver(p.Title, msg, p.Level, p.Tid, p.Task, p.DismissOnly, p.Controls, p.Only);
             }
             catch (Exception e) { Log.W("toast", "toast gate: " + e.Message); }
         }
     }
 
-    void Deliver(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly, bool controls)
+    void Deliver(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly, bool controls, string only = null)
     {
-        Log.I("toast", $"shown {level}" + (taskId != null ? " task " + Log.Id(taskId) : "")); Log.D("toast", $"TOAST [{level}] {title}: {msg}");   // also with Windows toasts off: Telegram still gets it
-        try { Telegram?.Notify(title, msg, level, taskId, task, controls); } catch (Exception e) { Log.W("telegram", e.Message); }
-        try { Discord?.Notify(title, msg, level, taskId, task, controls); } catch (Exception e) { Log.W("discord", e.GetType().Name); }
-        if (!S.Bool("toasts", true)) return;   // Windows toasts disabled (config.json "toasts": false)
+        if (only == "messengers" && Telegram?.Linked != true && Discord?.Linked != true) only = "toast";   // nowhere else to go
+        Log.I("toast", $"shown {level}" + (taskId != null ? " task " + Log.Id(taskId) : "") + (only != null ? " (" + only + " only)" : ""));
+        Log.D("toast", $"TOAST [{level}] {title}: {msg}");   // also with Windows toasts off: Telegram still gets it
+        if (only != "toast")
+        {
+            try { Telegram?.Notify(title, msg, level, taskId, task, controls, only == "messengers"); } catch (Exception e) { Log.W("telegram", e.Message); }
+            try { Discord?.Notify(title, msg, level, taskId, task, controls, only == "messengers"); } catch (Exception e) { Log.W("discord", e.GetType().Name); }
+        }
+        if (only == "messengers" || !S.Bool("toasts", true)) return;   // Windows toasts disabled (config.json "toasts": false)
         queue.Add(() => ShowToast(J.Cut(string.IsNullOrEmpty(title) ? Settings.AppId : title, 150), J.Cut(msg ?? "", 500), level, taskId, task, dismissOnly, controls));
     }
 

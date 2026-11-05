@@ -23,6 +23,16 @@ sealed partial class Hub
         return new JsonObject { ["ok"] = true };
     }
 
+    /// <summary>A built-in reminder (work hours): <paramref name="only"/> "toast" or "messengers" (Telegram, Discord; a toast when neither is
+    /// linked). Muted: nothing, it comes again.</summary>
+    public void Remind(string title, string msg, string tid, string only)
+    {
+        JsonObject snap = null;
+        lock (Lock)
+            if (tid != null && tasks.TryGetValue(tid, out var t)) snap = ToastSnap(t);
+        if (!Muted) Notifier?.Toast(title, msg, "warn", tid, snap, only: only);
+    }
+
     public void SetFocus(string tid)
     {
         lock (Lock)

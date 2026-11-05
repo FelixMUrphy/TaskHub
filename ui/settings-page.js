@@ -118,7 +118,7 @@ $("#sethost").addEventListener("change",e=>{
   if (sl){ $("#sethost").__h=null; host({settings:"set",connector:sl.dataset.conn,[sl.dataset.csel]:sl.value}); return; }   // a refused change: the redraw puts the old value back
   const wi=e.target.closest && e.target.closest("input[data-wset],select[data-wset]");
   if (wi){   // a refused change: the redraw puts the old value back
-    $("#sethost").__h=null; const v=wi.value.trim(), k=wi.dataset.wset, nullable=["manual_rate","holiday_mult","country","region","display_currency","fx_manual_rate"].includes(k);
+    $("#sethost").__h=null; const v=wi.value.trim(), k=wi.dataset.wset, nullable=["manual_rate","holiday_mult","country","region","display_currency","fx_manual_rate","remind_start","remind_paused_hours","remind_open_after"].includes(k);
     if (v==="" && nullable){ host({settings:"set",worktime_settings:k==="country"? {country:null,region:null} : {[k]:null}}); return; }
     const x=v===""? undefined : wtNum(k,v);
     if (x===undefined){ if (v!=="") snack(T("wt_bad_value")); reSet(); } else host({settings:"set",worktime_settings:k==="country"? {country:x,region:null} : {[k]:x}});   // a region belongs to its country

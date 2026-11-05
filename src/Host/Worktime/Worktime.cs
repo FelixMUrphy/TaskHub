@@ -89,6 +89,7 @@ sealed partial class Worktime
         ["weekday_mult"] = 1.5, ["weekend_mult"] = 2, ["holiday_mult"] = null, ["holidays_reduce_norm"] = true, ["deduct_unclosed"] = true,
         ["tolerance_pct"] = 2, ["count_today"] = true, ["country"] = null, ["region"] = null,
         ["display_currency"] = null, ["rate_source"] = "ecb", ["rate_time"] = "08:00", ["fx_manual_rate"] = null,
+        ["remind_start"] = null, ["remind_paused_hours"] = 2, ["remind_open_after"] = "23:00", ["remind_repeat_minutes"] = 30, ["remind_messengers"] = true,
     };
 
     /// <summary>A saved version of the settings with the keys added since it was saved, at their defaults.</summary>
@@ -123,6 +124,7 @@ sealed partial class Worktime
         Range(s, "tolerance_pct", 0, 100);
         CheckPlace(s);
         CheckRates(s);
+        CheckReminders(s);
     }
 
     static decimal Dec(JsonNode n) => (decimal)J.Num(n).Value;
@@ -240,6 +242,7 @@ sealed partial class Worktime
         lock (gate)
         {
             if (!Enabled) return OffView();
+            PageSeen();
             try
             {
                 return Store.Tx(db =>
@@ -295,10 +298,13 @@ sealed partial class Worktime
     }
 
     // ------------------------------------------------------------ the buttons
-    public JsonObject Start(string source) => Act(db =>
+    public JsonObject Start(string source) => StartAt(long.MaxValue, source);
+
+    /// <summary>Starts a session at <paramref name="at"/> (not later than now): a reminder's "Start from".</summary>
+    JsonObject StartAt(long at, string source) => Act(db =>
     {
         if (db.OpenSession() != null) throw new ApiError(409, "a session is already open");
-        var now = Now();
+        var now = Math.Min(at, Now());
         var id = db.AddSession(LocalDate(now), now, null, true);
         db.AddInterval(id, now, null, null, source, "");
     });
@@ -317,14 +323,24 @@ sealed partial class Worktime
         db.AddInterval(s.Id, Now(), null, null, source, "");
     });
 
-    public JsonObject Finish() => Act(db =>
+    public JsonObject Finish() => FinishAt(long.MaxValue);
+
+    /// <summary>Finishes the open session at <paramref name="at"/>: not later than now, not before the running part began or the last part ended
+    /// (a reminder's "Finish at").</summary>
+    JsonObject FinishAt(long at) => Act(db =>
     {
         var s = db.OpenSession() ?? throw new ApiError(409, "no session is open");
-        var now = Now();
-        var running = db.IntervalsOfSession(s.Id).FirstOrDefault(x => x.Running);
-        if (running != null) db.SetInterval(running.Id, running.Start, now, null, running.Note);
+        var end = Math.Min(at, Now());
+        var ints = db.IntervalsOfSession(s.Id);
+        var running = ints.FirstOrDefault(x => x.Running);
+        if (running != null)
+        {
+            end = Math.Max(end, running.Start.Value);
+            db.SetInterval(running.Id, running.Start, end, null, running.Note);
+        }
+        else end = Math.Max(end, ints.Where(x => x.End != null).Select(x => x.End.Value).DefaultIfEmpty(end).Max());
         var all = db.IntervalsOfSession(s.Id);
-        db.SetSessionTimes(s.Id, all.Where(x => x.Start != null).Select(x => x.Start).Min(), now, false);
+        db.SetSessionTimes(s.Id, all.Where(x => x.Start != null).Select(x => x.Start).Min(), end, false);
     });
 
     JsonObject Act(Action<WorktimeStore.Db> a)

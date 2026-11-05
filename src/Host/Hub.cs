@@ -19,7 +19,7 @@ interface INotifier
     /// <param name="task">snapshot of the task (may be null) - used for toast buttons</param>
     /// <param name="dismissOnly">clicking the toast only closes it (no panel) - for toasts not tied to a task</param>
     /// <param name="controls">false: no control buttons / inputs (plain toast)</param>
-    void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false, bool controls = true);
+    void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false, bool controls = true, string only = null);
     /// <summary>About this PC, not worth a phone: not mirrored to Telegram. A click opens the panel.</summary>
     void LocalToast(string title, string msg);
     void Progress(JsonObject task);

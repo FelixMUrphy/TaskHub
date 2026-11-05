@@ -109,13 +109,15 @@ function wcDay(){
 }
 // ---- the settings
 // the API's ranges, checked here first so a refusal is said in words (the host's check stays the one that counts)
-const WT_MAX={salary:1e12, weekly_norm_hours:168, manual_rate:1e9, fx_manual_rate:1e9, weekday_mult:100, weekend_mult:100, holiday_mult:100, tolerance_pct:100};
-const WT_ABOVE0=new Set(["weekly_norm_hours","manual_rate","fx_manual_rate"]);
+const WT_MAX={salary:1e12, weekly_norm_hours:168, manual_rate:1e9, fx_manual_rate:1e9, weekday_mult:100, weekend_mult:100, holiday_mult:100, tolerance_pct:100, remind_paused_hours:24, remind_repeat_minutes:1440};
+const WT_ABOVE0=new Set(["weekly_norm_hours","manual_rate","fx_manual_rate","remind_paused_hours"]);
 // a number typed for a setting: the value to send, or undefined if it isn't one the API takes
 function wtNum(k,v){
+  if ((k==="rate_time"||k==="remind_start"||k==="remind_open_after") && /^\d:[0-5]\d$/.test(v)) v="0"+v;   // 9:00 is 09:00
   if (k==="salary_currency"||k==="display_currency") return /^[A-Za-z]{3}$/.test(v)? v.toUpperCase() : undefined;
   if (k==="rate_source") return v==="ecb"||v==="nbu"? v : undefined;
-  if (k==="rate_time") return /^([01]\d|2[0-3]):[0-5]\d$/.test(v)? v : undefined;
+  if (k==="rate_time"||k==="remind_start"||k==="remind_open_after") return /^([01]\d|2[0-3]):[0-5]\d$/.test(v)? v : undefined;
+  if (k==="remind_repeat_minutes" && Number(v)<5) return undefined;
   if (k==="country") return /^[A-Za-z]{2}$/.test(v)? v.toUpperCase() : undefined;
   if (k==="region") return /^[A-Za-z]{2}-[A-Za-z0-9]{1,3}$/.test(v) && v.slice(0,2).toUpperCase()===(SET.worktime.settings||{}).country? v.toUpperCase() : undefined;
   const n=Number(v); if (v==="" || !isFinite(n) || n<0 || n>WT_MAX[k] || (WT_ABOVE0.has(k) && n===0)) return undefined;
@@ -165,6 +167,8 @@ function wtSettings(w){
   const s=w.settings||{}, num=(k,title,desc)=>srow(title,desc,`<input class="kin num" type="number" step="any" min="0" max="${WT_MAX[k]}" data-wset="${k}" aria-label="${esc(title)}" value="${s[k]==null?"":esc(s[k])}">`);
   const week=[1,2,3,4,5,6,7].map(n=>`<button class="wcw${(s.work_days||[]).includes(n)?" on":""}" data-wday="${n}" aria-pressed="${(s.work_days||[]).includes(n)}">${esc(new Date(2024,0,n).toLocaleDateString(LOC(),{weekday:"short"}))}</button>`).join("");
   const sw=(k,title,desc)=>srow(title,desc,tgl("wts",!!s[k],` data-wsk="${k}"`));
+  // a time of day as text: sent once, when the field is left (a time input sends every segment); empty is off
+  const tm=(k,title,desc,ph)=>srow(title,desc,`<input class="kin num" maxlength="5" inputmode="numeric" placeholder="${ph}" data-wset="${k}" aria-label="${esc(title)}" value="${esc(s[k]||"")}">`);
   const when=d=>wcDate(d).toLocaleDateString(LOC());
   return `<div class="srow"><div class="sl sd">${esc(T("s_wt_applies"))}</div></div>`
     +num("salary",T("s_wt_salary"),T("s_wt_salary_d"))
@@ -182,6 +186,10 @@ function wtSettings(w){
     +(s.country? srow(T("s_wt_region"),T("s_wt_region_d"),`<input class="kin num" maxlength="6" style="text-transform:uppercase" data-wset="region" aria-label="${esc(T("s_wt_region"))}" placeholder="${esc(s.country)}-…" value="${esc(s.region||"")}">`) : "")
     +sw("holidays_reduce_norm",T("s_wt_hol"),T("s_wt_hol_d"))+sw("deduct_unclosed",T("s_wt_deduct"),T("s_wt_deduct_d"))
     +num("tolerance_pct",T("s_wt_tol"),"")+sw("count_today",T("s_wt_today"),T("s_wt_today_d"))
+    +`<div class="srow"><div class="sl"><div><b>${esc(T("s_wt_rem"))}</b></div><div class="sd">${esc(T("s_wt_rem_d"))}</div></div></div>`
+    +tm("remind_start",T("s_wt_rem_start"),T("s_wt_rem_start_d"),"09:00")+num("remind_paused_hours",T("s_wt_rem_pause"),T("s_wt_rem_off"))
+    +tm("remind_open_after",T("s_wt_rem_late"),T("s_wt_rem_off"),"23:00")+num("remind_repeat_minutes",T("s_wt_rem_repeat"),"")
+    +sw("remind_messengers",T("s_wt_rem_msg"),T("s_wt_rem_msg_d"))
     +((w.versions||[]).length>1? `<div class="srow"><div class="sl"><div>${esc(T("s_wt_history"))}</div><div class="sd">${(w.versions||[]).map(v=>esc(T("s_wt_version",when(v.valid_from),v.settings.weekly_norm_hours,v.settings.salary,v.settings.salary_currency))).join("<br>")}</div></div></div>` : "");
 }
 function wtTab(w){

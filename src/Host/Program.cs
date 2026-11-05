@@ -284,6 +284,7 @@ static class Program
         connectors.Add(new AwsConnector(S, hub));
         connectors.Add(new SshConnector(S, hub));
         var api = new Api(S, hub) { Telegram = telegram, Discord = discord, Conns = connectors };
+        connectors.Add(new WorktimeReminders(api.Work, hub));   // the work hours reminders' buttons come back through the connectors' route
         try { api.Start().GetAwaiter().GetResult(); }
         catch (Exception e)
         {

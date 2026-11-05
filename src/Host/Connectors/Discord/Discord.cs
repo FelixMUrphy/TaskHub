@@ -210,10 +210,10 @@ sealed partial class DiscordBridge
 
     // ------------------------------------------------------------ outgoing
     /// <summary>Called for every notification TaskHub shows (already filtered by mute).</summary>
-    public void Notify(string title, string msg, string level, string tid, JsonObject task, bool controls)
+    public void Notify(string title, string msg, string level, string tid, JsonObject task, bool controls, bool away = false)
     {
         if (!Linked) return;
-        if (AwayOnly && TelegramBridge.IdleSeconds() < 60 * S.Int("discord_away_minutes", 5)) return;
+        if (AwayOnly && !away && TelegramBridge.IdleSeconds() < 60 * S.Int("discord_away_minutes", 5)) return;   // a reminder for the away user passes
         var icon = level == "error" ? "❌ " : level == "warn" ? "⚠️ " : "";
         if (title != null && (title.StartsWith("❌") || title.StartsWith("⚠"))) icon = "";
         var text = icon + "**" + Esc(J.Cut(title, 256)) + "**" + (string.IsNullOrEmpty(msg) ? "" : "\n" + Esc(J.Cut(msg, 1500)));
