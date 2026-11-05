@@ -29,7 +29,8 @@ sealed partial class Api
     {
         S = s;
         hub = h;
-        Work = new Worktime(s);
+        Work = new Worktime(s, h.Poke);
+        h.WorktimeMark = () => Work.Mark;
         Routes();
         WorktimeRoutes();
     }

@@ -299,6 +299,44 @@ try:
     con.close()
     check("reopened: as before", status()["pools"] == open_before["pools"], status()["pools"])
 
+    # ---- what the panel follows: a mark in the task snapshot, and who pressed the button
+    m0 = call("GET", "/api/tasks")[1].get("worktime")
+    check("the snapshot carries a mark, no numbers", isinstance(m0, int), m0)
+    v0 = call("GET", "/api/tasks")[1]["version"]
+    s, r = call("POST", "/api/worktime/start", {"source": "panel"})
+    check("a button from the panel", s == 200, (s, r))
+    t = call("GET", "/api/tasks")[1]
+    check("...moves the mark and wakes the long poll", t["worktime"] != m0 and t["version"] > v0, (t["worktime"], t["version"]))
+    check("...is remembered as the panel's", [i for i in call("GET", f"/api/worktime/intervals?from={day(0)}")[1]["intervals"] if i["running"]][0]["source"] == "panel")
+    call("POST", "/api/worktime/pause", {})
+    check("resume: a bad source", call("POST", "/api/worktime/resume", {"source": "x"})[0] == 400)
+    check("resume: an unknown field", call("POST", "/api/worktime/resume", {"x": 1})[0] == 400)
+    call("POST", "/api/worktime/resume", {"source": "panel"})
+    check("money: says whether a salary is set", status()["money"]["set"] is True)
+
+    # ---- what the settings page does (messages from the page only; the test hub has a route to the same code)
+    s, r = call("POST", "/api/test/worktime-page", {"worktime": False})
+    check("off with a session open: refused, says why", s == 200 and "session" in r.get("error", ""), (s, r))
+    check("...and it stays on", status()["enabled"] is True)
+    call("POST", "/api/worktime/finish", {})
+    for b, why in (({"worktime_salary": "abc"}, "salary not a number"), ({"worktime_salary": -1}, "salary below 0"), ({"worktime_currency": "euro"}, "a long currency"), ({"worktime_currency": 5}, "currency not text")):
+        s, r = call("POST", "/api/test/worktime-page", b)
+        check(f"page refuses {why}", s == 200 and r.get("error"), (s, r))
+    s, r = call("POST", "/api/test/worktime-page", {"worktime_salary": 0, "worktime_currency": "uah"})
+    check("page: salary and currency, the code in capitals", r.get("salary") == 0 and r.get("salary_currency") == "UAH", r)
+    r = status()
+    check("no salary: no amounts asked for", r["money"]["set"] is False and r["money"]["currency"] == "UAH", r["money"])
+    call("POST", "/api/test/worktime-page", {"worktime_salary": 3000, "worktime_currency": "EUR"})
+    keep = status()
+    s, r = call("POST", "/api/test/worktime-page", {"worktime": False})
+    check("off", r == {"enabled": False} and status() == {"enabled": False}, r)
+    check("off: gone from the snapshot", call("GET", "/api/tasks")[1].get("worktime") is None)
+    check("off: the file stays", os.path.exists(DB))
+    check("off: the salary can't be set", call("POST", "/api/test/worktime-page", {"worktime_salary": 1}).__getitem__(1).get("error"))
+    s, r = call("POST", "/api/test/worktime-page", {"worktime": True})
+    check("on again: the same start date", r.get("enabled") is True and r.get("start_date") == day(3), r)
+    check("on again: the same numbers", status()["pools"] == keep["pools"] and status()["deficit_seconds"] == keep["deficit_seconds"], status())
+
     # ---- the token and the guard hold here as everywhere
     req = urllib.request.Request(URL + "/api/worktime/status")
     try:
@@ -327,11 +365,40 @@ try:
     check("after a restart: the same balance", r["pools"] == keep["pools"] and r["deficit_seconds"] == keep["deficit_seconds"], r)
     call("POST", "/api/worktime/finish", {})
 
+    # ---- the file gone or damaged: said so, and the module can still be turned off
+    page = lambda b: call("POST", "/api/test/worktime-page", b)
+    os.remove(DB)
+    check("file deleted: the status says so", status() == {"enabled": True, "broken": True}, status())
+    s, r = page({})
+    check("file deleted: the page says so, it doesn't fail", s == 200 and r == {"enabled": True, "broken": True}, (s, r))
+    s, r = page({"worktime": False})
+    check("file deleted: can be turned off", s == 200 and r == {"enabled": False}, (s, r))
+    s, r = page({"worktime": True})
+    check("file deleted: on again starts anew", s == 200 and r.get("enabled") is True and "broken" not in r, (s, r))
+    junk = b"this is not a database" * 100
+    with open(DB, "wb") as f:
+        f.write(junk)
+    check("file damaged: the status says so", status() == {"enabled": True, "broken": True}, status())
+    s, r = page({})
+    check("file damaged: the page says so, it doesn't fail", s == 200 and r == {"enabled": True, "broken": True}, (s, r))
+    check("file damaged: a button is refused", call("POST", "/api/worktime/start", {})[0] >= 400)
+    s, r = page({"worktime": False})
+    check("file damaged: can be turned off", s == 200 and r == {"enabled": False}, (s, r))
+    s, r = page({"worktime": True})
+    check("file damaged: on again is refused, says why", s == 200 and r.get("error"), (s, r))
+    check("...and it stays off", status() == {"enabled": False}, status())
+    with open(DB, "rb") as f:
+        check("file damaged: left as it was, for a restore", f.read() == junk)
+    os.remove(DB)
+    s, r = page({"worktime": True})
+    check("file moved away: on again", s == 200 and r.get("enabled") is True, (s, r))
+
     # ---- no setup route on a real hub
     hub.kill()
     hub.wait()
     hub = start_hub(env_home=False)
     check("a real hub has no setup route", call("POST", "/api/worktime/setup", {})[0] == 404)
+    check("...and no route to the settings page's code", call("POST", "/api/test/worktime-page", {"worktime": False})[0] == 404)
     check("...the module still answers", status().get("enabled") is True)
 finally:
     hub.kill()

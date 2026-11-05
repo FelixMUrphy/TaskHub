@@ -184,6 +184,7 @@ function render(){
   renderSet();
   renderHookOffer();
   renderLimits();
+  wtFollow();
   place(list, layout());
   requestAnimationFrame(sbUpd);
   // focus request (tray/toast click)

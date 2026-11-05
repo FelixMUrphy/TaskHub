@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Microsoft.Data.Sqlite;
 
 namespace TaskHub;
 
@@ -14,10 +15,23 @@ sealed class Worktime
     static readonly Regex DateRx = new(@"^\d{4}-\d{2}-\d{2}$"), TimeRx = new(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:\d{2})$"), CurrencyRx = new("^[A-Z]{3}$");
 
     readonly Settings S;
+    readonly Action changed;
     readonly object gate = new();
     WorktimeStore store;
+    long mark;
 
-    public Worktime(Settings s) => S = s;
+    /// <param name="changed">Called after every change: the panel's long poll wakes up. It may run under this class's lock, so it must not call back in.</param>
+    public Worktime(Settings s, Action changed = null) { S = s; this.changed = changed; }
+
+    /// <summary>For the task snapshot: null while off, otherwise a number that changes with every change. The numbers themselves stay out of the
+    /// snapshot, which is sent all the time, and are asked for with /api/worktime/status.</summary>
+    public long? Mark => Enabled ? Interlocked.Read(ref mark) : null;
+
+    void Changed()
+    {
+        Interlocked.Increment(ref mark);
+        try { changed?.Invoke(); } catch (Exception e) { Log.W("worktime", "changed: " + e.Message); }
+    }
 
     public bool Enabled => S.Bool(EnabledKey);
     WorktimeStore Store => store ??= new WorktimeStore(S.File_("worktime.db"));
@@ -118,6 +132,7 @@ sealed class Worktime
         if (b["settings"] != null && b["settings"] is not JsonObject) throw new ApiError(400, "settings must be an object");
         var given = b["settings"] as JsonObject ?? new JsonObject();
         foreach (var kv in given) if (!Defaults().ContainsKey(kv.Key)) throw new ApiError(400, $"unknown setting '{J.Cut(kv.Key, 40)}'");
+        JsonObject result;
         lock (gate)
         {
             bool first = !Enabled;
@@ -141,8 +156,94 @@ sealed class Worktime
             });
             if (first) S.Set((EnabledKey, JsonValue.Create(true)));
             Log.I("worktime", first ? "turned on" : "settings changed");
-            return StatusLocked();
+            result = StatusLocked();
         }
+        Changed();
+        return result;
+    }
+
+    /// <summary>What the settings page changes: on and off, the salary, its currency. Only through the page's messages, never the HTTP API; a test hub has
+    /// a route to this. Turning it on again keeps the start date and all the data. Off with a session open is refused: nothing could finish it.</summary>
+    public void PageSet(JsonObject c)
+    {
+        var given = new JsonObject();
+        if (c.ContainsKey("worktime_salary"))
+        {
+            if (J.Num(c["worktime_salary"]) is not double salary || salary < 0 || salary > 1e12) throw new ApiError(400, "bad salary") { Ui = L.T("wt_bad_salary") };
+            given["salary"] = salary;
+        }
+        if (c.ContainsKey("worktime_currency"))
+        {
+            var code = (J.IsStr(c["worktime_currency"]) ? J.Str(c["worktime_currency"]) : "").Trim().ToUpperInvariant();
+            if (!CurrencyRx.IsMatch(code)) throw new ApiError(400, "bad currency") { Ui = L.T("wt_bad_currency") };
+            given["salary_currency"] = code;
+        }
+        lock (gate)
+        {
+            if (c.ContainsKey("worktime"))
+            {
+                bool on = J.Truthy(c["worktime"]);
+                if (on && !Enabled)
+                {
+                    bool used;
+                    try { used = Store.Tx(db => db.Meta("start_date") != null); }
+                    catch (SqliteException e)
+                    {
+                        Log.E("worktime", "file unreadable: " + e.Message);
+                        throw new ApiError(500, "the work hours file can't be read") { Ui = L.T("wt_file_broken") };   // it stays as it is: it may be restored
+                    }
+                    if (used) { S.Set((EnabledKey, JsonValue.Create(true))); Log.I("worktime", "turned on again"); }
+                    else Setup(new JsonObject());
+                }
+                else if (!on && Enabled)
+                {
+                    bool open = false;
+                    try { open = Store.Tx(db => db.OpenSession() != null); }
+                    catch (SqliteException) { }   // an unreadable file holds no session anyone could finish: off must still work
+                    if (open) throw new ApiError(409, "a session is open") { Ui = L.T("wt_open_session") };
+                    S.Set((EnabledKey, JsonValue.Create(false)));
+                    Log.I("worktime", "turned off");
+                }
+            }
+            if (given.Count > 0)
+            {
+                On();
+                Setup(new JsonObject { ["settings"] = given });
+            }
+        }
+        Changed();
+    }
+
+    /// <summary>What the settings page shows.</summary>
+    public JsonObject PageView()
+    {
+        lock (gate)
+        {
+            if (!Enabled) return new JsonObject { ["enabled"] = false };
+            try
+            {
+                return Store.Tx(db =>
+                {
+                    if (db.Settings().Count == 0) return Broken(null);
+                    var s = (JsonObject)J.Parse(db.Settings().Last().Json);
+                    return new JsonObject
+                    {
+                        ["enabled"] = true, ["start_date"] = db.Meta("start_date"), ["salary"] = J.C(s["salary"]),
+                        ["salary_currency"] = J.C(s["salary_currency"]), ["weekly_norm_hours"] = J.C(s["weekly_norm_hours"]),
+                    };
+                });
+            }
+            catch (SqliteException e) { return Broken(e.Message); }
+        }
+    }
+
+    bool brokenLogged;
+
+    /// <summary>The file is gone or damaged while the module is on: said on the panel and the settings page, once in the log, and the switch still turns it off.</summary>
+    JsonObject Broken(string why)
+    {
+        if (!brokenLogged) { brokenLogged = true; Log.E("worktime", "file unreadable: " + (why ?? "no settings in it")); }
+        return new JsonObject { ["enabled"] = true, ["broken"] = true };
     }
 
     static string Merged(JsonObject baseOn, JsonObject given)
@@ -195,12 +296,24 @@ sealed class Worktime
 
     JsonObject Act(Action<WorktimeStore.Db> a)
     {
+        JsonObject result;
         lock (gate)
         {
             On();
             Store.Tx(a);
-            return StatusLocked();
+            result = StatusLocked();
         }
+        Changed();
+        return result;
+    }
+
+    /// <summary>Who pressed the button, as the intervals remember it: the panel says so, anything else is the API.</summary>
+    public static string Source(JsonObject b)
+    {
+        Only(b, "source");
+        if (b["source"] == null) return "api";
+        var s = J.IsStr(b["source"]) ? J.Str(b["source"]) : "";
+        return s is "api" or "panel" ? s : throw new ApiError(400, "source must be panel or api");
     }
 
     // ------------------------------------------------------------ corrections: all of them logged, day by day
@@ -445,7 +558,14 @@ sealed class Worktime
         lock (gate)
         {
             if (!Enabled) return new JsonObject { ["enabled"] = false };
-            return StatusLocked();
+            try
+            {
+                var r = StatusLocked();
+                brokenLogged = false;
+                return r;
+            }
+            catch (SqliteException e) { return Broken(e.Message); }
+            catch (ApiError) { return Broken(null); }   // no start date: a new, empty file
         }
     }
 
@@ -514,6 +634,7 @@ sealed class Worktime
                 ["pools"] = new JsonObject { ["weekday_seconds"] = r.Weekday, ["weekend_seconds"] = r.Weekend, ["holiday_seconds"] = r.Holiday },
                 ["money"] = new JsonObject
                 {
+                    ["set"] = (J.Num(settings["salary"]) ?? 0) > 0 || settings["manual_rate"] != null,
                     ["currency"] = J.Str(settings["salary_currency"]), ["earned"] = Math.Round(r.Earned, 2),
                     ["overtime"] = Math.Round(r.Current?.OvertimeMoney ?? 0, 2),
                 },

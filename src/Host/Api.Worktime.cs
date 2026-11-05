@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+
 namespace TaskHub;
 
 /// <summary>/api/worktime/*: the work hours module, behind the API's one token like the rest. Turning it on and its settings aren't here:
@@ -8,9 +10,9 @@ sealed partial class Api
     {
         const string DateId = @"(\d{4}-\d{2}-\d{2})", NumId = "([0-9]{1,15})";
         R("GET", "/api/worktime/status", (c, q, g) => V(Work.Status()));
-        R("POST", "/api/worktime/start", async (c, q, g) => { await Body(c); return Work.Start("api"); });
+        R("POST", "/api/worktime/start", async (c, q, g) => Work.Start(Worktime.Source(await Body(c))));
         R("POST", "/api/worktime/pause", async (c, q, g) => { await Body(c); return Work.Pause(); });
-        R("POST", "/api/worktime/resume", async (c, q, g) => { await Body(c); return Work.Resume("api"); });
+        R("POST", "/api/worktime/resume", async (c, q, g) => Work.Resume(Worktime.Source(await Body(c))));
         R("POST", "/api/worktime/finish", async (c, q, g) => { await Body(c); return Work.Finish(); });
         R("POST", "/api/worktime/sessions", async (c, q, g) => Work.AddSession(await Body(c)));
         R("POST", "/api/worktime/intervals", async (c, q, g) => Work.AddInterval(await Body(c)));
@@ -21,6 +23,14 @@ sealed partial class Api
         R("PUT", "/api/worktime/days", async (c, q, g) => Work.SetDays(q, await Body(c)));
         R("GET", $"/api/worktime/days/{DateId}/history", (c, q, g) => V(Work.History(g[0])));
         if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+        {
             R("POST", "/api/worktime/setup", async (c, q, g) => Work.Setup(await Body(c)));
+            R("POST", "/api/test/worktime-page", async (c, q, g) =>
+            {
+                var b = await Body(c);
+                try { Work.PageSet(b); } catch (ApiError e) { return new JsonObject { ["error"] = e.Ui ?? e.Message }; }
+                return Work.PageView();
+            });
+        }
     }
 }

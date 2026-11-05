@@ -35,7 +35,7 @@ body{background:color-mix(in srgb,var(--bg) var(--alpha),transparent);display:fl
 html.native body{padding-left:var(--pad,0px);background:linear-gradient(to right,transparent var(--pad,0px),color-mix(in srgb,var(--bg) var(--alpha),transparent) calc(var(--pad,0px) + 14px))}
 html.native body.setwide{background:linear-gradient(to right,transparent,color-mix(in srgb,var(--bg) var(--alpha),transparent) 14px)}
 /* see-through settings: a soft halo in the background colour keeps text readable over any window */
-html.halo #list,html.halo #hookoffer,html.halo #limits{text-shadow:0 0 3px color-mix(in srgb,var(--bg) var(--halo),transparent),0 0 1px color-mix(in srgb,var(--bg) var(--halo),transparent)}
+html.halo #list,html.halo #hookoffer,html.halo #limits,html.halo #wt{text-shadow:0 0 3px color-mix(in srgb,var(--bg) var(--halo),transparent),0 0 1px color-mix(in srgb,var(--bg) var(--halo),transparent)}
 html.halo header{text-shadow:0 0 3px color-mix(in srgb,var(--bg) var(--hhalo),transparent),0 0 1px color-mix(in srgb,var(--bg) var(--hhalo),transparent)}
 #grip{display:none;position:fixed;left:0;top:0;bottom:0;width:6px;cursor:ew-resize;z-index:31}
 html.native #grip{display:block;left:var(--pad,0px)}
@@ -91,6 +91,14 @@ main{padding:10px;display:flex;flex-direction:column;gap:9px}
 .lim.old:not([data-l]) .lv{color:var(--mut)} .lim.old:not([data-l]) .lb i{background:var(--grey)}
 @media (prefers-reduced-motion:reduce){.lim .lb i{transition:none}}
 @media (forced-colors:active){.lim .lb{outline:1px solid CanvasText}.lim .lb i{forced-color-adjust:none;background:Highlight!important}}
+#wt{display:none;flex:none;padding:0 12px 6px;font-size:12px}
+#wt.on{display:block}
+.wth{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-bottom:4px}
+.wth .limh{margin:0}
+.wts{color:var(--mut)}
+.wtb{display:flex;gap:4px;margin-left:auto}
+.lim[data-wt=under] .lb i{background:var(--amber)} .lim[data-wt=normal] .lb i{background:var(--blue)} .lim[data-wt=over] .lb i{background:var(--green)}
+.wtm{margin-top:5px}
 #srcf{display:none;gap:2px;padding:0 10px 6px;font-size:12px;color:var(--mut);flex:none;flex-wrap:wrap;user-select:none}
 #srcf.on{display:flex}
 #srcf span{padding:1px 8px;border-radius:9px;cursor:pointer} #srcf span.on{background:var(--o2);color:var(--fg)}
@@ -217,7 +225,7 @@ pre .warn{color:var(--amber)} pre .error{color:var(--red)} pre .cmd{color:var(--
 /* settings (Windows 11 settings: rounded cards, rows with a title, a grey description and the control on the right, toggle
    switches), one section per tab of the icon strip. In the app: left of the panel in the same window, which is made wider
    for them (PanelForm); the panel keeps its width. A browser tab: instead of the header and the list. */
-html:not(.native) body.setmode>header,html:not(.native) body.setmode #srcf,html:not(.native) body.setmode #limits,html:not(.native) body.setmode #list,html:not(.native) body.setmode #sb{display:none}
+html:not(.native) body.setmode>header,html:not(.native) body.setmode #srcf,html:not(.native) body.setmode #limits,html:not(.native) body.setmode #wt,html:not(.native) body.setmode #list,html:not(.native) body.setmode #sb{display:none}
 #set{display:none;flex:1;min-height:0;flex-direction:row}
 html:not(.native) body.setmode #set{display:flex}
 /* the app's page is wider than the window by the room for settings (--pad, from PanelForm): everything of the panel keeps right of it */

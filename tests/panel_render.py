@@ -2,7 +2,7 @@
 through CDP (9339); demo tasks over the hub's API. For each language: a screenshot and checks (no script errors, no sideways scroll, no raw text keys,
 the tasks are shown). What the host adds (window, AppBar, slides) isn't here: tests/settings_window_check.py covers that. By hand, not in run_tests.
 Nothing shows on the screen, no keystrokes. Usage: python -X utf8 panel_render.py <TaskHubHost.exe> [--all | --lang en,uk] [--width 420] [--height 900] [--out FOLDER]"""
-import argparse, base64, json, os, re, shutil, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
+import argparse, base64, datetime, glob, json, os, re, shutil, socket, struct, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LANGS = ["en", "uk", "es", "de", "fr", "it", "pt", "pl", "zh", "ja"]
@@ -96,12 +96,13 @@ def until(cond, timeout=30, every=0.3):
 
 
 def text_keys():
-    with open(os.path.join(HERE, "..", "i18n", "panel.json"), encoding="utf-8") as f:
-        d = json.load(f)
     out = set()
-    for v in d.values():
-        if isinstance(v, dict):
-            out.update(k for k in v if "_" in k)
+    for name in glob.glob(os.path.join(HERE, "..", "i18n", "panel*.json")):
+        with open(name, encoding="utf-8") as f:
+            d = json.load(f)
+        for v in d.values():
+            if isinstance(v, dict):
+                out.update(k for k in v if "_" in k)
     return out
 
 
@@ -124,6 +125,11 @@ def render(exe, lang, a, keys):
         call("POST", "/api/tasks", {"id": "demo-build", "name": "Release build", "status": "linking"})
         call("POST", "/api/tasks", {"id": "demo-backup", "name": "Nightly backup"})
         call("POST", "/api/tasks/demo-backup/finish", {"state": "done", "message": "42 GB copied"})
+        today = datetime.date.today()
+        call("POST", "/api/worktime/setup", {"start_date": today.replace(day=1).isoformat(), "settings": {"salary": 3000}})
+        for n in range(1, today.day):
+            call("POST", "/api/worktime/sessions", {"work_date": today.replace(day=n).isoformat(), "total_hours": 9})
+        call("POST", "/api/worktime/start", {"source": "panel"})
         edge = subprocess.Popen([EDGE, "--headless=new", "--disable-gpu", f"--remote-debugging-port={CDP}", f"--user-data-dir={profile}", "--no-first-run",
                                  "--disable-extensions", f"--window-size={a.width},{a.height}", "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         page = until(lambda: next((t for t in get_json(f"http://127.0.0.1:{CDP}/json") if t.get("type") == "page" and t.get("webSocketDebuggerUrl")), None), 45)
@@ -147,6 +153,8 @@ def render(exe, lang, a, keys):
         check(f"{lang}: no sideways scroll", wide[0] <= wide[1], wide)
         words = set(re.findall(r"[a-z0-9]+(?:_[a-z0-9]+)+", ws.eval("document.body.innerText")))
         check(f"{lang}: no raw text keys", not (words & keys), sorted(words & keys))
+        wt = ws.eval("(()=>{const b=document.querySelector('#wt');return b&&b.classList.contains('on')?[b.querySelectorAll('.lim').length,b.querySelectorAll('button').length,!!b.querySelector('.wtm')]:null})()")
+        check(f"{lang}: work hours: two bars, two buttons, the amount", wt == [2, 2, True], wt)
         check(f"{lang}: no script errors", not ws.errors, ws.errors)
         ws.eval('sessionStorage.clear(); ""')
         ws.send("Page.navigate", {"url": BASE + "/ui"})

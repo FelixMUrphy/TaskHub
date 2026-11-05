@@ -14,6 +14,7 @@ sealed class SettingsBridge
     readonly Hub hub;
     readonly TelegramBridge tg;
     public DiscordBridge Dc;
+    public Worktime Work;
     readonly ISettingsConnector[] conns;   // in the order of the page
     readonly Func<Updater> updater;
     readonly Action<Action> ui;
@@ -60,9 +61,17 @@ sealed class SettingsBridge
             ["agents"] = agents,
             ["telegram"] = t == null ? null : TelegramState(t),
             ["discord"] = Dc == null ? null : DiscordState(Dc.State()),
+            ["worktime"] = WorktimeState(),
             // every connector the same way: what it is, on / off, a short state line; its own window for the details
             ["connectors"] = rows,
         };
+    }
+
+    /// <summary>A damaged work hours file must not take the whole settings page with it.</summary>
+    JsonObject WorktimeState()
+    {
+        try { return Work?.PageView(); }
+        catch (Exception e) { Log.E("worktime", "page: " + e.GetType().Name + ": " + e.Message); return null; }
     }
 
     /// <summary>Telegram as the settings page shows it (set up right there: the token, the t.me link and its QR code,
@@ -186,6 +195,11 @@ sealed class SettingsBridge
                     if (c.ContainsKey("tg_progress")) tg?.SetProgress(J.Truthy(c["tg_progress"]));
                     if (c.ContainsKey("dc_away")) Dc?.SetAwayOnly(J.Truthy(c["dc_away"]));
                     if (c.ContainsKey("dc_progress")) Dc?.SetProgress(J.Truthy(c["dc_progress"]));
+                    if (c.ContainsKey("worktime") || c.ContainsKey("worktime_salary") || c.ContainsKey("worktime_currency"))
+                    {
+                        try { Work?.PageSet(c); }
+                        catch (ApiError e) { err = e.Ui ?? e.Message; }
+                    }
                     // a connector: on / off (off keeps the key), the key (checked with the service, then kept in the
                     // Credential Manager - never config.json), remove the key (only this deletes it), thresholds
                     if (J.IsStr(c["connector"]))

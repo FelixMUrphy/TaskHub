@@ -19,6 +19,13 @@ function renderSet(){
     if (tab==="notif") h=sec(winOff + mute + srow(HL("test_toast"),"",sbtn("test_toast",T("s_send"))));
     if (tab==="telegram" && tg) h=sec(tgRows(tg));
     if (tab==="discord" && s.discord) h=sec(dcRows(s.discord));
+    if (tab==="worktime" && s.worktime){
+      const w=s.worktime, since=d=>new Date(d+"T12:00:00").toLocaleDateString(LOC());
+      h=sec(srow(T("wt_title"),T("s_wt_on_d"),tgl("worktime",w.enabled))
+        +(w.broken? srow(T("wt_broken"),"","") : w.enabled? srow(T("s_wt_since",since(w.start_date),w.weekly_norm_hours),"","")
+          +srow(T("s_wt_salary"),T("s_wt_salary_d"),`<input class="kin" type="number" min="0" step="any" style="width:90px" data-wset="worktime_salary" aria-label="${esc(T("s_wt_salary"))}" value="${esc(w.salary)}">`)
+          +srow(T("s_wt_currency"),"",`<input class="kin" maxlength="3" style="width:60px;text-transform:uppercase" data-wset="worktime_currency" aria-label="${esc(T("s_wt_currency"))}" value="${esc(w.salary_currency)}">`) : ""));
+    }
     if (tab==="connectors") h=sec((s.connectors||[]).map(connRow).join(""), T("s_conn_note"));
     if (tab==="agents") h=sec((s.agents||[]).map(a=>srow(a.name, a.detected? "" : T("s_not_found"), "")
         + ["hooks","mcp"].map(k=>srow(HL("menu_"+k),"",tgl("agent",a[k],` data-agent="${a.agent}" data-kind="${k}"`),"sub")).join("")
@@ -36,11 +43,11 @@ function renderSet(){
   const f=document.activeElement, fk=f && box.contains(f) ? ckey(f) : null;
   // a key being pasted (kept per tab), a number being typed
   keepTyped(box);
-  const num={}; for (const e of box.querySelectorAll("input[data-cset]")) if (e===f) num[ckey(e)]=e.value;
+  const num={}; for (const e of box.querySelectorAll("input[data-cset],input[data-wset]")) if (e===f) num[ckey(e)]=e.value;
   box.innerHTML=h; box.__h=h; box.__tab=tab;
   const kept=TYPED[tab];
   for (const e of box.querySelectorAll(IN_KEEP)) if (kept && kept.has(ckey(e))) e.value=kept.get(ckey(e));
-  for (const e of box.querySelectorAll("input[data-cset]")) if (ckey(e) in num) e.value=num[ckey(e)];
+  for (const e of box.querySelectorAll("input[data-cset],input[data-wset]")) if (ckey(e) in num) e.value=num[ckey(e)];
   if (fk) for (const e of box.querySelectorAll("button,input,select,a[data-open]")) if (ckey(e)===fk){ e.focus({preventScroll:true}); break; }
 }
 // "Settings" next to the transparency hint: Windows Settings, the page that turned the blur off
@@ -111,6 +118,8 @@ $("#sethost").addEventListener("keydown",e=>{
 $("#sethost").addEventListener("change",e=>{
   const sl=e.target.closest && e.target.closest("select[data-csel]");
   if (sl){ $("#sethost").__h=null; host({settings:"set",connector:sl.dataset.conn,[sl.dataset.csel]:sl.value}); return; }   // a refused change: the redraw puts the old value back
+  const wi=e.target.closest && e.target.closest("input[data-wset]");
+  if (wi){ $("#sethost").__h=null; const v=wi.value.trim(), k=wi.dataset.wset; if (v==="") reSet(); else host({settings:"set",[k]:k==="worktime_salary"? +v : v}); return; }   // a refused change: the redraw puts the old value back
   const i=e.target.closest && e.target.closest("input[data-cset]"); if (!i) return;
   const k=i.dataset.cset, v=i.value.trim();
   if (v==="" && !i.dataset.empty){ reSet(); return; }

@@ -4,6 +4,7 @@ TaskHub runs on your PC and has no servers, accounts, analytics, telemetry or ad
 it.
 
 ## What stays on your PC
+- **Work hours** (off by default). Once you turn the module on, your work sessions, day marks, salary, pay settings and a log of your manual changes are kept in `%APPDATA%\TaskHub\worktime.db`, a local file that isn't encrypted. Nothing from it is sent anywhere and it stays when you turn the module off. Any program holding the local API token can read and change your hours and amounts through the API, like the rest of the API.
 - Tasks, their progress, logs and charts, and your settings are kept in `%APPDATA%\TaskHub`. `state.json` also keeps your Runpod account's billing mode (prepaid or post-paid) with a short fingerprint of the key it belongs to, not the key; forgetting the key removes both. Beside `config.json` and `state.json` stay the previous version of each (`.bak`) and any copy of a file that could not be read (`.bad-` and the time), with the same content.
 - TaskHub keeps a diagnostic log there, `taskhub.log`, at most about 8 MB, with no automatic sending. It holds the version, Windows, .NET and WebView2 versions, the language, monitors, the port, the
   data and program folders, task states and ids (a hash if the id comes from a job's or instance's name), machine ids, and errors, whose text can contain a file path, a repository name or what a service replied. Notification text, task

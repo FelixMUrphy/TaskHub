@@ -285,6 +285,22 @@ Toasts: finish / fail / stale / milestones (per-task `notify`), `toast` in updat
 One rotated copy, `taskhub.log.1`, past 4 MB. At `debug` the CLI also writes its own failures to `cli.log` (hooks and MCP are silent otherwise).
 A beta build (`build.cmd beta`) defaults to `debug` and keeps three copies of 20 MB. Text that looks like a token or key is masked at any level.
 
+## Work hours
+Off until it's turned on in Settings; while off, `GET /api/worktime/status` says `{"enabled":false}` and the rest answers 409. There's no way to turn it on, change the salary or the settings over the API. Times are ISO 8601 with an offset, dates `yyyy-MM-dd`; a session belongs to the local date it started on.
+
+| Method | Path | What |
+|---|---|---|
+| GET | `/api/worktime/status` | `session` (`id`, `work_date`, `state` running / paused, `started`, `worked_seconds`) or null; `week`, `month` (`worked_seconds`, `full_seconds`, `expected_seconds`, `balance_seconds`, `tolerance_seconds`, `above_seconds`, `fill`, `state` under / normal / over); `deficit_seconds`; `pools`; `money` (`set`, `currency`, `earned`, `overtime`); `unclosed_months` |
+| POST | `/api/worktime/start`, `pause`, `resume`, `finish` | The buttons. Each answers with the status; 409 if it doesn't apply now. `start` and `resume` take an optional `source`: `panel` or `api` |
+| POST | `/api/worktime/sessions` | A past day: `work_date` and either `intervals` (`[{start, end, note}]`, at most 100) or `total_hours` (up to 24), optional `note` |
+| POST | `/api/worktime/intervals` | Adds to a session: `session_id` and either `start` and `end` or `duration_hours`, optional `note` |
+| GET | `/api/worktime/intervals?from=&to=` | At most 366 days |
+| PUT / DELETE | `/api/worktime/intervals/{id}` | `start`, `end`, `duration_hours`, `note`. A running interval's end can't be changed and it can't be deleted (409) |
+| GET / PUT | `/api/worktime/days?from=&to=` | Day marks. PUT: `kind` holiday, vacation or normal |
+| GET | `/api/worktime/days/{date}/history` | Manual changes of that day, newest first, with the day before and after |
+
+An interval with times is refused if it overlaps another one (409), ends in the future or lasts more than 48 h (400). A date before the start date or in the future is refused (400), a date in a closed month too (409). The task snapshot's `worktime` is null while off, otherwise a number that changes with every change.
+
 ## Discord
 
 A mirror of notifications, like Telegram. Settings page only (token, *Check again*, *Send test*, *Disconnect*, switches). Controls pressed there arrive with `via` `discord` and follow the same rules as Telegram's (panel-only controls are refused).

@@ -55,6 +55,7 @@ sealed partial class Hub
                 ["limits"] = LimitsView(),
                 ["limits_problem"] = LimitsProblem(),
                 ["limits_warn"] = new JsonArray(LimitThresholds().Select(x => (JsonNode)JsonValue.Create(x)).ToArray()),
+                ["worktime"] = WorktimeMark?.Invoke(),
                 ["hooks_offer"] = hookOffer.DeepClone(),
                 ["hooks_offer_tg"] = hookOfferTg,
                 ["hooks_offer_dc"] = hookOfferDc,
@@ -64,6 +65,9 @@ sealed partial class Hub
             };
         }
     }
+
+    /// <summary>The work hours module's mark for the snapshot: null while it's off.</summary>
+    public Func<long?> WorktimeMark;
 
     /// <summary>Light view of all tasks (no log / widgets) - for the Telegram progress messages.</summary>
     public List<JsonObject> Brief()

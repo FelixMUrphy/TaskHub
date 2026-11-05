@@ -194,6 +194,9 @@ sealed partial class Hub
     }
 
     // ------------------------------------------------------------ change signalling
+    /// <summary>Something outside the hub's own state changed: the panel's long poll wakes up and sees it in the snapshot.</summary>
+    public void Poke() { lock (Lock) Bump(); }
+
     void Bump()   // call under Lock
     {
         Version++;

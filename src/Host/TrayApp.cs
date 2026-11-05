@@ -61,7 +61,7 @@ sealed class TrayApp : ApplicationContext
         Ui(async () =>
         {
             // here, not above: Connectors / Updater are set by the caller after the constructor
-            Panel.SettingsPage = new SettingsBridge(S, hub, Telegram, Connectors, () => Updater, Ui) { Dc = Discord };
+            Panel.SettingsPage = new SettingsBridge(S, hub, Telegram, Connectors, () => Updater, Ui) { Dc = Discord, Work = api.Work };
             try
             {
                 // no WebView2 Runtime: say so once (a click on the balloon / the next open offers the download)
