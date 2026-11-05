@@ -5,6 +5,8 @@ from here), followed by the list of commits.
 
 ## Unreleased
 
+## 4.1.0 — 2026-11-05
+
 - **Work hours (in progress, off by default).** Turned on in Settings, it shows Start, Pause and Finish buttons above the list, week and month bars coloured against the norm, and the amount earned. Hours, overtime and pay stay in a file on your PC. The full settings, the calendar, holidays and month closing are still to come.
 
 ## 4.0.0 — 2026-11-05

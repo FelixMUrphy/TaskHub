@@ -115,7 +115,7 @@ static class Log
 sealed class Settings
 {
     public const string AppId = "TaskHub";
-    public const string Version = "4.0.0";
+    public const string Version = "4.1.0";
 #if BETA
     public const bool IsBeta = true;
 #else
