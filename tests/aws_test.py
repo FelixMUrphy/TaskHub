@@ -442,6 +442,7 @@ with mock:
         check("...and it recovers", wait(lambda: state()["key_check"] == "ok"), state())
 
         # ------------------------------------------------------------ revoked while in use
+        wait(lambda: (task("aws-i-0a1") or {}).get("state") == "running")   # the list follows a saved key a moment later
         before = task("aws-i-0a1")
         with lock:
             regions_fault["on"] = (403, "AuthFailure")
