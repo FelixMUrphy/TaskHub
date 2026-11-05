@@ -29,7 +29,7 @@ sealed partial class Api
     {
         S = s;
         hub = h;
-        Work = new Worktime(s, h.Poke);
+        Work = new Worktime(s, h.Poke) { Toast = (t, m) => h.Notify(new JsonObject { ["title"] = t, ["message"] = m, ["level"] = "warn" }) };
         h.WorktimeMark = () => Work.Mark;
         Routes();
         WorktimeRoutes();

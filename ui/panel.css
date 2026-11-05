@@ -323,3 +323,4 @@ html.acc-neutral .rt[aria-selected=true]::before{background:var(--fg)}
 .tgl.on i{left:24px;background:var(--accfg)} .tgl.on:hover i{left:22px}
 html.acc-neutral .tgl.on{background:var(--fg);border-color:var(--fg)} html.acc-neutral .tgl.on i{background:var(--bg)}
 .tgl:disabled{opacity:.45;cursor:default}
+#wt .wtr{opacity:.7;font-size:.92em}

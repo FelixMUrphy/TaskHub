@@ -109,11 +109,13 @@ function wcDay(){
 }
 // ---- the settings
 // the API's ranges, checked here first so a refusal is said in words (the host's check stays the one that counts)
-const WT_MAX={salary:1e12, weekly_norm_hours:168, manual_rate:1e9, weekday_mult:100, weekend_mult:100, holiday_mult:100, tolerance_pct:100};
-const WT_ABOVE0=new Set(["weekly_norm_hours","manual_rate"]);
+const WT_MAX={salary:1e12, weekly_norm_hours:168, manual_rate:1e9, fx_manual_rate:1e9, weekday_mult:100, weekend_mult:100, holiday_mult:100, tolerance_pct:100};
+const WT_ABOVE0=new Set(["weekly_norm_hours","manual_rate","fx_manual_rate"]);
 // a number typed for a setting: the value to send, or undefined if it isn't one the API takes
 function wtNum(k,v){
-  if (k==="salary_currency") return /^[A-Za-z]{3}$/.test(v)? v.toUpperCase() : undefined;
+  if (k==="salary_currency"||k==="display_currency") return /^[A-Za-z]{3}$/.test(v)? v.toUpperCase() : undefined;
+  if (k==="rate_source") return v==="ecb"||v==="nbu"? v : undefined;
+  if (k==="rate_time") return /^([01]\d|2[0-3]):[0-5]\d$/.test(v)? v : undefined;
   if (k==="country") return /^[A-Za-z]{2}$/.test(v)? v.toUpperCase() : undefined;
   if (k==="region") return /^[A-Za-z]{2}-[A-Za-z0-9]{1,3}$/.test(v) && v.slice(0,2).toUpperCase()===(SET.worktime.settings||{}).country? v.toUpperCase() : undefined;
   const n=Number(v); if (v==="" || !isFinite(n) || n<0 || n>WT_MAX[k] || (WT_ABOVE0.has(k) && n===0)) return undefined;
@@ -167,6 +169,11 @@ function wtSettings(w){
   return `<div class="srow"><div class="sl sd">${esc(T("s_wt_applies"))}</div></div>`
     +num("salary",T("s_wt_salary"),T("s_wt_salary_d"))
     +srow(T("s_wt_currency"),"",`<input class="kin num" maxlength="3" style="text-transform:uppercase" data-wset="salary_currency" aria-label="${esc(T("s_wt_currency"))}" value="${esc(s.salary_currency)}">`)
+    +srow(T("s_wt_display"),T("s_wt_display_d"),`<input class="kin num" maxlength="3" style="text-transform:uppercase" data-wset="display_currency" aria-label="${esc(T("s_wt_display"))}" placeholder="${esc(s.salary_currency||"")}" value="${esc(s.display_currency||"")}">`)
+    +(s.display_currency && s.display_currency!==s.salary_currency?
+      srow(T("s_wt_rsource"),T("s_wt_rsource_d"),`<select data-wset="rate_source" aria-label="${esc(T("s_wt_rsource"))}">${[["ecb","s_wt_ecb"],["nbu","s_wt_nbu"]].map(([v,k])=>`<option value="${v}"${(s.rate_source||"ecb")===v?" selected":""}>${esc(T(k))}</option>`).join("")}</select>`)
+      +srow(T("s_wt_rtime"),T("s_wt_rtime_d"),`<input class="kin num" maxlength="5" inputmode="numeric" placeholder="08:00" data-wset="rate_time" aria-label="${esc(T("s_wt_rtime"))}" value="${esc(s.rate_time||"08:00")}">`)
+      +num("fx_manual_rate",T("s_wt_fx",s.salary_currency,s.display_currency),T("s_wt_fx_d")) : "")
     +num("weekly_norm_hours",T("s_wt_norm"),"")
     +`<div class="srow"><div class="sl">${esc(T("s_wt_days"))}</div><div class="wcb" role="group" aria-label="${esc(T("s_wt_days"))}">${week}</div></div>`
     +num("manual_rate",T("s_wt_rate"),T("s_wt_rate_d"))

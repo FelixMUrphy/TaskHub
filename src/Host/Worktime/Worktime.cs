@@ -21,7 +21,7 @@ sealed partial class Worktime
     long mark;
 
     /// <param name="changed">Called after every change: the panel's long poll wakes up. It may run under this class's lock, so it must not call back in.</param>
-    public Worktime(Settings s, Action changed = null) { S = s; this.changed = changed; }
+    public Worktime(Settings s, Action changed = null) { S = s; this.changed = changed; StartRateTimer(); }
 
     /// <summary>For the task snapshot: null while off, otherwise a number that changes with every change. The numbers themselves stay out of the
     /// snapshot, which is sent all the time, and are asked for with /api/worktime/status.</summary>
@@ -88,7 +88,16 @@ sealed partial class Worktime
         ["weekly_norm_hours"] = 40, ["work_days"] = new JsonArray(1, 2, 3, 4, 5), ["salary"] = 0, ["salary_currency"] = "EUR", ["manual_rate"] = null,
         ["weekday_mult"] = 1.5, ["weekend_mult"] = 2, ["holiday_mult"] = null, ["holidays_reduce_norm"] = true, ["deduct_unclosed"] = true,
         ["tolerance_pct"] = 2, ["count_today"] = true, ["country"] = null, ["region"] = null,
+        ["display_currency"] = null, ["rate_source"] = "ecb", ["rate_time"] = "08:00", ["fx_manual_rate"] = null,
     };
+
+    /// <summary>A saved version of the settings with the keys added since it was saved, at their defaults.</summary>
+    static JsonObject Filled(string json)
+    {
+        var s = Defaults();
+        foreach (var kv in (JsonObject)J.Parse(json)) s[kv.Key] = J.C(kv.Value);
+        return s;
+    }
 
     static double Range(JsonObject s, string key, double lo, double hi)
     {
@@ -113,6 +122,7 @@ sealed partial class Worktime
             if (!J.IsBool(s[k])) throw new ApiError(400, k + " must be true or false");
         Range(s, "tolerance_pct", 0, 100);
         CheckPlace(s);
+        CheckRates(s);
     }
 
     static decimal Dec(JsonNode n) => (decimal)J.Num(n).Value;
@@ -153,7 +163,7 @@ sealed partial class Worktime
                 if (b["start_date"] != null || b["opening"] != null) throw new ApiError(409, "start_date and opening are set when the module is turned on");
                 var from = b["valid_from"] == null ? today : ParseDate(J.Str(b["valid_from"]), "valid_from");
                 if (from < ParseDate(db.Meta("start_date"), "start_date")) throw new ApiError(400, "valid_from is before the start date");
-                db.SetSettings(from, Merged((JsonObject)J.Parse(db.Settings().Last().Json), given));
+                db.SetSettings(from, Merged(Filled(db.Settings().Last().Json), given));
             });
             if (first) S.Set((EnabledKey, JsonValue.Create(true)));
             Log.I("worktime", first ? "turned on" : "settings changed");
@@ -236,7 +246,7 @@ sealed partial class Worktime
                 {
                     if (db.Settings().Count == 0) return Broken(null);
                     var versions = db.Settings();
-                    var s = (JsonObject)J.Parse(versions.Last().Json);
+                    var s = Filled(versions.Last().Json);
                     return new JsonObject
                     {
                         ["settings"] = s.DeepClone(),
@@ -765,7 +775,7 @@ sealed partial class Worktime
         var start = ParseDate(startText, "start_date");
         var versions = db.Settings();
         var rules = versions.Select(x => RulesOf(x.From, x.Json)).ToList();
-        var settings = (JsonObject)J.Parse(versions.Last(x => x.From <= today || x.From == versions[0].From).Json);
+        var settings = Filled(versions.Last(x => x.From <= today || x.From == versions[0].From).Json);
         var open = db.OpenSession();
         var days = new Dictionary<DateOnly, WorktimeCalc.DayWork>();
         foreach (var x in db.IntervalsBetween(start, today))
@@ -825,6 +835,7 @@ sealed partial class Worktime
                 ["set"] = (J.Num(settings["salary"]) ?? 0) > 0 || settings["manual_rate"] != null,
                 ["currency"] = J.Str(settings["salary_currency"]), ["earned"] = Math.Round(r.Earned, 2),
                 ["overtime"] = Math.Round(r.Current?.OvertimeMoney ?? 0, 2),
+                ["display"] = Display(db, settings, today, r.Earned, r.Current?.OvertimeMoney ?? 0),
             },
             ["unclosed_months"] = J.StrArray(r.Months.Where(m => m.Paid && !m.Closed).Select(m => $"{m.Year:D4}-{m.Month:D2}")),
             ["holidays_to_confirm"] = HolidaysToConfirm(db, settings, today),

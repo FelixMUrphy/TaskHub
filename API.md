@@ -311,6 +311,8 @@ Off until it's turned on in Settings; while off, `GET /api/worktime/status` says
 
 Every request that changes hours, months or holidays takes `?preview=1`: it answers `before` and `after` (`deficit_seconds`, `pools`, `money`) and saves nothing. The status has `unclosed_months` and `holidays_to_confirm` (this month, while its holidays wait for an answer). Holidays are fetched from nagerholidays.com only when a country is set, at most about once a week; only types with Public count, nationwide or in the region.
 
+Amounts are worked out in the salary currency. With a display currency set in Settings, the status's `money.display` has `currency`, `source` (ecb or nbu), `earned`, `overtime`, `rate` (display units for one salary unit), `rate_date`, `stale` (the last refresh failed or the rate is more than 4 days old), `manual` (the own rate stood in for a pair the source hasn't got), or `missing` when there's no rate at all. Rates are fetched from the ECB or the NBU on the first status of the day and after the set morning time, in the background; a failure is retried after 15 minutes, up to 4 times, then a notification says which rate is used.
+
 An interval with times is refused if it overlaps another one (409), ends in the future or lasts more than 48 h (400). A date before the start date or in the future is refused (400), a date in a closed month too (409). The task snapshot's `worktime` is null while off, otherwise a number that changes with every change.
 
 ## Discord

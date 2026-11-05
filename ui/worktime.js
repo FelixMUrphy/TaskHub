@@ -35,10 +35,14 @@ function renderWt(){
     const s=WT.session, btn=(a,w,cls)=>`<button class="btn${cls?" "+cls:""}" data-wa="${a}">${esc(T(w))}</button>`;
     const state=s? T(s.state==="running"?"wt_running":"wt_paused",hm(s.worked_seconds)) : "";
     const btns=!s? btn("start","wt_start","primary") : (s.state==="running"? btn("pause","wt_pause") : btn("resume","wt_resume","primary"))+btn("finish","wt_finish");
-    const m=WT.money, money=m.set? [T("wt_earned",wtMoney(m.earned,m.currency)), m.overtime>0? T("wt_of_overtime",wtMoney(m.overtime,m.currency)) : ""].filter(Boolean).join(" · ") : "";
+    // in the display currency when a rate is there; else in the salary's, and said why
+    const m=WT.money, d=m.display, c=d && !d.missing? d : m;
+    const money=m.set? [T("wt_earned",wtMoney(c.earned,c.currency)), c.overtime>0? T("wt_of_overtime",wtMoney(c.overtime,c.currency)) : ""].filter(Boolean).join(" · ") : "";
+    const rate=!m.set || !d? "" : d.missing? (d.why==="pending"? T("wt_rate_wait") : d.why==="unsupported"? T("wt_rate_unsupported",d.currency) : T("wt_rate_missing",d.currency))
+      : d.manual? T("wt_rate_own") : d.stale && d.rate_date? T("wt_rate_of",wcDate(d.rate_date).toLocaleDateString(LOC())) : "";
     h=`<div class="wth"><span class="limh">${esc(T("wt_title"))}</span>${state?`<span class="wts">${esc(state)}</span>`:""}${NATIVE?`<a class="klink wtl" tabindex="0" role="link" data-wopen="1">${esc(T("wt_details"))}</a>`:""}<span class="wtb">${btns}</span></div>`
       +wtBar("wt_week",WT.week,WT.deficit_seconds,null)+wtBar("wt_month",WT.month,WT.deficit_seconds,WT.pools)
-      +(money?`<div class="wtm">${esc(money)}</div>`:"")
+      +(money?`<div class="wtm">${esc(money)}${rate?` <span class="wtr">${esc(rate)}</span>`:""}</div>`:"")
       +wtNeed();
   }
   if (box.__h===h) return;
