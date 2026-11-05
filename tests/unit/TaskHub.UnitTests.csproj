@@ -7,6 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\src\Host\Connectors\Machines\GuardTiming.cs" Link="GuardTiming.cs" />
+    <Compile Include="..\..\src\Host\Worktime\WorktimeCalc.cs" Link="WorktimeCalc.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
