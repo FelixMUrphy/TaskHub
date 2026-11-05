@@ -12,7 +12,7 @@ sealed partial class Api
     {
         const string DateId = @"(\d{4}-\d{2}-\d{2})", NumId = "([0-9]{1,15})";
         R("GET", "/api/worktime/status", (c, q, g) => V(Work.Status()));
-        R("POST", "/api/worktime/start", async (c, q, g) => Work.Start(Worktime.Source(await Body(c))));
+        R("POST", "/api/worktime/start", async (c, q, g) => Work.Start(await Body(c)));
         R("POST", "/api/worktime/pause", async (c, q, g) => { await Body(c); return Work.Pause(); });
         R("POST", "/api/worktime/resume", async (c, q, g) => Work.Resume(Worktime.Source(await Body(c))));
         R("POST", "/api/worktime/finish", async (c, q, g) => { await Body(c); return Work.Finish(); });

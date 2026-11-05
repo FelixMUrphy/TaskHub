@@ -300,11 +300,23 @@ sealed partial class Worktime
     // ------------------------------------------------------------ the buttons
     public JsonObject Start(string source) => StartAt(long.MaxValue, source);
 
+    /// <summary>Start with the answer to "today is a vacation day": "unmark" removes the mark (logged like any day change), "keep" or none keeps it and
+    /// the hours count as overtime by the day's type.</summary>
+    public JsonObject Start(JsonObject b)
+    {
+        var source = Source(b, "vacation");
+        var v = b["vacation"] == null ? null : J.IsStr(b["vacation"]) ? J.Str(b["vacation"]) : "";
+        if (v is not (null or "unmark" or "keep")) throw new ApiError(400, "vacation must be unmark or keep");
+        return StartAt(long.MaxValue, source, v == "unmark");
+    }
+
     /// <summary>Starts a session at <paramref name="at"/> (not later than now): a reminder's "Start from".</summary>
-    JsonObject StartAt(long at, string source) => Act(db =>
+    JsonObject StartAt(long at, string source, bool unmarkVacation = false) => Act(db =>
     {
         if (db.OpenSession() != null) throw new ApiError(409, "a session is already open");
         var now = Math.Min(at, Now());
+        var day = LocalDate(now);
+        if (unmarkVacation && db.Marks(day, day).Any(x => x.Kind == "vacation")) Logged(db, day, "day_normal", () => db.ClearMark(day));
         var id = db.AddSession(LocalDate(now), now, null, true);
         db.AddInterval(id, now, null, null, source, "");
     });
@@ -385,9 +397,9 @@ sealed partial class Worktime
     };
 
     /// <summary>Who pressed the button, as the intervals remember it: the panel says so, anything else is the API.</summary>
-    public static string Source(JsonObject b)
+    public static string Source(JsonObject b, params string[] more)
     {
-        Only(b, "source");
+        Only(b, more.Prepend("source").ToArray());
         if (b["source"] == null) return "api";
         var s = J.IsStr(b["source"]) ? J.Str(b["source"]) : "";
         return s is "api" or "panel" ? s : throw new ApiError(400, "source must be panel or api");
@@ -844,6 +856,7 @@ sealed partial class Worktime
         return new JsonObject
         {
             ["enabled"] = true, ["today"] = WorktimeStore.D(today), ["start_date"] = WorktimeStore.D(input.Start), ["session"] = session,
+            ["today_vacation"] = input.Vacations.Contains(today),
             ["week"] = BarJson(week), ["month"] = BarJson(month), ["deficit_seconds"] = r.Deficit,
             ["pools"] = new JsonObject { ["weekday_seconds"] = r.Weekday, ["weekend_seconds"] = r.Weekend, ["holiday_seconds"] = r.Holiday },
             ["money"] = new JsonObject

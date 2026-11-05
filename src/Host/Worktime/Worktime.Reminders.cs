@@ -46,7 +46,13 @@ sealed partial class Worktime
     static long At(DateOnly d, string hhmm) =>
         new DateTimeOffset(d.ToDateTime(new TimeOnly(MinuteOf(hhmm) / 60, MinuteOf(hhmm) % 60), DateTimeKind.Local)).ToUnixTimeSeconds();
 
-    static CultureInfo Ui() { try { return CultureInfo.GetCultureInfo(L.Lang); } catch (CultureNotFoundException) { return CultureInfo.InvariantCulture; } }
+    /// <summary>The page's locale for the UI language (ui/i18n.js LOCALE), so a time looks the same in a reminder and on the panel.</summary>
+    static readonly Dictionary<string, string> Locale = new()
+    {
+        ["en"] = "en-GB", ["uk"] = "uk-UA", ["es"] = "es-ES", ["de"] = "de-DE", ["fr"] = "fr-FR", ["it"] = "it-IT", ["pt"] = "pt-BR", ["pl"] = "pl-PL", ["zh"] = "zh-CN", ["ja"] = "ja-JP",
+    };
+
+    static CultureInfo Ui() { try { return CultureInfo.GetCultureInfo(Locale.GetValueOrDefault(L.Lang, L.Lang)); } catch (CultureNotFoundException) { return CultureInfo.InvariantCulture; } }
     static string LocalTime(long utc) => DateTimeOffset.FromUnixTimeSeconds(utc).LocalDateTime.ToString("t", Ui());
 
     /// <summary>One check: what is due at <paramref name="now"/> is shown (or sent again after the repeat time), what no longer is goes.
@@ -150,7 +156,7 @@ sealed partial class Worktime
         }
 
         Reminder notice = null;
-        if (noticeDay != today && pageDay != today && MinuteOf(now) >= NoticeHour * 60)
+        if (noticeDay != today && pageDay != today && MinuteOf(now) >= NoticeHour * 60 && db.Meta("remind_notice_day") != WorktimeStore.D(today))
         {
             var c = CalcOf(db, today, now);
             var lines = WorktimeCalc.Compute(c.Input).Months.Where(m => m.Paid && !m.Closed)
@@ -159,6 +165,7 @@ sealed partial class Worktime
             if (lines.Count > 0)
             {
                 noticeDay = today;
+                db.SetMeta("remind_notice_day", WorktimeStore.D(today));   // once a day, also over a restart
                 notice = Make("need", L.T("wt_r_need_t"), string.Join("\n", lines));
             }
         }

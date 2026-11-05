@@ -9,6 +9,7 @@ from here), followed by the list of commits.
 - **Work hours: closing a month and holidays.** After a month ends, Settings offers to close it: cover the shortfall with weekend or holiday hours, carry the rest over or not; the overtime left is paid. The latest closed month can be reopened. With a country (and optionally a region) set, the public holidays of each month are fetched from nagerholidays.com and counted only after you confirm them; you can drop any and add your own. Ukrainian holidays have their Ukrainian names.
 - **Work hours: amounts in another currency.** The earned amount can be shown in a currency of your choice, at the European Central Bank's or the National Bank of Ukraine's daily rates, refreshed each morning; a rate you enter stands in for a pair the source hasn't got, and an old rate shows its date.
 - **Work hours: reminders.** A session paused too long or still open late, and (if you set a time) work not started on a working day, are reminded with buttons: Finish now, Finish at your last activity, Still working; Start now, Start from the set time, Not working today. At the PC as a notification, away from it in Telegram or Discord, without amounts. A month to close or holidays to confirm are said once a day while Settings isn't opened. TaskHub never finishes a session by itself.
+- **Work hours: a session on a vacation day** asks first: remove the vacation mark, or keep it and count the hours as overtime.
 
 ## 4.1.0 — 2026-11-05
 

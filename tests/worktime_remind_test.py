@@ -4,6 +4,12 @@ when the test route asks, at the hub's clock plus an offset, with a given idle t
 import datetime, json, os, re, shutil, sqlite3, subprocess, sys, tempfile, time, urllib.error, urllib.request
 
 os.environ.pop("TASKHUB_TOKEN", None)
+# the checks of one day step a few minutes ahead of the clock: a run begun just before midnight waits for it (at most 10 min)
+_n = datetime.datetime.now()
+_left = (datetime.datetime.combine(_n.date() + datetime.timedelta(days=1), datetime.time()) - _n).total_seconds()
+if _left < 600:
+    print(f"waiting {int(_left) + 5} s for midnight", flush=True)
+    time.sleep(_left + 5)
 EXE = sys.argv[1]
 PORT = 47880
 URL = f"http://127.0.0.1:{PORT}"
@@ -104,9 +110,13 @@ try:
         check(f"settings refuse {why}", page({"worktime_settings": b}).get("error"))
     check("no start reminder while it's off", tick(0)["sent"] == [])
 
-    # ---- work not started: Not working today
+    # ---- work not started: Not working today. Another client took the reminder's task id first: it isn't adopted
+    st, _ = call("POST", "/api/tasks", {"id": TID, "name": "not a reminder", "source": "someone", "links": [{"label": "x", "url": "https://example.com"}]})
+    check("(another client registers the id first)", st in (200, 201), st)
     page({"worktime_settings": {"remind_start": "00:00", "remind_open_after": None}})
     r = tick(0, idle=0)
+    t = task()
+    check("the reminder's task is TaskHub's own, not the other client's", t and t["source"] == "worktime" and not t.get("links") and t["name"] != "not a reminder", t)
     check("work not started: reminded, with its three buttons", ids(r, "start") == ["start_now", "start_from", "not_today"], r)
     sent = r["sent"][0]
     check("...at the PC: a toast", sent["at_pc"] is True, sent)
@@ -118,7 +128,8 @@ try:
     st, b = press("not_today")
     check("Not working today: taken", st == 200, (st, b))
     check("...the task goes", task() is None)
-    check("...no reminder today", tick(120)["sent"] == [] and task() is None)
+    r = tick(120)
+    check("...no reminder today", r["sent"] == [] and task() is None, (r, task()))
     check("...a button pressed again: stale", press("not_today")[0] in (404, 409))
     con = sqlite3.connect(DB)
     con.execute("DELETE FROM meta WHERE key='remind_skip_day'")
@@ -216,6 +227,23 @@ try:
     check("next day from 10:00: the month to close said, no buttons", need and not need[0]["buttons"] and need[0]["title"], r)
     check("...once a day", not [x for x in tick(ten + 86400 + 600)["sent"] if x["kind"] == "need"])
     check("...no task for a notice", task() is None)
+    # ---- a session started on a vacation day: the mark kept by default, removed when asked (the panel asks)
+    T0 = TODAY.isoformat()
+    call("PUT", f"/api/worktime/days?from={T0}&to={T0}", {"kind": "vacation"})
+    check("vacation today: said in the status", call("GET", "/api/worktime/status")[1].get("today_vacation") is True)
+    kinds = lambda: [x["kind"] for x in call("GET", f"/api/worktime/days?from={T0}&to={T0}")[1]["days"]]
+    st, _ = call("POST", "/api/worktime/start", {})
+    check("start without an answer: as before, the mark stays", st == 200 and kinds() == ["vacation"], (st, kinds()))
+    call("POST", "/api/worktime/finish", {})
+    st, _ = call("POST", "/api/worktime/start", {"source": "panel", "vacation": "keep"})
+    check("keep: the mark stays (hours as overtime)", st == 200 and kinds() == ["vacation"], (st, kinds()))
+    call("POST", "/api/worktime/finish", {})
+    check("a bad answer: refused", call("POST", "/api/worktime/start", {"vacation": "maybe"})[0] == 400)
+    st, j = call("POST", "/api/worktime/start", {"source": "panel", "vacation": "unmark"})
+    check("unmark: the mark removed, the session started", st == 200 and kinds() == [] and j["session"] and j.get("today_vacation") is False, (st, kinds(), j.get("today_vacation")))
+    hist = call("GET", f"/api/worktime/days/{T0}/history")[1]
+    check("...logged like a day change", "day_normal" in json.dumps(hist), hist)
+    call("POST", "/api/worktime/finish", {})
     check("no reminder ERR in the log", "ERR" not in "\n".join(l for l in log().splitlines() if "worktime" in l), log()[-1500:])
 finally:
     hub.kill()

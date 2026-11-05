@@ -18,6 +18,7 @@ sealed class WorktimeReminders : IConnector
     volatile bool locked;
     bool listening;
     readonly Dictionary<DateOnly, long> away = new();   // a day's last input before a lock or sleep
+    bool mine;   // the task on the hub is the one registered here (an API client may have taken the id first)
 
     public WorktimeReminders(Worktime work, Hub hub)
     {
@@ -31,7 +32,7 @@ sealed class WorktimeReminders : IConnector
     public void Start()
     {
         // a reminder kept from before a restart: what it asked is checked again, its buttons would only be refused
-        try { hub.Delete(Tid, true); } catch (ApiError) { }
+        Drop();
         lock (gate)
         {
             if (!listening)
@@ -73,6 +74,8 @@ sealed class WorktimeReminders : IConnector
         }
     }
 
+    void Drop() { mine = false; try { hub.Delete(Tid, true); } catch (ApiError) { } }   // already gone
+
     long? AwayOn(DateOnly d) { lock (away) return away.TryGetValue(d, out var v) ? v : null; }
 
     void Tick()
@@ -93,18 +96,22 @@ sealed class WorktimeReminders : IConnector
 
     void Show(Worktime.Reminder r)
     {
-        if (r == null) { try { hub.Delete(Tid, true); } catch (ApiError) { } return; }   // already gone
+        if (r == null) { Drop(); return; }
         var only = r.AtPc || !r.Messengers ? "toast" : "messengers";
         if (r.Buttons.Count == 0) { hub.Remind(r.Title, r.Message, null, only); return; }
         var controls = new JsonArray(r.Buttons.Select(b => (JsonNode)new JsonObject
         {
-            ["id"] = b.Key, ["label"] = b.Value, ["kind"] = "connector", ["toast"] = true, ["style"] = b.Key == "finish_now" || b.Key == "start_now" ? "primary" : "default",
+            ["id"] = b.Key, ["label"] = b.Value, ["kind"] = "connector", ["toast"] = true, ["style"] = b.Key.StartsWith("finish_now.") || b.Key.StartsWith("start_now.") ? "primary" : "default",
             ["states"] = new JsonArray("running", "paused", "stale"),
         }).ToArray());
         var u = new JsonObject { ["name"] = r.Title, ["status"] = r.Message, ["attention"] = r.Message, ["controls"] = controls };
-        try { hub.Update(Tid, u, trusted: true); }
-        catch (ApiError)
+        bool updated = false;
+        if (mine)
+            try { hub.Update(Tid, u, trusted: true); updated = true; }
+            catch (ApiError) { }   // removed from the panel meanwhile
+        if (!updated)
         {
+            Drop();   // whatever else holds the id is not this reminder: its links, buttons or source must not stay on it
             var b = (JsonObject)u.DeepClone();
             b["id"] = Tid;
             b["source"] = Source;
@@ -112,6 +119,7 @@ sealed class WorktimeReminders : IConnector
             b["notify"] = new JsonObject { ["finish"] = false, ["fail"] = false, ["stale"] = false };
             b["meta"] = new JsonObject { [Source] = new JsonObject { ["reminder"] = r.Kind } };
             hub.Register(b, trusted: true);
+            mine = true;
         }
         hub.Remind(r.Title, r.Message, Tid, only);
     }

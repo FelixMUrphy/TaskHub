@@ -46,7 +46,9 @@ function wcPreview(what){
   const a=p.r.before, b=p.r.after, rows=[], ch=(w,x,y,f)=>{ if (x!==y) rows.push(`${w}: ${f(x)} → ${f(y)}`); };
   ch(T("wt_pv_deficit"),a.deficit_seconds,b.deficit_seconds,hm);
   for (const [k,w] of [["weekday_seconds","wt_pv_weekday"],["weekend_seconds","wt_pv_weekend"],["holiday_seconds","wt_pv_holiday"]]) ch(T(w),a.pools[k],b.pools[k],hm);
-  if (a.money.set) ch(T("wt_pv_earned"),a.money.earned,b.money.earned,v=>wtMoney(v,a.money.currency));
+  // in the currency the panel shows: the display one when both sides have its rate
+  const da=a.money.display, db=b.money.display, disp=da && db && !da.missing && !db.missing;
+  if (a.money.set) ch(T("wt_pv_earned"),disp? da.earned : a.money.earned,disp? db.earned : b.money.earned,v=>wtMoney(v,disp? da.currency : a.money.currency));
   return `<div class="wcpv" role="status"><div class="sd">${esc(T("wt_pv_t"))}</div><div>${rows.length? rows.map(esc).join("<br>") : esc(T("wt_pv_none"))}</div>`
     +`<div class="wcb"><button class="btn primary" data-wc="commit">${esc(T("wt_save"))}</button><button class="btn" data-wc="uncommit">${esc(T("wt_cancel"))}</button></div></div>`;
 }

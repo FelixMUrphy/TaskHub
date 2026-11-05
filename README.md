@@ -63,6 +63,7 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
 - **Balance guard** *(off until you turn it on)*: for Runpod and Vast.ai — a warning at your own balance threshold
   (balance, $/h, time left), and at the stop threshold the running machines are **stopped** (never deleted) after a
   notification with *Stop now* / *Snooze* (Windows and Telegram) — see [Balance guard](#balance-guard).
+- **Work hours** *(off until you turn it on)*: Start / Pause / Finish above the task list, week and month bars against your norm, overtime and the amount earned; a calendar to correct any day, month closing, public holidays you confirm, amounts in another currency, and reminders for a session left open — see [Work hours](#work-hours).
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
   plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
@@ -285,6 +286,16 @@ Each provider has its own two thresholds in $: **warn** (default $10) and **stop
   10 min in a test), so the stop threshold can be crossed up to ~10 min late — set it with some margin (the settings
   say so).
 Details: [API.md → Balance guard](API.md#balance-guard).
+
+### Work hours
+*Off until you turn it on.* Settings → *Work hours*: turn it on, then give the start date, your weekly norm, the working days, the salary and its currency, and the hours carried over from before. The start date and the carried hours are set once; the rest can be changed later.
+- **The panel** gets *Start*, *Pause* and *Finish* above the task list, a week bar and a month bar coloured against the norm (under it, on it, above it), the overtime and the amount earned so far this month. A second session on the same day adds to that day.
+- **The calendar** in Settings shows each day's hours. A day opens with its periods: add, change or delete one, set a total for the whole day, mark it as a working day, a holiday or vacation, or undo the last change. Several days can be set at once. Every change first shows what it does to the overtime, the shortfall and the amount earned, and is saved only when you confirm it.
+- **Overtime and the month.** Hours above the norm are paid at your multipliers (weekday, weekend, holiday). After a month ends, Settings offers to close it: cover a shortfall with weekend or holiday hours, carry the rest over or not. The latest closed month can be reopened.
+- **Holidays.** With a country (and optionally a region) set, the month's public holidays are fetched from [nagerholidays.com](https://nagerholidays.com) and count only after you confirm them; you can drop any and add your own. Ukrainian holidays have their Ukrainian names.
+- **Another currency.** The amounts can be shown in a currency of your choice at the European Central Bank's or the National Bank of Ukraine's daily rate, refreshed each morning; your own rate stands in for a pair the source hasn't got, and an old rate shows its date.
+- **Reminders** (in the same settings): a session paused longer than 2 hours or still open after 23:00, repeated every 30 minutes until you answer — *Finish now*, *Finish at* your last activity, *Still working*; and, if you set a time, work not started on a working day — *Start now*, *Start from*, *Not working today*. A month to close or holidays to confirm are said once a day while you haven't opened Settings. At the PC they are notifications; away from it they go to Telegram or Discord if one is connected, never with amounts. **TaskHub never finishes a session by itself.**
+- Everything stays in `worktime.db` in the data folder on your PC (see [PRIVACY.md](PRIVACY.md)). Details: [API.md → Work hours](API.md#work-hours).
 
 ## Install details
 The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or any folder you choose), unpacks the

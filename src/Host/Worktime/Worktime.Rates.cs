@@ -124,7 +124,8 @@ sealed partial class Worktime
         var rates = new Dictionary<string, decimal>();
         if (source == "ecb")
         {
-            var doc = XDocument.Parse(text);
+            using var xr = System.Xml.XmlReader.Create(new StringReader(text), new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null });
+            var doc = XDocument.Load(xr);   // no DTD: the daily file has none, and entities could only blow it up
             var day = doc.Descendants().FirstOrDefault(e => e.Name.LocalName == "Cube" && e.Attribute("time") != null);
             if (day == null || !DateOnly.TryParseExact((string)day.Attribute("time"), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)) return null;
             foreach (var c in day.Elements().Where(e => e.Name.LocalName == "Cube"))

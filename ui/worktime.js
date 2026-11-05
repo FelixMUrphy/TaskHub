@@ -64,13 +64,21 @@ function wtFollow(){
   if (mark!==wtMark){ wtMark=mark; wtLoad(); wcFollow(); }
   else renderWt();   // the language may have changed
 }
+// today is a vacation day: remove the mark (a working day), or keep it and count the hours as overtime; the dialog's buttons say which
+async function wtVacation(){
+  const d=document.getElementById("dlg"), [ok,no]=d.querySelectorAll("button"), was=[ok.textContent,no.textContent];
+  ok.textContent=T("wt_vac_unmark"); no.textContent=T("wt_vac_keep");
+  try{ return await ask(T("wt_vac_q"))? "unmark" : "keep"; } finally{ ok.textContent=was[0]; no.textContent=was[1]; }
+}
 $("#wt").addEventListener("keydown",e=>{ if ((e.key==="Enter"||e.key===" ") && e.target.dataset && e.target.dataset.wopen){ e.preventDefault(); e.target.click(); } });
 $("#wt").addEventListener("click",async e=>{
   if (e.target.dataset && e.target.dataset.wopen){ setTab="worktime"; if (!setOpen()) openSet(); else { renderSet(); } return; }
   // the second click of a double click would land on the button that has just taken this one's place
   const b=e.target.closest("button[data-wa]"); if (!b || wtBusy || e.detail>1) return;
   const a=b.dataset.wa; wtBusy=true; const asked=++wtAsked;
-  try{ const j=await api("POST","/api/worktime/"+a,a==="start"||a==="resume"? {source:"panel"} : {}); if (asked===wtAsked){ WT=j; renderWt(); } }
+  const body=a==="start"||a==="resume"? {source:"panel"} : {};
+  if (a==="start" && WT && WT.today_vacation) body.vacation=await wtVacation();   // the spec: asked, not decided for the user
+  try{ const j=await api("POST","/api/worktime/"+a,body); if (asked===wtAsked){ WT=j; renderWt(); } }
   catch(er){ snack(T("wt_not_done")); wtLoad(); }   // refused (pressed elsewhere meanwhile): show what is true now
   finally{ wtBusy=false; }
 });
