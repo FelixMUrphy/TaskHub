@@ -69,13 +69,13 @@ Streams output to the log (and echoes it), parses progress, adds Kill / Ctrl+C /
 
 **PowerShell:**
 ```powershell
-$h=@{"X-TaskHub"="1"}; $u="http://127.0.0.1:47800"
+$h=@{"X-TaskHub"="1"; Authorization="Bearer $(taskhub token)"}; $u="http://127.0.0.1:47800"
 $id=(Invoke-RestMethod "$u/api/tasks" -Method Post -Headers $h -ContentType "application/json; charset=utf-8" -Body ([Text.Encoding]::UTF8.GetBytes((@{name="Export";total=50;pid=$PID}|ConvertTo-Json -Depth 6)))).id
 Invoke-RestMethod "$u/api/tasks/$id/update" -Method Post -Headers $h -ContentType application/json -Body '{"current":10,"status":"file 10"}'
 Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentType application/json -Body '{"state":"done","message":"ok"}'
 ```
 
-**curl:** `curl -s -X POST localhost:47800/api/notify -H "X-TaskHub: 1" -d '{"title":"Done","message":"render finished"}'`
+**curl** (bash): `curl -s -X POST localhost:47800/api/notify -H "X-TaskHub: 1" -H "Authorization: Bearer $(taskhub token)" -d '{"title":"Done","message":"render finished"}'`
 (ASCII only; for other languages `--data-binary @body.json` with a UTF-8 file - see [AI agents](#ai-agents-read-this-first)).
 
 ## Endpoints
@@ -134,7 +134,7 @@ Every error is JSON `{"error": "<text>"}` with one of these statuses:
 | Status | When |
 |---|---|
 | 400 | the body is not a JSON object (a raw `NaN` isn't JSON), or a field is invalid: a required one missing, a wrong type, a `level` or `state` that doesn't exist, a value for a widget the task doesn't have, an `update` with no known field in it. The `error` text says which; nothing has changed. A field not known yet beside known ones is no error |
-| 401 | a token is set and the request has none or a wrong one ([token](#token)) |
+| 401 | the request has no token or a wrong one ([token](#token)) |
 | 403 | a write request without `X-TaskHub: 1`, a foreign `Host` / `Origin`, a control that works only in the panel, a connector's setting that changes only in Settings |
 | 404 | unknown task, control, command, connector or route |
 | 409 | the task's state doesn't allow it: deleting an active task without `force`, a control not available in this state, a refused kill (also on a task with no `pid`) |
