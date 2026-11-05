@@ -99,6 +99,31 @@ main{padding:10px;display:flex;flex-direction:column;gap:9px}
 .wtb{display:flex;gap:4px;margin-left:auto}
 .lim[data-wt=under] .lb i{background:var(--amber)} .lim[data-wt=normal] .lb i{background:var(--blue)} .lim[data-wt=over] .lb i{background:var(--green)}
 .wtm{margin-top:5px}
+.wtl{color:var(--acc);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.wcsec{margin:10px 4px 4px;font-size:12px;color:var(--mut)}
+.wcn{display:flex;align-items:center;gap:6px;padding:6px 8px}
+.wcn .sp{flex:1}
+.wcg{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;padding:0 8px 8px}
+.wch{font-size:11px;color:var(--mut);text-align:center}
+.wcd{font:inherit;font-size:11px;min-height:38px;padding:2px;border:1px solid transparent;border-radius:5px;background:var(--o1);color:var(--fg);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px;min-width:0}
+.wcd b{font-weight:600}
+.wcd span{color:var(--mut);white-space:nowrap}
+.wcd:hover,.wcd:focus-visible{background:var(--o2)}
+.wcd.now{border-color:var(--ln)}
+.wcd.on,.wcd.sel{border-color:var(--acc);background:var(--o3)}
+.wcd.short span{color:var(--amber)}
+.wcd[data-kd=weekend] b{color:var(--mut)}
+.wcd[data-kd=holiday] b{color:var(--violet)}
+.wcd[data-kd=vacation] b{color:var(--green)}
+.wcb{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.wcw{font:inherit;font-size:11px;padding:3px 5px;border:1px solid var(--ln);border-radius:5px;background:var(--o1);color:var(--mut);cursor:pointer}
+.wcw.on{background:var(--acc);border-color:var(--acc);color:var(--accfg)}
+.wcday{margin-top:8px}
+.wcf{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;padding:6px 8px}
+.wcf label{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--mut)}
+#set .wcf .kin{width:100%}
+.wcpv{margin:6px 8px 8px;padding:6px 8px;border:1px solid var(--acc);border-radius:6px;display:flex;flex-direction:column;gap:4px}
+@media (forced-colors:active){.wcd.on,.wcd.sel,.wcw.on{forced-color-adjust:none;background:Highlight;color:HighlightText}}
 #srcf{display:none;gap:2px;padding:0 10px 6px;font-size:12px;color:var(--mut);flex:none;flex-wrap:wrap;user-select:none}
 #srcf.on{display:flex}
 #srcf span{padding:1px 8px;border-radius:9px;cursor:pointer} #srcf span.on{background:var(--o2);color:var(--fg)}

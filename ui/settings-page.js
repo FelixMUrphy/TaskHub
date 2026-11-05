@@ -1,7 +1,7 @@
 const reSet=()=>{ $("#sethost").__h=null; renderSet(); };
 // what was typed in a field of a tab: survives the redraws and a visit to another tab; only fields still there are kept
 let TYPED={};
-const IN_KEEP="input[data-ckey],input[data-tgtok],input[data-dctok],input[data-ladd]";
+const IN_KEEP="input[data-ckey],input[data-tgtok],input[data-dctok],input[data-ladd],input[data-wf]";
 function keepTyped(box){ if (!box.__tab) return; const m=new Map(); for (const e of box.querySelectorAll(IN_KEEP)) m.set(ckey(e),e.value); TYPED[box.__tab]=m; }
 function wipeTyped(){ TYPED={}; for (const e of $("#sethost").querySelectorAll(IN_KEEP)) e.value=""; }
 function renderSet(){
@@ -19,13 +19,7 @@ function renderSet(){
     if (tab==="notif") h=sec(winOff + mute + srow(HL("test_toast"),"",sbtn("test_toast",T("s_send"))));
     if (tab==="telegram" && tg) h=sec(tgRows(tg));
     if (tab==="discord" && s.discord) h=sec(dcRows(s.discord));
-    if (tab==="worktime" && s.worktime){
-      const w=s.worktime, since=d=>new Date(d+"T12:00:00").toLocaleDateString(LOC());
-      h=sec(srow(T("wt_title"),T("s_wt_on_d"),tgl("worktime",w.enabled))
-        +(w.broken? srow(T("wt_broken"),"","") : w.enabled? srow(T("s_wt_since",since(w.start_date),w.weekly_norm_hours),"","")
-          +srow(T("s_wt_salary"),T("s_wt_salary_d"),`<input class="kin" type="number" min="0" step="any" style="width:90px" data-wset="worktime_salary" aria-label="${esc(T("s_wt_salary"))}" value="${esc(w.salary)}">`)
-          +srow(T("s_wt_currency"),"",`<input class="kin" maxlength="3" style="width:60px;text-transform:uppercase" data-wset="worktime_currency" aria-label="${esc(T("s_wt_currency"))}" value="${esc(w.salary_currency)}">`) : ""));
-    }
+    if (tab==="worktime" && s.worktime) h=wtTab(s.worktime);
     if (tab==="connectors") h=sec((s.connectors||[]).map(connRow).join(""), T("s_conn_note"));
     if (tab==="agents") h=sec((s.agents||[]).map(a=>srow(a.name, a.detected? "" : T("s_not_found"), "")
         + ["hooks","mcp"].map(k=>srow(HL("menu_"+k),"",tgl("agent",a[k],` data-agent="${a.agent}" data-kind="${k}"`),"sub")).join("")
@@ -56,6 +50,7 @@ function renderSet(){
 $("#sethost").addEventListener("click",e=>{
   const a=e.target.closest("a[data-open]"); if (a){ e.preventDefault(); host({open:a.dataset.open}); return; }   // the default browser
   const t=e.target.closest("button"); if (!t || t.disabled) return;
+  if (wtTabClick(t)) return;
   if (t.dataset.do==="tg_pair"){ tgPair(); return; }
   if (t.dataset.do==="dc_pair"){ dcPair(); return; }
   if (t.dataset.do==="dc_retry" || t.dataset.do==="dc_test"){ const w=t.dataset.do; dcBusy(()=>host({settings:"do",what:w})); return; }
@@ -75,7 +70,9 @@ $("#sethost").addEventListener("click",e=>{
   t.classList.toggle("on",on); t.setAttribute("aria-checked",on?"true":"false");   // at once; the host's reply confirms or reverts
   e.currentTarget.__h=null;   // the next render (reply / poll) redraws even if the state did not change - a failed change flips back
   if (k==="muted" && !NATIVE){ api("POST","/api/settings",{muted:on}).catch(er=>snack(er.message)).finally(()=>setTimeout(renderSet,300)); return; }
-  if (k==="agent") host({settings:"set",agent:t.dataset.agent,kind:t.dataset.kind,on});
+  if (k==="worktime") host(on? {settings:"set",worktime:true,worktime_setup:wtSetup()} : {settings:"set",worktime:false});
+  else if (k==="wts") host({settings:"set",worktime_settings:{[t.dataset.wsk]:on}});
+  else if (k==="agent") host({settings:"set",agent:t.dataset.agent,kind:t.dataset.kind,on});
   else if (k==="cguard") host({settings:"set",connector:t.dataset.conn,guard:on});
   else if (k==="cbool") host({settings:"set",connector:t.dataset.conn,[t.dataset.cbool]:on});
   else if (k==="gex"){
@@ -107,6 +104,7 @@ function connKey(id, what){
   clearTimeout(checkTimer); checkTimer=setTimeout(()=>{ CHECKING.clear(); reSet(); },45000);   // no reply: don't say "checking" forever
   host({settings:"set",connector:id,key:v});
 }
+$("#sethost").addEventListener("input",wtTabInput);
 $("#sethost").addEventListener("keydown",e=>{
   const a=e.target.closest && e.target.closest("a[data-open]"); if (a && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); host({open:a.dataset.open}); return; }
   if (e.key==="Enter" && e.target.dataset && e.target.dataset.tgtok!=null){ e.preventDefault(); tgPair(); return; }
@@ -119,7 +117,13 @@ $("#sethost").addEventListener("change",e=>{
   const sl=e.target.closest && e.target.closest("select[data-csel]");
   if (sl){ $("#sethost").__h=null; host({settings:"set",connector:sl.dataset.conn,[sl.dataset.csel]:sl.value}); return; }   // a refused change: the redraw puts the old value back
   const wi=e.target.closest && e.target.closest("input[data-wset]");
-  if (wi){ $("#sethost").__h=null; const v=wi.value.trim(), k=wi.dataset.wset; if (v==="") reSet(); else host({settings:"set",[k]:k==="worktime_salary"? +v : v}); return; }   // a refused change: the redraw puts the old value back
+  if (wi){   // a refused change: the redraw puts the old value back
+    $("#sethost").__h=null; const v=wi.value.trim(), k=wi.dataset.wset, nullable=["manual_rate","holiday_mult","country","region"].includes(k);
+    if (v==="" && nullable){ host({settings:"set",worktime_settings:k==="country"? {country:null,region:null} : {[k]:null}}); return; }
+    const x=v===""? undefined : wtNum(k,v);
+    if (x===undefined){ if (v!=="") snack(T("wt_bad_value")); reSet(); } else host({settings:"set",worktime_settings:k==="country"? {country:x,region:null} : {[k]:x}});   // a region belongs to its country
+    return; }
+  if (e.target.dataset && e.target.dataset.wcKind){ wtTabSelect(e); return; }
   const i=e.target.closest && e.target.closest("input[data-cset]"); if (!i) return;
   const k=i.dataset.cset, v=i.value.trim();
   if (v==="" && !i.dataset.empty){ reSet(); return; }

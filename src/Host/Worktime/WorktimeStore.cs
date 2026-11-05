@@ -44,8 +44,8 @@ sealed class WorktimeStore
         using var ask = c.CreateCommand();
         ask.CommandText = "PRAGMA user_version";
         var have = Convert.ToInt32(ask.ExecuteScalar());
-        if (have == SchemaVersion) return;
         if (have > SchemaVersion) throw new ApiError(409, "worktime.db comes from a newer TaskHub");
+        if (have == SchemaVersion) { Extras(c); return; }
         using var t = c.BeginTransaction();
         using var cmd = c.CreateCommand();
         cmd.Transaction = t;
@@ -69,6 +69,24 @@ sealed class WorktimeStore
             """;
         cmd.ExecuteNonQuery();
         t.Commit();
+        Extras(c);
+    }
+
+    /// <summary>Tables added after the first schema. They come with "if not exists" and leave user_version alone, so an older TaskHub still opens the
+    /// file and only doesn't see them: holidays fetched (a year of a country, as the source gave it), the months whose holidays were confirmed, and
+    /// holiday names (from the source, or the user's own).</summary>
+    static void Extras(SqliteConnection c)
+    {
+        using var ask = c.CreateCommand();
+        ask.CommandText = "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('holiday_cache','holiday_review','day_names')";
+        if (Convert.ToInt32(ask.ExecuteScalar()) == 3) return;
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE IF NOT EXISTS holiday_cache(country TEXT NOT NULL, year INTEGER NOT NULL, fetched_utc INTEGER NOT NULL, json TEXT NOT NULL, PRIMARY KEY(country, year));
+            CREATE TABLE IF NOT EXISTS holiday_review(month TEXT PRIMARY KEY, at_utc INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS day_names(date TEXT PRIMARY KEY, name TEXT NOT NULL, own INTEGER NOT NULL);
+            """;
+        cmd.ExecuteNonQuery();
     }
 
     public sealed class Db
@@ -168,6 +186,50 @@ sealed class WorktimeStore
             });
         public bool MonthClosed(DateOnly d) =>
             Rows("SELECT 1 FROM month_close WHERE month=$m", r => 1, ("$m", d.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture))).Count > 0;
+
+        public (long Fetched, string Json)? HolidayCache(string country, int year) =>
+            Rows("SELECT fetched_utc, json FROM holiday_cache WHERE country=$c AND year=$y", r => ((long, string)?)(r.GetInt64(0), r.GetString(1)), ("$c", country), ("$y", year)).FirstOrDefault();
+        public void SetHolidayCache(string country, int year, long fetched, string json) =>
+            Run("INSERT OR REPLACE INTO holiday_cache(country, year, fetched_utc, json) VALUES($c, $y, $f, $j)", ("$c", country), ("$y", year), ("$f", fetched), ("$j", json));
+        public bool Reviewed(string month) => Rows("SELECT 1 FROM holiday_review WHERE month=$m", r => 1, ("$m", month)).Count > 0;
+        public void SetReviewed(string month, long at) => Run("INSERT OR REPLACE INTO holiday_review(month, at_utc) VALUES($m, $t)", ("$m", month), ("$t", at));
+        public Dictionary<DateOnly, (string Name, bool Own)> Names(DateOnly from, DateOnly to) =>
+            Rows("SELECT date, name, own FROM day_names WHERE date BETWEEN $a AND $b", r => (ParseD(r.GetString(0)), r.GetString(1), r.GetInt64(2) != 0), ("$a", D(from)), ("$b", D(to)))
+                .ToDictionary(x => x.Item1, x => (x.Item2, x.Item3));
+        public void SetName(DateOnly d, string name, bool own) =>
+            Run("INSERT OR REPLACE INTO day_names(date, name, own) VALUES($d, $n, $o)", ("$d", D(d)), ("$n", name), ("$o", own ? 1 : 0));
+        public void ClearName(DateOnly d) => Run("DELETE FROM day_names WHERE date=$d", ("$d", D(d)));
+
+        public void AddClose(string month, WorktimeCalc.MonthClose c, WorktimeCalc.MonthResult r, decimal rate, string currency) =>
+            Run("""
+                INSERT INTO month_close(month, deficit_closed_by_weekend, deficit_closed_by_holiday, carry, deficit_carried, deficit_written_off,
+                    paid_overtime_weekday, paid_overtime_weekend, paid_overtime_holiday, salary_part, rate, currency, fx_date)
+                VALUES($m, $w, $h, $c, $dc, $dw, $pw, $pe, $ph, $s, $r, $cu, NULL)
+                """, ("$m", month), ("$w", c.ClosedByWeekend), ("$h", c.ClosedByHoliday), ("$c", c.Carry ? 1 : 0), ("$dc", r.Carried), ("$dw", r.WrittenOff),
+                ("$pw", r.Weekday), ("$pe", r.Weekend), ("$ph", r.Holiday), ("$s", r.SalaryPart.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                ("$r", rate.ToString(System.Globalization.CultureInfo.InvariantCulture)), ("$cu", currency));
+        // ---- exchange rates: units of the currency for one unit of the source's base, on the rate's own date; the history is kept
+        public (DateOnly Date, decimal Rate)? Rate(string source, string currency, DateOnly onOrBefore) =>
+            Rows("SELECT date, rate FROM rates WHERE source=$s AND currency=$c AND date<=$d ORDER BY date DESC LIMIT 1",
+                r => ((DateOnly, decimal)?)(ParseD(r.GetString(0)), decimal.Parse(r.GetString(1), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture)),
+                ("$s", source), ("$c", currency), ("$d", D(onOrBefore))).FirstOrDefault();
+        public void SetRate(DateOnly d, string source, string currency, decimal rate) =>
+            Run("INSERT OR REPLACE INTO rates(date, source, currency, rate) VALUES($d, $s, $c, $r)", ("$d", D(d)), ("$s", source), ("$c", currency),
+                ("$r", rate.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        public string LastRateDate(string source) => Rows("SELECT max(date) FROM rates WHERE source=$s", r => r.IsDBNull(0) ? null : r.GetString(0), ("$s", source)).FirstOrDefault();
+
+        public void DeleteClose(string month) => Run("DELETE FROM month_close WHERE month=$m", ("$m", month));
+        public JsonObject CloseRow(string month) =>
+            Rows("""
+                SELECT deficit_closed_by_weekend, deficit_closed_by_holiday, carry, deficit_carried, deficit_written_off, paid_overtime_weekday,
+                    paid_overtime_weekend, paid_overtime_holiday, salary_part, currency FROM month_close WHERE month=$m
+                """, r => new JsonObject
+                {
+                    ["closed_by_weekend_seconds"] = r.GetInt64(0), ["closed_by_holiday_seconds"] = r.GetInt64(1), ["carry"] = r.GetInt64(2) != 0,
+                    ["carried_seconds"] = r.GetInt64(3), ["written_off_seconds"] = r.GetInt64(4), ["paid_weekday_seconds"] = r.GetInt64(5),
+                    ["paid_weekend_seconds"] = r.GetInt64(6), ["paid_holiday_seconds"] = r.GetInt64(7),
+                    ["salary_part"] = decimal.Parse(r.GetString(8), System.Globalization.CultureInfo.InvariantCulture), ["currency"] = r.GetString(9),
+                }, ("$m", month)).FirstOrDefault();
 
         // ---- the log of manual changes
         public void LogChange(DateOnly d, long at, string action, JsonNode before, JsonNode after) =>

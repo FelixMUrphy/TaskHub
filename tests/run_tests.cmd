@@ -7,6 +7,8 @@ cd /d "%~dp0"
 set EXE=%~1
 if "%EXE%"=="" set EXE=%~dp0..\app\TaskHubHost.exe
 if "%PYTHON%"=="" set PYTHON=python
+rem as in CI: the fakes print non-Latin text through pipes, which the console code page can't carry
+set PYTHONUTF8=1
 set DATA=%TEMP%\taskhub-tests
 if exist "%DATA%" rmdir /s /q "%DATA%"
 rem Every test's own temp folders go into one folder that is removed at the end: a WebView2 process can still hold files when a test deletes its folder.
@@ -62,6 +64,7 @@ for %%D in ("%EXE%") do "%PYTHON%" run_one.py "%DATA%\results" token_test.py "%E
 "%PYTHON%" run_one.py "%DATA%\results" cli_console_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" ssh_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" worktime_test.py "%EXE%" || set RC=1
+"%PYTHON%" run_one.py "%DATA%\results" worktime_month_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" limits_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" hooks_offer_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" codex_limits_test.py "%EXE%" || set RC=1

@@ -299,6 +299,94 @@ try:
     con.close()
     check("reopened: as before", status()["pools"] == open_before["pools"], status()["pools"])
 
+    # ---- the preview: what it would do, nothing done
+    base = status()
+    hist = lambda d: call("GET", f"/api/worktime/days/{d}/history")[1]["changes"]
+    h0 = len(hist(day(1)))
+    s, r = call("POST", "/api/worktime/sessions?preview=1", {"work_date": day(1), "total_hours": 2})
+    check("preview: before and after", s == 200 and r["after"]["pools"]["weekday_seconds"] == r["before"]["pools"]["weekday_seconds"] + 2 * H, (s, r))
+    check("preview: the amount too", r["after"]["money"]["earned"] > r["before"]["money"]["earned"], r)
+    check("preview: nothing kept", status()["pools"] == base["pools"] and len(hist(day(1))) == h0)
+    check("preview: refused as the real one", call("POST", "/api/worktime/sessions?preview=1", {"work_date": day(4), "total_hours": 2})[0] == 400)
+    m1 = call("GET", "/api/tasks")[1].get("worktime")
+    call("PUT", f"/api/worktime/days?from={day(1)}&to={day(1)}&preview=1", {"kind": "holiday"})
+    check("preview: no change to wake the panel", call("GET", "/api/tasks")[1].get("worktime") == m1)
+    check("preview: the mark isn't kept", call("GET", f"/api/worktime/days?from={day(1)}&to={day(1)}")[1]["days"] == [])
+    x = call("GET", f"/api/worktime/intervals?from={day(1)}&to={day(1)}")[1]["intervals"][0]
+    check("preview: a delete", call("DELETE", f"/api/worktime/intervals/{x['id']}?preview=1")[1]["after"]["deficit_seconds"] >= 0)
+    check("preview: an edit", call("PUT", f"/api/worktime/intervals/{x['id']}?preview=1", {"note": "n"})[0] == 200)
+    check("preview: neither kept", call("GET", f"/api/worktime/intervals?from={day(1)}&to={day(1)}")[1]["intervals"][0] == x)
+
+    # ---- one day, day by day
+    s, r = call("GET", f"/api/worktime/breakdown?from={day(3)}&to={day(0)}")
+    check("breakdown: every day from the start", s == 200 and [d["date"] for d in r["days"]] == [day(3), day(2), day(1), day(0)], r)
+    row = r["days"][2]
+    check("breakdown: a day's fields", all(k in row for k in ("kind", "worked_seconds", "norm_seconds", "closed", "to_deficit_seconds", "paid_off_seconds", "to_pool_seconds", "pool", "deficit_after_seconds")), row)
+    check("breakdown: its numbers", row["kind"] == "workday" and row["worked_seconds"] == 18 * H and row["norm_seconds"] == 8 * H and row["to_pool_seconds"] == 10 * H, row)
+    check("breakdown: before the start, none", call("GET", f"/api/worktime/breakdown?from={day(9)}&to={day(4)}")[1]["days"] == [])
+    check("breakdown refused: a bad date", call("GET", "/api/worktime/breakdown?from=x")[0] == 400)
+    s, r = call("GET", f"/api/worktime/days/{day(1)}")
+    check("a day: its window", s == 200 and r["row"]["worked_seconds"] == 18 * H and len(r["sessions"]) == 2 and r["editable"] is True, r)
+    check("a day: before the start can't be edited", call("GET", f"/api/worktime/days/{day(4)}")[1]["editable"] is False)
+    check("a day: ahead can't be edited", call("GET", f"/api/worktime/days/{day(-1)}")[1]["editable"] is False)
+    check("a day: refused, a bad date", call("GET", "/api/worktime/days/2026-13-40")[0] == 400)
+
+    # ---- the same hours for several days, and taking back
+    keep_pools = status()["pools"]
+    s, r = call("PUT", "/api/worktime/days/hours?preview=1", {"dates": [day(3), day(2)], "total_hours": 8})
+    check("several days: a preview", s == 200 and "after" in r, (s, r))
+    before3 = call("GET", f"/api/worktime/days/{day(3)}")[1]
+    s, r = call("PUT", "/api/worktime/days/hours", {"dates": [day(3), day(2), day(3)], "total_hours": 8, "note": "off the PC"})
+    check("several days: set", s == 200, (s, r))
+    d3 = call("GET", f"/api/worktime/days/{day(3)}")[1]
+    check("several days: one interval each, no times", len(d3["sessions"]) == 1 and d3["sessions"][0]["intervals"][0]["start"] is None and d3["sessions"][0]["intervals"][0]["duration_seconds"] == 8 * H and d3["sessions"][0]["intervals"][0]["note"] == "off the PC", d3)
+    check("several days: each in its own log", hist(day(3))[0]["action"] == "day_hours" and hist(day(2))[0]["action"] == "day_hours")
+    for b, why in (({"dates": [], "total_hours": 8}, "no dates"), ({"dates": "x", "total_hours": 8}, "not a list"), ({"dates": ["x"], "total_hours": 8}, "a bad date"), ({"dates": [day(4)], "total_hours": 8}, "before the start"), ({"dates": [day(-1)], "total_hours": 8}, "ahead"),
+                   ({"dates": [day(1)], "total_hours": "abc"}, "hours not a number"), ({"dates": [day(1)], "total_hours": 25}, "too many"), ({"dates": [day(1)]}, "no hours"), ({"dates": [day(1)], "total_hours": 1, "x": 1}, "an unknown field")):
+        check(f"several days refused: {why}", call("PUT", "/api/worktime/days/hours", b)[0] == 400, b)
+    check("a day's undo offered", d3["can_undo"] is True, d3)
+    s, r = call("POST", f"/api/worktime/days/{day(3)}/undo?preview=1", {})
+    check("undo: a preview", s == 200 and "after" in r, (s, r))
+    s, r = call("POST", f"/api/worktime/days/{day(3)}/undo", {})
+    check("undo: done", s == 200, (s, r))
+    d3b = call("GET", f"/api/worktime/days/{day(3)}")[1]
+    strip = lambda ss: [[{k: v for k, v in i.items() if k not in ("id", "session_id")} for i in s0["intervals"]] for s0 in ss]
+    check("undo: the day as it was", strip(d3b["sessions"]) == strip(before3["sessions"]) and d3b["row"]["worked_seconds"] == before3["row"]["worked_seconds"], (d3b, before3))
+    check("undo: logged", hist(day(3))[0]["action"] == "undo")
+    s, r = call("POST", f"/api/worktime/days/{day(3)}/undo", {})
+    check("undo of the undo: back again", s == 200 and call("GET", f"/api/worktime/days/{day(3)}")[1]["sessions"][0]["intervals"][0]["note"] == "off the PC", (s, r))
+    call("POST", f"/api/worktime/days/{day(3)}/undo", {})
+    s, r = call("PUT", f"/api/worktime/days?from={day(-2)}&to={day(-2)}", {"kind": "vacation"})
+    s, r = call("POST", f"/api/worktime/days/{day(-2)}/undo", {})
+    check("undo: a mark on a day ahead", s == 200 and call("GET", f"/api/worktime/days?from={day(-2)}&to={day(-2)}")[1]["days"] == [], (s, r))
+    check("undo refused: no change on that day", call("POST", f"/api/worktime/days/{day(5)}/undo", {})[0] == 404)
+    check("undo refused: a bad date", call("POST", "/api/worktime/days/2026-13-40/undo", {})[0] == 400)
+    # the buttons add hours after the last manual change: going back would lose them
+    call("POST", "/api/worktime/sessions", {"work_date": day(0), "total_hours": 1})
+    call("POST", "/api/worktime/start", {})
+    check("undo refused: a session of the day is open", call("POST", f"/api/worktime/days/{day(0)}/undo", {})[0] == 409)
+    check("hours refused: a session of the day is open", call("PUT", "/api/worktime/days/hours", {"dates": [day(0)], "total_hours": 1})[0] == 409)
+    time.sleep(1.1)
+    call("POST", "/api/worktime/finish", {})
+    s, r = call("POST", f"/api/worktime/days/{day(0)}/undo", {})
+    check("undo refused: the day has moved on since", s == 409, (s, r))
+    check("...and it isn't offered", call("GET", f"/api/worktime/days/{day(0)}")[1]["can_undo"] is False)
+    # put back: the hour by hand went in only for this
+    one = [i for i in call("GET", f"/api/worktime/intervals?from={day(0)}")[1]["intervals"] if i["start"] is None][0]
+    call("DELETE", f"/api/worktime/intervals/{one['id']}")
+
+    # ---- the settings the page changes, the versions, the start when turned on
+    s, r = call("POST", "/api/test/worktime-page", {"worktime_settings": {"weekday_mult": 1.75, "manual_rate": 20, "tolerance_pct": 3}})
+    check("page: settings", r.get("settings", {}).get("weekday_mult") == 1.75 and r["settings"]["manual_rate"] == 20, r)
+    check("page: versions, newest first", r["versions"][0]["valid_from"] == day(0) and r["versions"][-1]["valid_from"] == day(3), r["versions"])
+    check("page: the old version isn't touched", r["versions"][-1]["settings"]["weekday_mult"] == 1.5, r["versions"][-1])
+    s, r = call("POST", "/api/test/worktime-page", {"worktime_settings": {"manual_rate": None}})
+    check("page: back to the derived rate", r["settings"]["manual_rate"] is None, r)
+    for b, why in (({"weekday_mult": "abc"}, "a bad multiplier"), ({"nonsense": 1}, "an unknown one"), ({"work_days": []}, "no working days"), ({"weekly_norm_hours": 0}, "no norm")):
+        s, r = call("POST", "/api/test/worktime-page", {"worktime_settings": b})
+        check(f"page refuses {why}, in a sentence", s == 200 and r.get("error"), (s, r))
+        check("...without the API's English reason", next(iter(b)) not in r.get("error", "") and "must be" not in r.get("error", ""), r)
+
     # ---- what the panel follows: a mark in the task snapshot, and who pressed the button
     m0 = call("GET", "/api/tasks")[1].get("worktime")
     check("the snapshot carries a mark, no numbers", isinstance(m0, int), m0)
@@ -329,7 +417,7 @@ try:
     call("POST", "/api/test/worktime-page", {"worktime_salary": 3000, "worktime_currency": "EUR"})
     keep = status()
     s, r = call("POST", "/api/test/worktime-page", {"worktime": False})
-    check("off", r == {"enabled": False} and status() == {"enabled": False}, r)
+    check("off: the page still says since when, so nothing is asked again", r == {"enabled": False, "start_date": day(3)} and status() == {"enabled": False}, r)
     check("off: gone from the snapshot", call("GET", "/api/tasks")[1].get("worktime") is None)
     check("off: the file stays", os.path.exists(DB))
     check("off: the salary can't be set", call("POST", "/api/test/worktime-page", {"worktime_salary": 1}).__getitem__(1).get("error"))

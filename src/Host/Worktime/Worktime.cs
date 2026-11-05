@@ -7,7 +7,7 @@ namespace TaskHub;
 
 /// <summary>The work-hours module: sessions and intervals, what the API may change, and the state worked out of them. Off until it's turned on;
 /// while off it has no file. A session belongs to the local date it started on. Nothing here closes a session by itself, only the user does.</summary>
-sealed class Worktime
+sealed partial class Worktime
 {
     const string EnabledKey = "worktime_enabled";
     const long MaxPairSec = 48 * 3600, MaxTotalSec = 24 * 3600, MaxOpeningSec = 100_000 * 3600L;
@@ -87,7 +87,7 @@ sealed class Worktime
     {
         ["weekly_norm_hours"] = 40, ["work_days"] = new JsonArray(1, 2, 3, 4, 5), ["salary"] = 0, ["salary_currency"] = "EUR", ["manual_rate"] = null,
         ["weekday_mult"] = 1.5, ["weekend_mult"] = 2, ["holiday_mult"] = null, ["holidays_reduce_norm"] = true, ["deduct_unclosed"] = true,
-        ["tolerance_pct"] = 2, ["count_today"] = true,
+        ["tolerance_pct"] = 2, ["count_today"] = true, ["country"] = null, ["region"] = null,
     };
 
     static double Range(JsonObject s, string key, double lo, double hi)
@@ -112,6 +112,7 @@ sealed class Worktime
         foreach (var k in new[] { "holidays_reduce_norm", "deduct_unclosed", "count_today" })
             if (!J.IsBool(s[k])) throw new ApiError(400, k + " must be true or false");
         Range(s, "tolerance_pct", 0, 100);
+        CheckPlace(s);
     }
 
     static decimal Dec(JsonNode n) => (decimal)J.Num(n).Value;
@@ -178,6 +179,8 @@ sealed class Worktime
             if (!CurrencyRx.IsMatch(code)) throw new ApiError(400, "bad currency") { Ui = L.T("wt_bad_currency") };
             given["salary_currency"] = code;
         }
+        if (c["worktime_settings"] is JsonObject more)
+            foreach (var kv in more) given[kv.Key] = J.C(kv.Value);
         lock (gate)
         {
             if (c.ContainsKey("worktime"))
@@ -193,7 +196,7 @@ sealed class Worktime
                         throw new ApiError(500, "the work hours file can't be read") { Ui = L.T("wt_file_broken") };   // it stays as it is: it may be restored
                     }
                     if (used) { S.Set((EnabledKey, JsonValue.Create(true))); Log.I("worktime", "turned on again"); }
-                    else Setup(new JsonObject());
+                    else Asked(() => Setup(c["worktime_setup"] is JsonObject first ? (JsonObject)first.DeepClone() : new JsonObject()));
                 }
                 else if (!on && Enabled)
                 {
@@ -208,10 +211,17 @@ sealed class Worktime
             if (given.Count > 0)
             {
                 On();
-                Setup(new JsonObject { ["settings"] = given });
+                Asked(() => Setup(new JsonObject { ["settings"] = given }));
             }
         }
         Changed();
+    }
+
+    /// <summary>A refusal the settings page can show: one translated sentence; the API's English reason goes only to the log (the page checks ranges itself first).</summary>
+    static void Asked(Action a)
+    {
+        try { a(); }
+        catch (ApiError e) when (e.Ui == null) { Log.I("worktime", "settings refused: " + e.Message); throw new ApiError(e.Code, e.Message) { Ui = L.T("wt_bad_settings") }; }
     }
 
     /// <summary>What the settings page shows.</summary>
@@ -219,15 +229,18 @@ sealed class Worktime
     {
         lock (gate)
         {
-            if (!Enabled) return new JsonObject { ["enabled"] = false };
+            if (!Enabled) return OffView();
             try
             {
                 return Store.Tx(db =>
                 {
                     if (db.Settings().Count == 0) return Broken(null);
-                    var s = (JsonObject)J.Parse(db.Settings().Last().Json);
+                    var versions = db.Settings();
+                    var s = (JsonObject)J.Parse(versions.Last().Json);
                     return new JsonObject
                     {
+                        ["settings"] = s.DeepClone(),
+                        ["versions"] = new JsonArray(versions.AsEnumerable().Reverse().Select(x => (JsonNode)new JsonObject { ["valid_from"] = WorktimeStore.D(x.From), ["settings"] = J.Parse(x.Json) }).ToArray()),
                         ["enabled"] = true, ["start_date"] = db.Meta("start_date"), ["salary"] = J.C(s["salary"]),
                         ["salary_currency"] = J.C(s["salary_currency"]), ["weekly_norm_hours"] = J.C(s["weekly_norm_hours"]),
                     };
@@ -235,6 +248,16 @@ sealed class Worktime
             }
             catch (SqliteException e) { return Broken(e.Message); }
         }
+    }
+
+    /// <summary>Off: if the module was used before, its start date (turning it on again continues from it and asks nothing). Looking doesn't create the file.</summary>
+    JsonObject OffView()
+    {
+        var off = new JsonObject { ["enabled"] = false };
+        if (!File.Exists(S.File_("worktime.db"))) return off;
+        try { var start = Store.Tx(db => db.Meta("start_date")); if (start != null) off["start_date"] = start; }
+        catch (SqliteException) { }   // unreadable: turning it on says so
+        return off;
     }
 
     bool brokenLogged;
@@ -307,6 +330,34 @@ sealed class Worktime
         return result;
     }
 
+    sealed class Rollback : Exception { public JsonObject Result; }
+
+    /// <summary>A manual change, or with <paramref name="preview"/> what it would do to the totals: the same code in a transaction that never commits.</summary>
+    JsonObject Apply(bool preview, Action<WorktimeStore.Db> a)
+    {
+        if (!preview) return Act(a);
+        lock (gate)
+        {
+            On();
+            try
+            {
+                Store.Tx(db =>
+                {
+                    var before = Totals(StatusIn(db));
+                    a(db);
+                    throw new Rollback { Result = new JsonObject { ["before"] = before, ["after"] = Totals(StatusIn(db)) } };
+                });
+            }
+            catch (Rollback r) { return r.Result; }
+            throw new InvalidOperationException("a preview must not commit");
+        }
+    }
+
+    static JsonObject Totals(JsonObject s) => new()
+    {
+        ["deficit_seconds"] = J.C(s["deficit_seconds"]), ["pools"] = J.C(s["pools"]), ["money"] = J.C(s["money"]),
+    };
+
     /// <summary>Who pressed the button, as the intervals remember it: the panel says so, anything else is the API.</summary>
     public static string Source(JsonObject b)
     {
@@ -370,7 +421,7 @@ sealed class Worktime
         db.SetSessionTimes(sessionId, all.Where(x => x.Start != null).Select(x => x.Start).Min(), s.Open ? null : all.Where(x => x.End != null).Select(x => x.End).Max(), s.Open);
     }
 
-    public JsonObject AddSession(JsonObject b) => Act(db =>
+    public JsonObject AddSession(JsonObject b, bool preview = false) => Apply(preview, db =>
     {
         Only(b, "work_date", "intervals", "total_hours", "note");
         var d = ParseDate(J.Str(b["work_date"]), "work_date");
@@ -399,7 +450,7 @@ sealed class Worktime
         });
     });
 
-    public JsonObject AddInterval(JsonObject b) => Act(db =>
+    public JsonObject AddInterval(JsonObject b, bool preview = false) => Apply(preview, db =>
     {
         Only(b, "session_id", "start", "end", "duration_hours", "note");
         if (J.Num(b["session_id"]) is not double sid || sid != Math.Floor(sid) || sid < 1 || sid > 1e15) throw new ApiError(400, "session_id must be a number");
@@ -423,7 +474,7 @@ sealed class Worktime
         });
     });
 
-    public JsonObject EditInterval(long id, JsonObject b) => Act(db =>
+    public JsonObject EditInterval(long id, JsonObject b, bool preview = false) => Apply(preview, db =>
     {
         Only(b, "start", "end", "duration_hours", "note");
         if (b.Count == 0) throw new ApiError(400, "nothing to change");
@@ -459,7 +510,7 @@ sealed class Worktime
         });
     });
 
-    public JsonObject DeleteInterval(long id) => Act(db =>
+    public JsonObject DeleteInterval(long id, bool preview = false) => Apply(preview, db =>
     {
         var x = db.GetInterval(id) ?? throw new ApiError(404, "no such interval");
         InRange(db, x.WorkDate);
@@ -511,13 +562,13 @@ sealed class Worktime
     }
 
     /// <summary>Marks a range of days as holiday or vacation, or back to normal. Days ahead are fine: a vacation is known in advance.</summary>
-    public JsonObject SetDays(Dictionary<string, string> q, JsonObject b)
+    public JsonObject SetDays(Dictionary<string, string> q, JsonObject b, bool preview = false)
     {
         var (from, to) = Span(q);
         Only(b, "kind");
         var kind = J.IsStr(b["kind"]) ? J.Str(b["kind"]) : "";
         if (kind is not ("holiday" or "vacation" or "normal")) throw new ApiError(400, "kind must be holiday, vacation or normal");
-        return Act(db =>
+        return Apply(preview, db =>
         {
             for (var d = from; d <= to; d = d.AddDays(1)) Writable(db, d);
             for (var d = from; d <= to; d = d.AddDays(1))
@@ -532,6 +583,128 @@ sealed class Worktime
                 });
             }
         });
+    }
+
+    static void ClearDay(WorktimeStore.Db db, DateOnly d)
+    {
+        foreach (var s in db.SessionsOf(d))
+        {
+            foreach (var x in db.IntervalsOfSession(s.Id)) db.DeleteInterval(x.Id);
+            db.DeleteSession(s.Id);
+        }
+    }
+
+    /// <summary>The same hours for one day or several, without times: what the days had is replaced, each day logged on its own; 0 empties them. An open session stays out of this.</summary>
+    public JsonObject SetHours(JsonObject b, bool preview = false) => Apply(preview, db =>
+    {
+        Only(b, "dates", "total_hours", "note");
+        if (b["dates"] is not JsonArray list || list.Count == 0 || list.Count > MaxDays) throw new ApiError(400, $"dates must be a list of 1 to {MaxDays} dates");
+        var dates = list.Select(x => ParseDate(J.IsStr(x) ? J.Str(x) : "", "a date")).Distinct().OrderBy(x => x).ToList();
+        var seconds = Hours(b["total_hours"], "total_hours", MaxTotalSec, zeroOk: true);
+        var note = Note(b["note"]);
+        foreach (var d in dates)
+        {
+            InRange(db, d);
+            if (db.SessionsOf(d).Any(s => s.Open)) throw new ApiError(409, $"a session of {WorktimeStore.D(d)} is open: finish it first");
+        }
+        foreach (var d in dates)
+            Logged(db, d, "day_hours", () =>
+            {
+                ClearDay(db, d);
+                if (seconds > 0) db.AddInterval(db.AddSession(d, null, null, false), null, null, seconds, "manual", note);
+            });
+    });
+
+    /// <summary>Takes back a day's last manual change. Refused if the day has moved on since, as with hours from the buttons: going back would lose them.</summary>
+    public JsonObject Undo(string date, bool preview = false)
+    {
+        var d = ParseDate(date, "date");
+        return Apply(preview, db =>
+        {
+            Writable(db, d);
+            var rows = db.History(d);
+            if (rows.Count == 0) throw new ApiError(404, "this day has no change to undo");
+            if (rows[0].After != Snapshot(db, d).ToJsonString()) throw new ApiError(409, "the day has changed since its last manual change");
+            var before = (JsonObject)J.Parse(rows[0].Before);
+            if (db.SessionsOf(d).Any(s => s.Open) || ((JsonArray)before["sessions"]).Any(s => J.Truthy(s["open"]))) throw new ApiError(409, "a session of this day is open: finish it first");
+            Logged(db, d, "undo", () => Restore(db, d, before));
+        });
+    }
+
+    static void Restore(WorktimeStore.Db db, DateOnly d, JsonObject day)
+    {
+        ClearDay(db, d);
+        db.ClearMark(d);
+        if (day["mark"] is JsonObject m) db.SetMark(d, J.Str(m["kind"]), J.Str(m["source"]));
+        foreach (var s in (JsonArray)day["sessions"])
+        {
+            var id = db.AddSession(d, null, null, false);
+            foreach (var x in (JsonArray)s["intervals"])
+            {
+                string source = J.Str(x["source"]), note = J.Str(x["note"]);
+                if (x["start"] == null) db.AddInterval(id, null, null, (long)J.Num(x["duration_seconds"]).Value, source, note);
+                else
+                {
+                    long start = ParseTime(x["start"], "start"), end = ParseTime(x["end"], "end");
+                    if (db.Overlapping(start, end, Now()) is { } other) throw new ApiError(409, $"it overlaps interval {other.Id} of {WorktimeStore.D(other.WorkDate)}");
+                    db.AddInterval(id, start, end, null, source, note);
+                }
+            }
+            Resync(db, id);
+        }
+    }
+
+    static JsonObject RowJson(WorktimeCalc.DayRow r) => new()
+    {
+        ["date"] = WorktimeStore.D(r.Date), ["kind"] = r.Kind.ToString().ToLowerInvariant(), ["worked_seconds"] = r.Worked, ["norm_seconds"] = r.Norm, ["closed"] = r.Closed,
+        ["to_deficit_seconds"] = r.ToDeficit, ["paid_off_seconds"] = r.PaidOff, ["to_pool_seconds"] = r.ToPool, ["pool"] = r.Pool.ToString().ToLowerInvariant(), ["deficit_after_seconds"] = r.DeficitAfter,
+    };
+
+    /// <summary>Day by day: hours, norm, what went to the deficit and to overtime. Days ahead and before the start have no row, only their marks.</summary>
+    public JsonObject Breakdown(Dictionary<string, string> q)
+    {
+        var (from, to) = Span(q);
+        lock (gate)
+        {
+            On();
+            return Store.Tx(db =>
+            {
+                var now = Now();
+                var c = CalcOf(db, Today(), now);
+                var r = WorktimeCalc.Compute(c.Input);
+                return new JsonObject
+                {
+                    ["today"] = WorktimeStore.D(Today()), ["start_date"] = WorktimeStore.D(c.Input.Start),
+                    ["days"] = new JsonArray(r.Days.Where(x => x.Date >= from && x.Date <= to).Select(x => (JsonNode)RowJson(x)).ToArray()),
+                    ["marks"] = new JsonArray(db.Marks(from, to).Select(x => (JsonNode)new JsonObject { ["date"] = WorktimeStore.D(x.Date), ["kind"] = x.Kind, ["name"] = NameOf(db, c.Settings, x.Date, x.Kind) }).ToArray()),
+                    ["closed_months"] = J.StrArray(db.Closes().Select(x => $"{x.Year:D4}-{x.Month:D2}")),
+                };
+            });
+        }
+    }
+
+    /// <summary>One day as the day window shows it.</summary>
+    public JsonObject Day(string date)
+    {
+        var d = ParseDate(date, "date");
+        lock (gate)
+        {
+            On();
+            return Store.Tx(db =>
+            {
+                var c = CalcOf(db, Today(), Now());
+                var row = WorktimeCalc.Compute(c.Input).Days.FirstOrDefault(x => x.Date == d);
+                var day = Snapshot(db, d);
+                var last = db.History(d);
+                bool open = db.SessionsOf(d).Any(s => s.Open);
+                return new JsonObject
+                {
+                    ["date"] = date, ["row"] = row == null ? null : RowJson(row), ["mark"] = J.C(day["mark"]), ["name"] = NameOf(db, c.Settings, d, J.Str(day["mark"]?["kind"])), ["sessions"] = J.C(day["sessions"]),
+                    ["closed_month"] = db.MonthClosed(d), ["editable"] = d <= Today() && d >= c.Input.Start && !db.MonthClosed(d),
+                    ["can_undo"] = !open && !db.MonthClosed(d) && last.Count > 0 && last[0].After == day.ToJsonString(),
+                };
+            });
+        }
     }
 
     public JsonObject History(string date)
@@ -575,71 +748,86 @@ sealed class Worktime
         ["tolerance_seconds"] = b.Tolerance, ["above_seconds"] = b.Above, ["fill"] = Math.Round(b.Fill, 4), ["state"] = b.State.ToString().ToLowerInvariant(),
     };
 
-    JsonObject StatusLocked()
+    JsonObject StatusLocked() => Store.Tx(StatusIn);
+
+    /// <summary>A holiday's name as shown, or null.</summary>
+    static string NameOf(WorktimeStore.Db db, JsonObject settings, DateOnly d, string kind)
+    {
+        if (kind != "holiday" || !db.Names(d, d).TryGetValue(d, out var n)) return null;
+        return n.Own ? n.Name : HolidayNames.Local(PlaceOf(settings).Country, n.Name, L.Lang) ?? n.Name;
+    }
+
+    sealed record Calc(WorktimeCalc.Input Input, JsonObject Settings, WorktimeStore.Session Open);
+
+    static Calc CalcOf(WorktimeStore.Db db, DateOnly today, long now)
+    {
+        var startText = db.Meta("start_date") ?? throw new ApiError(409, "the work hours module has no start date");
+        var start = ParseDate(startText, "start_date");
+        var versions = db.Settings();
+        var rules = versions.Select(x => RulesOf(x.From, x.Json)).ToList();
+        var settings = (JsonObject)J.Parse(versions.Last(x => x.From <= today || x.From == versions[0].From).Json);
+        var open = db.OpenSession();
+        var days = new Dictionary<DateOnly, WorktimeCalc.DayWork>();
+        foreach (var x in db.IntervalsBetween(start, today))
+        {
+            days.TryGetValue(x.WorkDate, out var had);
+            days[x.WorkDate] = new((had?.Seconds ?? 0) + x.Seconds(now));
+        }
+        if (open != null)
+        {
+            days.TryGetValue(open.WorkDate, out var had);
+            days[open.WorkDate] = new(had?.Seconds ?? 0, true);
+        }
+        var marks = db.Marks(DateOnly.MinValue, DateOnly.MaxValue);
+        long Opening(string k) => long.TryParse(db.Meta("opening_" + k), NumberStyles.None, CultureInfo.InvariantCulture, out var v) ? v : 0;
+        var input = new WorktimeCalc.Input(rules, start, today, days,
+            marks.Where(x => x.Kind == "holiday").Select(x => x.Date).ToHashSet(),
+            marks.Where(x => x.Kind == "vacation").Select(x => x.Date).ToHashSet(),
+            db.Closes().ToDictionary(x => (x.Year, x.Month), x => x.Close),
+            Opening("deficit_hours"), Opening("weekday_hours"), Opening("weekend_hours"), Opening("holiday_hours"));
+        return new Calc(input, settings, open);
+    }
+
+    JsonObject StatusIn(WorktimeStore.Db db)
     {
         var now = Now();
         var today = Today();
-        return Store.Tx(db =>
+        var c = CalcOf(db, today, now);
+        var (input, settings, open) = (c.Input, c.Settings, c.Open);
+        var r = WorktimeCalc.Compute(input);
+
+        var ofToday = db.SessionsOf(today).Where(x => x.Started != null).Select(x => x.Started.Value).ToList();
+        long? elapsed = ofToday.Count > 0 ? now - ofToday.Min() : null;
+        bool countToday = J.Truthy(settings["count_today"]);
+        double tolerance = J.Num(settings["tolerance_pct"]) ?? 2;
+        var monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
+        var first = new DateOnly(today.Year, today.Month, 1);
+        var week = WorktimeCalc.BarOf(input, monday, monday.AddDays(6), false, elapsed, countToday, tolerance);
+        var month = WorktimeCalc.BarOf(input, first, first.AddMonths(1).AddDays(-1), true, elapsed, countToday, tolerance);
+
+        JsonObject session = null;
+        if (open != null)
         {
-            var startText = db.Meta("start_date") ?? throw new ApiError(409, "the work hours module has no start date");
-            var start = ParseDate(startText, "start_date");
-            var versions = db.Settings();
-            var rules = versions.Select(x => RulesOf(x.From, x.Json)).ToList();
-            var settings = (JsonObject)J.Parse(versions.Last(x => x.From <= today || x.From == versions[0].From).Json);
-
-            var open = db.OpenSession();
-            var days = new Dictionary<DateOnly, WorktimeCalc.DayWork>();
-            foreach (var x in db.IntervalsBetween(start, today))
+            var ints = db.IntervalsOfSession(open.Id);
+            session = new JsonObject
             {
-                days.TryGetValue(x.WorkDate, out var had);
-                days[x.WorkDate] = new((had?.Seconds ?? 0) + x.Seconds(now));
-            }
-            if (open != null)
-            {
-                days.TryGetValue(open.WorkDate, out var had);
-                days[open.WorkDate] = new(had?.Seconds ?? 0, true);
-            }
-            var marks = db.Marks(DateOnly.MinValue, DateOnly.MaxValue);
-            long Opening(string k) => long.TryParse(db.Meta("opening_" + k), NumberStyles.None, CultureInfo.InvariantCulture, out var v) ? v : 0;
-            var input = new WorktimeCalc.Input(rules, start, today, days,
-                marks.Where(x => x.Kind == "holiday").Select(x => x.Date).ToHashSet(),
-                marks.Where(x => x.Kind == "vacation").Select(x => x.Date).ToHashSet(),
-                db.Closes().ToDictionary(x => (x.Year, x.Month), x => x.Close),
-                Opening("deficit_hours"), Opening("weekday_hours"), Opening("weekend_hours"), Opening("holiday_hours"));
-            var r = WorktimeCalc.Compute(input);
-
-            var ofToday = db.SessionsOf(today).Where(x => x.Started != null).Select(x => x.Started.Value).ToList();
-            long? elapsed = ofToday.Count > 0 ? now - ofToday.Min() : null;
-            bool countToday = J.Truthy(settings["count_today"]);
-            double tolerance = J.Num(settings["tolerance_pct"]) ?? 2;
-            var monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
-            var first = new DateOnly(today.Year, today.Month, 1);
-            var week = WorktimeCalc.BarOf(input, monday, monday.AddDays(6), false, elapsed, countToday, tolerance);
-            var month = WorktimeCalc.BarOf(input, first, first.AddMonths(1).AddDays(-1), true, elapsed, countToday, tolerance);
-
-            JsonObject session = null;
-            if (open != null)
-            {
-                var ints = db.IntervalsOfSession(open.Id);
-                session = new JsonObject
-                {
-                    ["id"] = open.Id, ["work_date"] = WorktimeStore.D(open.WorkDate), ["state"] = ints.Any(x => x.Running) ? "running" : "paused",
-                    ["started"] = Iso(open.Started), ["worked_seconds"] = ints.Sum(x => x.Seconds(now)),
-                };
-            }
-            return new JsonObject
-            {
-                ["enabled"] = true, ["today"] = WorktimeStore.D(today), ["start_date"] = startText, ["session"] = session,
-                ["week"] = BarJson(week), ["month"] = BarJson(month), ["deficit_seconds"] = r.Deficit,
-                ["pools"] = new JsonObject { ["weekday_seconds"] = r.Weekday, ["weekend_seconds"] = r.Weekend, ["holiday_seconds"] = r.Holiday },
-                ["money"] = new JsonObject
-                {
-                    ["set"] = (J.Num(settings["salary"]) ?? 0) > 0 || settings["manual_rate"] != null,
-                    ["currency"] = J.Str(settings["salary_currency"]), ["earned"] = Math.Round(r.Earned, 2),
-                    ["overtime"] = Math.Round(r.Current?.OvertimeMoney ?? 0, 2),
-                },
-                ["unclosed_months"] = J.StrArray(r.Months.Where(m => m.Paid && !m.Closed).Select(m => $"{m.Year:D4}-{m.Month:D2}")),
+                ["id"] = open.Id, ["work_date"] = WorktimeStore.D(open.WorkDate), ["state"] = ints.Any(x => x.Running) ? "running" : "paused",
+                ["started"] = Iso(open.Started), ["worked_seconds"] = ints.Sum(x => x.Seconds(now)),
             };
-        });
+        }
+        return new JsonObject
+        {
+            ["enabled"] = true, ["today"] = WorktimeStore.D(today), ["start_date"] = WorktimeStore.D(input.Start), ["session"] = session,
+            ["week"] = BarJson(week), ["month"] = BarJson(month), ["deficit_seconds"] = r.Deficit,
+            ["pools"] = new JsonObject { ["weekday_seconds"] = r.Weekday, ["weekend_seconds"] = r.Weekend, ["holiday_seconds"] = r.Holiday },
+            ["money"] = new JsonObject
+            {
+                ["set"] = (J.Num(settings["salary"]) ?? 0) > 0 || settings["manual_rate"] != null,
+                ["currency"] = J.Str(settings["salary_currency"]), ["earned"] = Math.Round(r.Earned, 2),
+                ["overtime"] = Math.Round(r.Current?.OvertimeMoney ?? 0, 2),
+            },
+            ["unclosed_months"] = J.StrArray(r.Months.Where(m => m.Paid && !m.Closed).Select(m => $"{m.Year:D4}-{m.Month:D2}")),
+            ["holidays_to_confirm"] = HolidaysToConfirm(db, settings, today),
+        };
     }
 }

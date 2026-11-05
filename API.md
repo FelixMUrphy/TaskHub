@@ -298,6 +298,18 @@ Off until it's turned on in Settings; while off, `GET /api/worktime/status` says
 | PUT / DELETE | `/api/worktime/intervals/{id}` | `start`, `end`, `duration_hours`, `note`. A running interval's end can't be changed and it can't be deleted (409) |
 | GET / PUT | `/api/worktime/days?from=&to=` | Day marks. PUT: `kind` holiday, vacation or normal |
 | GET | `/api/worktime/days/{date}/history` | Manual changes of that day, newest first, with the day before and after |
+| GET | `/api/worktime/days/{date}` | One day: `row` (worked, norm, short, covered, overtime), `mark`, `sessions` with their intervals, `closed_month`, `editable`, `can_undo` |
+| PUT | `/api/worktime/days/hours` | Sets the total of whole days: `dates` (a list, at most 366), `total_hours` (up to 24), optional `note`. The intervals of those days are replaced by one without times (none for 0). 409 if one of them has a session open |
+| POST | `/api/worktime/days/{date}/undo` | Takes back the day's last manual change. 409 if the day has changed since or a session is open |
+| GET | `/api/worktime/breakdown?from=&to=` | Day by day, as counted: `today`, `start_date`, `days` (each with `worked_seconds`, `norm_seconds`, `kind`, `pool`, `to_pool_seconds`, `to_deficit_seconds`, `paid_off_seconds`, `deficit_after_seconds`, `closed`), `marks`, `closed_months` |
+
+| GET | `/api/worktime/months/{yyyy-MM}` | A month as the closing sees it: `closed`, `can_close` (a past month, the earliest one not closed), `can_reopen` (the latest closed one), `close_first`, `deficit_seconds`, `weekday_seconds`, `weekend_seconds`, `holiday_seconds`, `max_cover_seconds`, `deduct_unclosed`, and `close` (what was decided) once closed. The numbers are from before its closing |
+| POST | `/api/worktime/months/{yyyy-MM}/close` | `cover_hours` (default 0) of the shortfall are covered with weekend and holiday hours, the lower multiplier first; the rest is carried on (`carry`, default true) or not, and then the "deducted from salary or written off" setting applies. The overtime left is paid. 409 if it isn't the month to close now |
+| POST | `/api/worktime/months/{yyyy-MM}/reopen` | Only the latest closed month; its days can be changed again and it's closed anew |
+| GET | `/api/worktime/holidays?month=yyyy-MM` | The month's official holidays for the country and region of the settings: `source` (ok, old: the list couldn't be refreshed, unavailable, none: no country), `reviewed`, `holidays` (`date`, `name` as shown, `source_name`, `marked`), `own` |
+| POST | `/api/worktime/holidays/{yyyy-MM}/confirm` | `dates`: the official holidays kept (the others aren't applied); `own`: `[{date, name}]`, days of the user's own. After that the month isn't asked again |
+
+Every request that changes hours, months or holidays takes `?preview=1`: it answers `before` and `after` (`deficit_seconds`, `pools`, `money`) and saves nothing. The status has `unclosed_months` and `holidays_to_confirm` (this month, while its holidays wait for an answer). Holidays are fetched from nagerholidays.com only when a country is set, at most about once a week; only types with Public count, nationwide or in the region.
 
 An interval with times is refused if it overlaps another one (409), ends in the future or lasts more than 48 h (400). A date before the start date or in the future is refused (400), a date in a closed month too (409). The task snapshot's `worktime` is null while off, otherwise a number that changes with every change.
 

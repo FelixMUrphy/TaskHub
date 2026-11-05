@@ -5,6 +5,9 @@ from here), followed by the list of commits.
 
 ## Unreleased
 
+- **Work hours: the Settings tab.** A month calendar with each day's hours; a day opens with its periods, which can be added, changed or deleted, a total for the whole day, its type (working day, holiday, vacation) and an undo of the last change. Several days can be set at once. Every change shows first what it does to the overtime, the shortfall and the amount earned, and is saved only then. The settings of the count (norm, working days, salary, multipliers, tolerance) are here too, and when it's turned on the start date, the norm, the working days, the salary and the hours carried from before are asked once.
+- **Work hours: closing a month and holidays.** After a month ends, Settings offers to close it: cover the shortfall with weekend or holiday hours, carry the rest over or not; the overtime left is paid. The latest closed month can be reopened. With a country (and optionally a region) set, the public holidays of each month are fetched from nagerholidays.com and counted only after you confirm them; you can drop any and add your own. Ukrainian holidays have their Ukrainian names.
+
 ## 4.1.0 — 2026-11-05
 
 - **Work hours (in progress, off by default).** Turned on in Settings, it shows Start, Pause and Finish buttons above the list, week and month bars coloured against the norm, and the amount earned. Hours, overtime and pay stay in a file on your PC. The full settings, the calendar, holidays and month closing are still to come.
