@@ -33,6 +33,7 @@ function renderSet(){
     if (tab==="about") h=sec(srow("TaskHub "+s.version, T(s.edition==="store"?"s_ed_store":"s_ed_github"), sbtn("support",HL("support"),"heart")),T("s_about"));
   }
   if (box.__h===h && box.__tab===tab) return;
+  if (WSEL && box.contains(WSEL.el)) return;   // a list being walked with the keys: a redraw would lose its place
   // keep the focus on the same control across a re-render (the state comes back every few seconds)
   const f=document.activeElement, fk=f && box.contains(f) ? ckey(f) : null;
   // a key being pasted (kept per tab), a number being typed
@@ -117,18 +118,30 @@ $("#sethost").addEventListener("change",e=>{
   const sl=e.target.closest && e.target.closest("select[data-csel]");
   if (sl){ $("#sethost").__h=null; host({settings:"set",connector:sl.dataset.conn,[sl.dataset.csel]:sl.value}); return; }   // a refused change: the redraw puts the old value back
   const wi=e.target.closest && e.target.closest("input[data-wset],select[data-wset]");
-  if (wi){   // a refused change: the redraw puts the old value back
-    $("#sethost").__h=null; const v=wi.value.trim(), k=wi.dataset.wset, nullable=["manual_rate","holiday_mult","country","region","display_currency","fx_manual_rate","remind_start","remind_paused_hours","remind_open_after"].includes(k);
-    if (v==="" && nullable){ host({settings:"set",worktime_settings:k==="country"? {country:null,region:null} : {[k]:null}}); return; }
-    const x=v===""? undefined : wtNum(k,v);
-    if (x===undefined){ if (v!=="") snack(T("wt_bad_value")); reSet(); } else host({settings:"set",worktime_settings:k==="country"? {country:x,region:null} : {[k]:x}});   // a region belongs to its country
-    return; }
+  if (wi){
+    // a list walked with the keys (arrows, letters) changes at every key: the pick is sent after a pause, on Enter or when the list is left
+    if (wi.tagName==="SELECT" && Date.now()-WSEL_KEY<400){ clearTimeout(WSEL && WSEL.t); WSEL={el:wi, t:setTimeout(()=>wsetSend(wi),1200)}; return; }
+    wsetSend(wi); return; }
   if (e.target.dataset && e.target.dataset.wcKind){ wtTabSelect(e); return; }
+  if (e.target.dataset && e.target.dataset.wf==="salary_currency"){ WC.setupCur=e.target.value; reSet(); return; }   // the setup's pick, kept across redraws
   const i=e.target.closest && e.target.closest("input[data-cset]"); if (!i) return;
   const k=i.dataset.cset, v=i.value.trim();
   if (v==="" && !i.dataset.empty){ reSet(); return; }
   host({settings:"set",connector:i.dataset.conn,[k]: v===""? null : +v});
 });
+// a Work hours setting sent; a refused change: the redraw puts the old value back
+let WSEL=null, WSEL_KEY=0;
+function wsetSend(wi){
+  if (WSEL){ clearTimeout(WSEL.t); WSEL=null; }
+  $("#sethost").__h=null; const v=wi.value.trim(), k=wi.dataset.wset, nullable=["manual_rate","holiday_mult","country","region","display_currency","fx_manual_rate","remind_start","remind_paused_hours","remind_open_after"].includes(k);
+  if (v==="" && nullable){ host({settings:"set",worktime_settings:k==="country"? {country:null,region:null} : {[k]:null}}); return; }
+  const x=v===""? undefined : wtNum(k,v);
+  if (x===undefined){ if (v!=="") snack(T("wt_bad_value")); reSet(); } else host({settings:"set",worktime_settings:k==="country"? {country:x,region:null} : {[k]:x}});   // a region belongs to its country
+}
+$("#sethost").addEventListener("keydown",e=>{ const sl=e.target.closest && e.target.closest("select[data-wset]"); if (!sl) return;
+  if (e.key==="Enter" && WSEL && WSEL.el===sl){ e.preventDefault(); wsetSend(sl); return; }
+  if (e.key!=="Tab") WSEL_KEY=Date.now(); });
+$("#sethost").addEventListener("focusout",e=>{ if (WSEL && WSEL.el===e.target) wsetSend(e.target); });
 function settingsReply(d){
   if (d.error || d.note || d.info){ CHECKING.clear(); clearTimeout(checkTimer); clearTimeout(TGBUSY); TGBUSY=0; clearTimeout(DCBUSY); DCBUSY=0; }   // the answer to a key just saved
   listReply(d);

@@ -112,6 +112,7 @@ try:
     check("settings saved before the rate keys: a change is taken", "error" not in r and r["settings"].get("rate_source") == "ecb", r)
     m = status()["money"]
     check("no display currency: none asked, nothing fetched", m.get("display") is None and hits == {"ecb": 0, "nbu": 0}, (m, hits))
+    check("the page's list: no rated currencies before any rates", r.get("rate_currencies") is None, r.get("rate_currencies"))
     for b, why in (({"display_currency": "dollar"}, "a long code"), ({"rate_source": "fed"}, "an unknown source"), ({"rate_time": "25:00"}, "a bad time"), ({"fx_manual_rate": 0}, "a zero rate")):
         check(f"settings refuse {why}", page({"worktime_settings": b}).get("error"))
     page({"worktime_settings": {"display_currency": "USD"}})
@@ -124,6 +125,7 @@ try:
     status()
     time.sleep(1)
     check("refreshed once a day, not on every ask", hits["ecb"] == 1, hits)
+    check("the page's list: the currencies the source has a rate for, with its base", page({}).get("rate_currencies") == ["EUR", "JPY", "PLN", "USD"], page({}).get("rate_currencies"))
     page({"worktime_settings": {"display_currency": "PLN"}})
     d = status()["money"]["display"]
     check("another currency from the same list, no new fetch", abs(d["rate"] - 4.4) < 1e-9 and hits["ecb"] == 1, (d, hits))
@@ -138,6 +140,8 @@ try:
     d = until(lambda: status()["money"]["display"].get("source") == "nbu" and status()["money"]["display"].get("rate") and status()["money"]["display"])
     check("the NBU: its list fetched", d and hits["nbu"] == 1, (d, hits))
     check("...a cross rate through the hryvnia", d and abs(d["rate"] - 45.0 / 41.5) < 1e-6, d)
+    rc = page({}).get("rate_currencies") or []
+    check("...the page's list follows the chosen source", "UAH" in rc and "USD" in rc and "JPY" not in rc and "XAU" not in rc, rc)
     con = sqlite3.connect(DB)
     check("metals left out of the NBU list", con.execute("SELECT count(*) FROM rates WHERE currency='XAU'").fetchone()[0] == 0)
     check("rates kept with their date and source", con.execute("SELECT count(*) FROM rates WHERE source='ecb' AND date=?", (RDATE.isoformat(),)).fetchone()[0] == 3)

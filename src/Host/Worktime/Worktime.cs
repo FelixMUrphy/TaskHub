@@ -256,6 +256,8 @@ sealed partial class Worktime
                         ["versions"] = new JsonArray(versions.AsEnumerable().Reverse().Select(x => (JsonNode)new JsonObject { ["valid_from"] = WorktimeStore.D(x.From), ["settings"] = J.Parse(x.Json) }).ToArray()),
                         ["enabled"] = true, ["start_date"] = db.Meta("start_date"), ["salary"] = J.C(s["salary"]),
                         ["salary_currency"] = J.C(s["salary_currency"]), ["weekly_norm_hours"] = J.C(s["weekly_norm_hours"]),
+                        // the lists the page picks from: regions the holiday list names (null until it is fetched), currencies the source has a rate for
+                        ["regions"] = RegionsOf(db, s), ["rate_currencies"] = RateCurrenciesOf(db, s),
                     };
                 });
             }

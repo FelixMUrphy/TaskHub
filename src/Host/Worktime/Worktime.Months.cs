@@ -131,6 +131,23 @@ sealed partial class Worktime
         return list.OrderBy(x => x.Date).ToList();
     }
 
+    /// <summary>For the settings page: the regions with their own days off in this year's list of the country, sorted; null while there is no list
+    /// (the page asks for the month's holidays, which fetches it). The source has no list of subdivisions, and a region it doesn't name changes nothing.</summary>
+    static JsonArray RegionsOf(WorktimeStore.Db db, JsonObject settings)
+    {
+        var (country, _) = PlaceOf(settings);
+        if (country == null) return null;
+        var cache = db.HolidayCache(country, Today().Year);
+        if (cache == null) return null;
+        var found = new SortedSet<string>(StringComparer.Ordinal);
+        if (J.Parse(cache.Value.Json) is JsonArray all)
+            foreach (var n in all)
+                if (n is JsonObject h && h["holidayTypes"] is JsonArray types && types.Any(t => J.IsStr(t) && J.Str(t) == "Public") && h["subdivisionCodes"] is JsonArray subs)
+                    foreach (var x in subs)
+                        if (J.IsStr(x) && RegionRx.IsMatch(J.Str(x)) && J.Str(x).StartsWith(country + "-", StringComparison.Ordinal)) found.Add(J.Str(x));
+        return new JsonArray(found.Select(x => (JsonNode)x).ToArray());
+    }
+
     static (string Country, string Region) PlaceOf(JsonObject settings)
     {
         var c = J.IsStr(settings["country"]) ? J.Str(settings["country"]) : null;

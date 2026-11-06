@@ -29,6 +29,15 @@ sealed partial class Worktime
     static string SourceOf(JsonObject s) => J.IsStr(s["rate_source"]) && J.Str(s["rate_source"]) == "nbu" ? "nbu" : "ecb";
     static string BaseOf(string source) => source == "nbu" ? "UAH" : "EUR";
 
+    /// <summary>For the settings page: the currencies the chosen source had a rate for when it was last fetched, with its base; null if never fetched.</summary>
+    static JsonArray RateCurrenciesOf(WorktimeStore.Db db, JsonObject s)
+    {
+        var source = SourceOf(s);
+        var list = db.RateCurrencies(source);
+        if (list.Count == 0) return null;
+        return new JsonArray(list.Append(BaseOf(source)).Distinct().Order(StringComparer.Ordinal).Select(x => (JsonNode)x).ToArray());
+    }
+
     /// <summary>The display currency, if it differs from the salary's; else null and no rates are needed.</summary>
     static string DisplayOf(JsonObject s)
     {

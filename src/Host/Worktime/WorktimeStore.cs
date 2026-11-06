@@ -218,6 +218,9 @@ sealed class WorktimeStore
         public void SetRate(DateOnly d, string source, string currency, decimal rate) =>
             Run("INSERT OR REPLACE INTO rates(date, source, currency, rate) VALUES($d, $s, $c, $r)", ("$d", D(d)), ("$s", source), ("$c", currency),
                 ("$r", rate.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        /// <summary>The currencies of the source's newest rates (the base not among them).</summary>
+        public List<string> RateCurrencies(string source) =>
+            Rows("SELECT currency FROM rates WHERE source=$s AND date=(SELECT max(date) FROM rates WHERE source=$s) ORDER BY currency", r => r.GetString(0), ("$s", source));
         public string LastRateDate(string source) => Rows("SELECT max(date) FROM rates WHERE source=$s", r => r.IsDBNull(0) ? null : r.GetString(0), ("$s", source)).FirstOrDefault();
 
         public void DeleteClose(string month) => Run("DELETE FROM month_close WHERE month=$m", ("$m", month));

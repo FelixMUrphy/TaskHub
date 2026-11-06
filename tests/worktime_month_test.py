@@ -186,8 +186,11 @@ try:
     check("answered again without the official day: its mark goes, the own day stays",
           s == 200 and [x["date"] for x in call("GET", f"/api/worktime/days?from={d3}&to={own}")[1]["days"]] == [own], call("GET", f"/api/worktime/days?from={d3}&to={own}")[1])
 
+    check("the page's regions: none for a country without regional days", page({}).get("regions") == [], page({}).get("regions"))
     page({"worktime_settings": {"country": "DE", "region": "DE-BY"}})
+    check("...a country not fetched yet: no list", page({}).get("regions") is None, page({}).get("regions"))
     s, h = call("GET", f"/api/worktime/holidays?month={M}")
+    check("...fetched: the regions with public days off, sorted, not school-only ones", page({}).get("regions") == ["DE-BW", "DE-BY", "DE-SN"], page({}).get("regions"))
     check("a region: its holidays and the nationwide ones, not other regions' or school days", [x["source_name"] for x in h.get("holidays", [])] == ["Epiphany"], h)
     check("...not translated where there's no built-in name", h["holidays"][0]["name"] == "Epiphany", h)
     page({"worktime_settings": {"country": "XX", "region": None}})

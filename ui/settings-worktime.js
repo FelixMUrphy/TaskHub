@@ -127,7 +127,32 @@ function wtNum(k,v){
   const n=Number(v); if (v==="" || !isFinite(n) || n<0 || n>WT_MAX[k] || (WT_ABOVE0.has(k) && n===0)) return undefined;
   return n;
 }
-function wtCountry(c){ try{ return "("+new Intl.DisplayNames([LOC()],{type:"region"}).of(c)+")"; }catch(e){ return ""; } }
+// ---- the lists the settings pick from: names in the UI language (Intl), nothing fetched for them
+const WT_COUNTRIES="AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS XK YE YT ZA ZM ZW".split(" ");
+const WT_CURRENCIES="AED AFN ALL AMD AOA ARS AUD AWG AZN BAM BBD BDT BHD BIF BMD BND BOB BRL BSD BTN BWP BYN BZD CAD CDF CHF CLP CNY COP CRC CUP CVE CZK DJF DKK DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL HTG HUF IDR ILS INR IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP LKR LRD LSL LYD MAD MDL MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SOS SRD SSP STN SVC SYP SZL THB TJS TMT TND TOP TRY TTD TWD TZS UAH UGX USD UYU UZS VES VND VUV WST XAF XCD XCG XOF XPF YER ZAR ZMW ZWG".split(" ");
+function wtName(type,c){ try{ return new Intl.DisplayNames([LOC()],{type,fallback:"none"}).of(c)||""; }catch(e){ return ""; } }
+const wtOpt=(v,text,cur)=>`<option value="${esc(v)}"${v===cur?" selected":""}>${esc(text)}</option>`;
+// a country by its name (typing the first letters finds it), the code after it (before it in Chinese and Japanese, typed in Latin letters); the saved one is kept even if the list lacks it
+function wtCountryOptions(cur,none){
+  const cs=WT_COUNTRIES.includes(cur)||!cur? WT_COUNTRIES : WT_COUNTRIES.concat(cur), coll=new Intl.Collator(LOC());
+  return wtOpt("",none,cur||"")+cs.map(c=>[c,wtName("region",c)||c]).sort((a,b)=>coll.compare(a[1],b[1])).map(([c,n])=>wtOpt(c,/^(zh|ja)/.test(LOC())? c+" · "+n : n+" ("+c+")",cur)).join("");
+}
+// a currency by its code (typing it finds it), the name after it; with first: those listed first, in their own group
+function wtCurrencyOptions(cur,none,first,firstLabel){
+  const all=[...new Set(WT_CURRENCIES.concat(first||[],cur? [cur] : []))].sort(), o=c=>wtOpt(c,c+" · "+(wtName("currency",c)||c),cur);
+  const head=none==null? "" : wtOpt("",none,cur||"");
+  if (!first || !first.length) return head+all.map(o).join("");
+  const f=new Set(first);
+  return head+`<optgroup label="${esc(firstLabel)}">${all.filter(c=>f.has(c)).map(o).join("")}</optgroup><optgroup label="${esc(T("s_wt_cur_other"))}">${all.filter(c=>!f.has(c)).map(o).join("")}</optgroup>`;
+}
+// the regions come from the country's holiday list: fetched once when there is none yet (the settings poll brings them)
+const WT_ASKED=new Set();
+function wtAskRegions(w){ const c=(w.settings||{}).country;
+  if (c && !w.regions && !WT_ASKED.has(c)){ WT_ASKED.add(c); api("GET","/api/worktime/holidays").catch(()=>setTimeout(()=>WT_ASKED.delete(c),60000)); } }   // failed: asked again a minute later
+function wtRegionOptions(w,cur){
+  const rs=[...new Set((w.regions||[]).concat(cur? [cur] : []))].sort();
+  return wtOpt("",T("s_wt_region_all"),cur||"")+rs.map(r=>wtOpt(r,r,cur)).join("");
+}
 const wcMonthName=m=>wcDate(m+"-01").toLocaleDateString(LOC(),{month:"long",year:"numeric"});
 // ---- closing a month and the month's holidays: cards above the calendar while the panel's status asks for them
 async function wcLoadClose(m){ try{ WC.close=await api("GET","/api/worktime/months/"+m); }catch(e){ WC.close={month:m,failed:true}; } reSet(); }
@@ -174,10 +199,11 @@ function wtSettings(w){
   // a time of day as text: sent once, when the field is left (a time input sends every segment); empty is off
   const tm=(k,title,desc,ph)=>srow(title,desc,`<input class="kin num" maxlength="5" inputmode="numeric" placeholder="${ph}" data-wset="${k}" aria-label="${esc(title)}" value="${esc(s[k]||"")}">`);
   const when=d=>wcDate(d).toLocaleDateString(LOC());
+  wtAskRegions(w);
   return `<div class="srow"><div class="sl sd">${esc(T("s_wt_applies"))}</div></div>`
     +num("salary",T("s_wt_salary"),T("s_wt_salary_d"))
-    +srow(T("s_wt_currency"),"",`<input class="kin num" maxlength="3" style="text-transform:uppercase" data-wset="salary_currency" aria-label="${esc(T("s_wt_currency"))}" value="${esc(s.salary_currency)}">`)
-    +srow(T("s_wt_display"),T("s_wt_display_d"),`<input class="kin num" maxlength="3" style="text-transform:uppercase" data-wset="display_currency" aria-label="${esc(T("s_wt_display"))}" placeholder="${esc(s.salary_currency||"")}" value="${esc(s.display_currency||"")}">`)
+    +srow(T("s_wt_currency"),"",`<select data-wset="salary_currency" aria-label="${esc(T("s_wt_currency"))}">${wtCurrencyOptions(s.salary_currency,null)}</select>`)
+    +srow(T("s_wt_display"),T("s_wt_display_d"),`<select data-wset="display_currency" aria-label="${esc(T("s_wt_display"))}">${wtCurrencyOptions(s.display_currency||"",T("s_wt_display_same",s.salary_currency||""),w.rate_currencies,T("s_wt_cur_rated"))}</select>`)
     +(s.display_currency && s.display_currency!==s.salary_currency?
       srow(T("s_wt_rsource"),T("s_wt_rsource_d"),`<select data-wset="rate_source" aria-label="${esc(T("s_wt_rsource"))}">${[["ecb","s_wt_ecb"],["nbu","s_wt_nbu"]].map(([v,k])=>`<option value="${v}"${(s.rate_source||"ecb")===v?" selected":""}>${esc(T(k))}</option>`).join("")}</select>`)
       +srow(T("s_wt_rtime"),T("s_wt_rtime_d"),`<input class="kin num" maxlength="5" inputmode="numeric" placeholder="08:00" data-wset="rate_time" aria-label="${esc(T("s_wt_rtime"))}" value="${esc(s.rate_time||"08:00")}">`)
@@ -186,8 +212,10 @@ function wtSettings(w){
     +`<div class="srow"><div class="sl">${esc(T("s_wt_days"))}</div><div class="wcb" role="group" aria-label="${esc(T("s_wt_days"))}">${week}</div></div>`
     +num("manual_rate",T("s_wt_rate"),T("s_wt_rate_d"))
     +num("weekday_mult",T("s_wt_m_wd"),"")+num("weekend_mult",T("s_wt_m_we"),"")+num("holiday_mult",T("s_wt_m_ho"),T("s_wt_m_ho_d"))
-    +srow(T("s_wt_country"),T("s_wt_country_d")+(s.country? " "+wtCountry(s.country) : ""),`<input class="kin num" maxlength="2" style="text-transform:uppercase" data-wset="country" aria-label="${esc(T("s_wt_country"))}" placeholder="UA" value="${esc(s.country||"")}">`)
-    +(s.country? srow(T("s_wt_region"),T("s_wt_region_d"),`<input class="kin num" maxlength="6" style="text-transform:uppercase" data-wset="region" aria-label="${esc(T("s_wt_region"))}" placeholder="${esc(s.country)}-…" value="${esc(s.region||"")}">`) : "")
+    +srow(T("s_wt_country"),T("s_wt_country_d"),`<select data-wset="country" aria-label="${esc(T("s_wt_country"))}">${wtCountryOptions(s.country||"",T("s_wt_country_none"))}</select>`)
+    // a region only where the country's list has regional days off (or one is saved): elsewhere there is nothing to pick
+    +(s.country && (s.region || (w.regions||[]).length)? srow(T("s_wt_region"),T("s_wt_region_d"),`<select data-wset="region" aria-label="${esc(T("s_wt_region"))}">${wtRegionOptions(w,s.region||"")}</select>`)
+      : "")
     +sw("holidays_reduce_norm",T("s_wt_hol"),T("s_wt_hol_d"))+sw("deduct_unclosed",T("s_wt_deduct"),T("s_wt_deduct_d"))
     +num("tolerance_pct",T("s_wt_tol"),"")+sw("count_today",T("s_wt_today"),T("s_wt_today_d"))
     +`<div class="srow"><div class="sl"><div><b>${esc(T("s_wt_rem"))}</b></div><div class="sd">${esc(T("s_wt_rem_d"))}</div></div></div>`
@@ -210,7 +238,7 @@ function wtTab(w){
       +f("weekly_norm_hours",T("s_wt_norm"),`max="168" placeholder="40"`)
       +`<div class="srow sub"><div class="sl">${esc(T("s_wt_days"))}</div><div class="wcb" role="group" aria-label="${esc(T("s_wt_days"))}">${week}</div></div>`
       +f("salary",T("s_wt_salary"),`max="1e12"`)
-      +srow(T("s_wt_currency"),"",`<input class="kin num" maxlength="3" style="text-transform:uppercase" data-wf="salary_currency" aria-label="${esc(T("s_wt_currency"))}" placeholder="EUR">`)
+      +srow(T("s_wt_currency"),"",`<select data-wf="salary_currency" aria-label="${esc(T("s_wt_currency"))}">${wtCurrencyOptions(WC.setupCur||"EUR",null)}</select>`)
       +f("deficit_hours",T("s_wt_o_deficit"),`max="100000"`)+f("weekday_hours",T("s_wt_o_weekday"),`max="100000"`)+f("weekend_hours",T("s_wt_o_weekend"),`max="100000"`)+f("holiday_hours",T("s_wt_o_holiday"),`max="100000"`)+`</div>`;
   }
   if (!WC.loaded || (WC.today && !WC.month)) { if (!WC.month) WC.month=new Date(now()*1000).toLocaleDateString("sv").slice(0,7); if (WC.loaded===null){ WC.loaded=false; wcLoad(); } }
