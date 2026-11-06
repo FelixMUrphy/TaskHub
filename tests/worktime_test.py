@@ -382,6 +382,12 @@ try:
     check("page: the old version isn't touched", r["versions"][-1]["settings"]["weekday_mult"] == 1.5, r["versions"][-1])
     s, r = call("POST", "/api/test/worktime-page", {"worktime_settings": {"manual_rate": None}})
     check("page: back to the derived rate", r["settings"]["manual_rate"] is None, r)
+    # the page sends one row at a time as worktime_settings; each must reach the store and stay after the next row (the bridge once dropped them)
+    call("POST", "/api/test/worktime-page", {"worktime_settings": {"tolerance_pct": 4}})
+    s, r = call("POST", "/api/test/worktime-page", {"worktime_settings": {"remind_paused_hours": 0.5}})
+    r = call("POST", "/api/test/worktime-page", {})[1]
+    check("page: one row, then another: both kept", r["settings"]["tolerance_pct"] == 4 and r["settings"]["remind_paused_hours"] == 0.5, r["settings"])
+    call("POST", "/api/test/worktime-page", {"worktime_settings": {"tolerance_pct": 3, "remind_paused_hours": 2}})
     for b, why in (({"weekday_mult": "abc"}, "a bad multiplier"), ({"nonsense": 1}, "an unknown one"), ({"work_days": []}, "no working days"), ({"weekly_norm_hours": 0}, "no norm")):
         s, r = call("POST", "/api/test/worktime-page", {"worktime_settings": b})
         check(f"page refuses {why}, in a sentence", s == 200 and r.get("error"), (s, r))

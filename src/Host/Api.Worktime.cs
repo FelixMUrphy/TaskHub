@@ -6,6 +6,7 @@ namespace TaskHub;
 /// money and the start date change only in Settings. The isolated hubs of the tests have a route for that.</summary>
 sealed partial class Api
 {
+    SettingsBridge testBridge;   // test hubs only: /api/test/worktime-page goes through it
     static bool Preview(Dictionary<string, string> q) => q.TryGetValue("preview", out var v) && v == "1";
 
     void WorktimeRoutes()
@@ -37,11 +38,17 @@ sealed partial class Api
         if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
         {
             R("POST", "/api/worktime/setup", async (c, q, g) => Work.Setup(await Body(c)));
+            // the settings page's message for the Work hours tab, through the real SettingsBridge as the panel's host passes it (a bridge of its own:
+            // a test hub has no tray); answers the tab's state, or {error} as the page would show it
             R("POST", "/api/test/worktime-page", async (c, q, g) =>
             {
                 var b = await Body(c);
-                try { Work.PageSet(b); } catch (ApiError e) { return new JsonObject { ["error"] = e.Ui ?? e.Message }; }
-                return Work.PageView();
+                testBridge ??= new SettingsBridge(S, hub, Telegram, Conns?.All.OfType<ISettingsConnector>().ToArray() ?? Array.Empty<ISettingsConnector>(), () => null, a => a()) { Dc = Discord, Work = Work };
+                var m = new JsonObject { ["settings"] = "set" };
+                foreach (var kv in b) m[kv.Key] = J.C(kv.Value);
+                var r = await testBridge.Handle(m);
+                if (J.Truthy(r["error"])) return new JsonObject { ["error"] = J.C(r["error"]) };
+                return r["settings_state"]?["worktime"] is JsonObject w ? (JsonObject)w.DeepClone() : Work.PageView();
             });
             // one reminder check at the hub's clock + offset seconds, with the given idle time and lock state
             R("POST", "/api/test/worktime-remind", async (c, q, g) =>

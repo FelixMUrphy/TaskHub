@@ -195,7 +195,7 @@ sealed class SettingsBridge
                     if (c.ContainsKey("tg_progress")) tg?.SetProgress(J.Truthy(c["tg_progress"]));
                     if (c.ContainsKey("dc_away")) Dc?.SetAwayOnly(J.Truthy(c["dc_away"]));
                     if (c.ContainsKey("dc_progress")) Dc?.SetProgress(J.Truthy(c["dc_progress"]));
-                    if (c.ContainsKey("worktime") || c.ContainsKey("worktime_salary") || c.ContainsKey("worktime_currency"))
+                    if (c.ContainsKey("worktime") || c.ContainsKey("worktime_salary") || c.ContainsKey("worktime_currency") || c.ContainsKey("worktime_settings"))   // the Work hours tab's rows send worktime_settings
                     {
                         try { Work?.PageSet(c); }
                         catch (ApiError e) { err = e.Ui ?? e.Message; }
