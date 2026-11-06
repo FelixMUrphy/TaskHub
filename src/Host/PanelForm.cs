@@ -935,15 +935,18 @@ sealed class PanelForm : Form
         ShowPanel(null);
     }
 
+    /// <summary>A modal dialog of ours (Save as) is open over the panel: no auto-hide, it would leave the dialog behind other windows.</summary>
+    public bool ModalOpen;
+
     void OnDeactivated()
     {
         lastDeactivate = DateTime.UtcNow;
-        if (!S.Bool("panel_autohide", true) || Pinned) return;
+        if (!S.Bool("panel_autohide", true) || Pinned || ModalOpen) return;
         BeginInvoke(async () =>
         {
             await Task.Delay(120);
             var fg = Native.GetForegroundWindow();
-            if (fg == Handle || !Visible || Pinned) return;
+            if (fg == Handle || !Visible || Pinned || ModalOpen) return;
             if (fg != IntPtr.Zero && Native.IsOurWindow(fg)) return;   // our own window (devtools, dialog)
             HidePanel(true);
         });

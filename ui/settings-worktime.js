@@ -236,6 +236,30 @@ function wtSettings(w){
     +wtRemindTo(s)
     +((w.versions||[]).length>1? `<div class="srow"><div class="sl"><div>${esc(T("s_wt_history"))}</div><div class="sd">${(w.versions||[]).map(v=>esc(T("s_wt_version",when(v.valid_from),v.settings.weekly_norm_hours,v.settings.salary,v.settings.salary_currency))).join("<br>")}</div></div></div>` : "");
 }
+// ---- export of a period: an Excel file on this PC (amounts only there, only when asked) or a short summary to a linked messenger, never with amounts
+const wxDay=d=>d.toLocaleDateString("sv");
+function wxPeriod(k){   // this week (from Monday), this month, last month; not after today
+  const t=new Date(now()*1000), today=wxDay(t);
+  if (k==="week"){ const m=new Date(t); m.setDate(t.getDate()-(t.getDay()+6)%7); return [wxDay(m),today]; }
+  if (k==="month") return [today.slice(0,8)+"01",today];
+  return [wxDay(new Date(t.getFullYear(),t.getMonth()-1,1)),wxDay(new Date(t.getFullYear(),t.getMonth(),0))];
+}
+function wtExport(w){
+  // shown: what the date fields were last set to (a quick button); typing changes from / to only, so the HTML stays and no redraw breaks the typing
+  if (!WC.x){ const [from,to]=wxPeriod("month"); WC.x={from,to,dest:"excel",amounts:false,shown:[from,to],at:0}; }
+  const x=WC.x, linked={telegram:!!(SET.telegram && SET.telegram.linked), discord:!!(SET.discord && SET.discord.linked)};
+  if (x.dest!=="excel" && !linked[x.dest]) x.dest="excel";   // unlinked since it was picked
+  const today=wxDay(new Date(now()*1000)), min=w.start_date||"2000-01-01", money=!!(WT && WT.money && WT.money.set);
+  const opt=(v,text,ok)=>`<option value="${v}"${v===x.dest?" selected":""}${ok? "" : " disabled"}>${esc(text+(ok? "" : " ("+T("s_wt_rem_unlinked")+")"))}</option>`;
+  const quick=["week","month","prev"].map(k=>`<button class="btn" data-wc="x_${k}">${esc(T("s_wt_x_"+k))}</button>`).join("");
+  const date=(k,v,label)=>`<label>${esc(label)}<input class="kin" type="date" min="${min}" max="${today}" value="${v}" data-wf="${k}"></label>`;
+  return `<div class="srow"><div class="sl">${esc(T("s_wt_x_period"))}</div><div class="wcb" role="group" aria-label="${esc(T("s_wt_x_period"))}">${quick}</div></div>`
+    +`<div class="srow sub"><div class="wcf">${date("x_from",x.shown[0],T("s_wt_x_from"))}${date("x_to",x.shown[1],T("s_wt_x_to"))}</div></div>`
+    +srow(T("s_wt_x_dest"),T(x.dest==="excel"? "s_wt_x_excel_d" : "s_wt_x_msg_d"),`<select data-wf="x_dest" aria-label="${esc(T("s_wt_x_dest"))}">`
+      +opt("excel",T("s_wt_x_excel"),true)+opt("telegram","Telegram",linked.telegram)+opt("discord","Discord",linked.discord)+`</select>`)
+    +(x.dest==="excel" && money? srow(T("s_wt_x_amounts"),T("s_wt_x_amounts_d"),tgl("x_amounts",x.amounts,` data-wx="amounts"`)) : "")
+    +`<div class="srow sub"><div class="sl"></div><button class="btn primary" data-wc="x_go">${esc(T("s_wt_x_go"))}</button></div>`;
+}
 function wtTab(w){
   const intro=srow(T("wt_title"),T("s_wt_on_d"),tgl("worktime",w.enabled));
   if (w.broken) return `<div class="scard">${intro}${srow(T("wt_broken"),"","")}</div>`;
@@ -257,6 +281,7 @@ function wtTab(w){
   return `<div class="scard">${intro}${srow(T("s_wt_since",wcDate(w.start_date).toLocaleDateString(LOC())),"","")}</div>`
     +wcCloseCard()+wcHolCard()
     +`<div class="wcsec">${esc(T("s_wt_calendar"))}</div><div class="scard">${wcCalendar()}</div>${wcDay()}`
+    +`<div class="wcsec">${esc(T("s_wt_export"))}</div><div class="scard">${wtExport(w)}</div>`
     +`<div class="wcsec">${esc(T("settings"))}</div><div class="scard">${wtSettings(w)}</div>`;
 }
 const wcField=k=>{ const e=$("#sethost").querySelector(`[data-wf="${k}"]`); return e? e.value.trim() : ""; };
@@ -267,6 +292,7 @@ function wtTabClick(t){
     if (WC.many){ WC.sel.has(d)? WC.sel.delete(d) : WC.sel.add(d); WC.pv=null; reSet(); }
     else { WC.edit=null; WC.pv=null; wcOpenDay(d); }
     return true; }
+  if (t.dataset.wx==="amounts"){ WC.x.amounts=!WC.x.amounts; reSet(); return true; }
   if (t.dataset.wh){ const d=t.dataset.wh; WC.holOff.has(d)? WC.holOff.delete(d) : WC.holOff.add(d); WC.pv=null; reSet(); return true; }
   if (t.dataset.wsd){   // the working days asked when it's turned on
     const s=(WC.setupDays||[1,2,3,4,5]).slice(), n=+t.dataset.wsd, i=s.indexOf(n);
@@ -280,6 +306,15 @@ function wtTabClick(t){
     s.sort(); $("#sethost").__h=null; host({settings:"set",worktime_settings:{work_days:s}}); return true; }
   if (!a) return false;
   const d=WC.day;
+  if (a==="x_week"||a==="x_month"||a==="x_prev"){ const [from,to]=wxPeriod(a.slice(2)); Object.assign(WC.x,{from,to,shown:[from,to]});
+    // the fields too: what is typed in them is kept across the redraw
+    for (const [k,v] of [["x_from",from],["x_to",to]]){ const e=$("#sethost").querySelector(`[data-wf="${k}"]`); if (e) e.value=v; }
+    reSet(); return true; }
+  if (a==="x_go"){ const x=WC.x;
+    if (Date.now()-x.at<2500) return true;   // a double click: one summary sent, one Save dialog
+    if (!x.from || !x.to || x.from>x.to){ snack(T("wt_bad_value")); return true; }
+    x.at=Date.now();
+    host({settings:"do",what:"wt_export",from:x.from,to:x.to,dest:x.dest,amounts:x.dest==="excel" && x.amounts && !!(WT && WT.money && WT.money.set)}); return true; }
   if (a==="close_retry"){ WC.close=null; reSet(); return true; }
   if (a==="hol_retry"){ const m=WC.hol.month; WC.hol={month:m,place:wcPlace(),loading:true}; reSet(); wcLoadHol(m,true); return true; }
   if (a==="close_carry"||a==="close_drop"){ const c=WC.close, v=wcField("close_cover"), h=v===""? 0 : +v;
@@ -336,6 +371,9 @@ function wtSetup(){
 }
 // typing in a day's field: a shown change no longer matches what Save would send
 function wtTabInput(e){
+  const xf=WC.x && e.target.dataset && e.target.dataset.wf;   // the export's period and destination live in WC, not only in the fields
+  if (xf==="x_from" || xf==="x_to") WC.x[xf.slice(2)]=e.target.value;
+  if (xf==="x_dest"){ WC.x.dest=e.target.value; reSet(); return; }
   if (!WC.pv || !e.target.dataset || e.target.dataset.wf==null) return;
   WC.pv=null; const p=$("#sethost").querySelector(".wcpv"); if (p) p.remove();
 }

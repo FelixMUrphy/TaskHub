@@ -15,6 +15,8 @@ sealed class SettingsBridge
     readonly TelegramBridge tg;
     public DiscordBridge Dc;
     public Worktime Work;
+    /// <summary>Asks where to save a file (the suggested name in, the chosen path out, null = cancelled): a Save dialog over the panel.</summary>
+    public Func<string, Task<string>> SaveAs;
     readonly ISettingsConnector[] conns;   // in the order of the page
     readonly Func<Updater> updater;
     readonly Action<Action> ui;
@@ -307,6 +309,40 @@ sealed class SettingsBridge
                             try { Dc?.Disconnect(); }
                             catch (ApiError e) when (e.Code == 400) { err = e.Ui ?? e.Message; }
                             break;
+                        // the work hours of a period: an .xlsx the user saves on this PC (amounts only there, only when asked), or a short summary to a
+                        // linked messenger, which never carries amounts
+                        case "wt_export":
+                        {
+                            if (Work == null) break;
+                            var dest = J.Str(c["dest"]);
+                            bool amounts = dest == "excel" && J.Truthy(c["amounts"]);
+                            try
+                            {
+                                if (dest is not ("excel" or "telegram" or "discord")) throw new ApiError(400, "dest must be excel, telegram or discord");
+                                if (dest == "telegram" && (tg == null || !tg.Linked) || dest == "discord" && (Dc == null || !Dc.Linked))
+                                    throw new ApiError(409, dest + " is not linked") { Ui = L.T("wt_x_e_unlinked", dest == "telegram" ? "Telegram" : "Discord") };
+                                var x = await Task.Run(() => Work.ExportOf(J.Str(c["from"]), J.Str(c["to"]), amounts));
+                                if (dest == "excel")
+                                {
+                                    var path = SaveAs == null ? null : await SaveAs(Worktime.ExportFileName(x));
+                                    if (path == null) break;   // cancelled: nothing to say
+                                    await Task.Run(() => Worktime.WriteXlsx(path, x, amounts));
+                                    info = L.T("wt_x_saved", Path.GetFileName(path));
+                                    Log.I("worktime", "export: a file of " + x.Days.Count + " days" + (amounts ? " with amounts" : ""));
+                                }
+                                else
+                                {
+                                    var (title, text) = Worktime.ExportText(x);
+                                    if (dest == "telegram") tg.Notify(title, text, "info", null, null, false, away: true);
+                                    else Dc.Notify(title, text, "info", null, null, false, away: true);
+                                    info = L.T("wt_x_sent", dest == "telegram" ? "Telegram" : "Discord");
+                                    Log.I("worktime", "export: a summary to " + dest);
+                                }
+                            }
+                            catch (ApiError e) { err = e.Ui ?? e.Message; }
+                            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { err = L.T("wt_x_e_write", e.Message); Log.W("worktime", "export: " + e.Message); }
+                            break;
+                        }
                         case "test_toast":
                             hub.Notify(new JsonObject { ["title"] = "TaskHub", ["message"] = L.T("test_toast") + " ✓", ["force"] = true });
                             break;

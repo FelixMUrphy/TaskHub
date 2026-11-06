@@ -44,10 +44,16 @@ sealed partial class Api
             R("POST", "/api/test/worktime-page", async (c, q, g) =>
             {
                 var b = await Body(c);
-                testBridge ??= new SettingsBridge(S, hub, Telegram, Conns?.All.OfType<ISettingsConnector>().ToArray() ?? Array.Empty<ISettingsConnector>(), () => null, a => a()) { Dc = Discord, Work = Work };
+                // a Save dialog can't be answered here: the file goes to the test home's exports folder under the name the dialog would offer
+                testBridge ??= new SettingsBridge(S, hub, Telegram, Conns?.All.OfType<ISettingsConnector>().ToArray() ?? Array.Empty<ISettingsConnector>(), () => null, a => a())
+                {
+                    Dc = Discord, Work = Work,
+                    SaveAs = name => Task.FromResult(Path.Combine(Directory.CreateDirectory(Path.Combine(Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME"), "exports")).FullName, name)),
+                };
                 var m = new JsonObject { ["settings"] = "set" };
                 foreach (var kv in b) m[kv.Key] = J.C(kv.Value);
                 var r = await testBridge.Handle(m);
+                if (J.Str(m["settings"]) == "do") return new JsonObject { ["error"] = J.C(r["error"]), ["info"] = J.C(r["info"]) };   // an action: its answer
                 if (J.Truthy(r["error"])) return new JsonObject { ["error"] = J.C(r["error"]) };
                 return r["settings_state"]?["worktime"] is JsonObject w ? (JsonObject)w.DeepClone() : Work.PageView();
             });
