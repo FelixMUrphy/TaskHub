@@ -431,6 +431,43 @@ try:
     check("on again: the same start date", r.get("enabled") is True and r.get("start_date") == day(3), r)
     check("on again: the same numbers", status()["pools"] == keep["pools"] and status()["deficit_seconds"] == keep["deficit_seconds"], status())
 
+    # ---- the start of the count moves earlier, so past hours can be filled in
+    d = call("GET", f"/api/worktime/days/{day(5)}")[1]
+    check("a day before the start: said, and the start can move to it", d.get("before_start") is True and d.get("can_move_start") is True and d.get("editable") is False, d)
+    check("...the start day itself isn't before it", call("GET", f"/api/worktime/days/{day(3)}")[1].get("before_start") is False)
+    d = call("GET", "/api/worktime/days/1999-12-31")[1]
+    check("a day before 2000: no move, and it says why", d.get("can_move_start") is False and d.get("move_start_why") == "too_early", d)
+    check("...a day the start can move to has no reason against", call("GET", f"/api/worktime/days/{day(5)}")[1].get("move_start_why") is None)
+    check("...its hours are refused until then", call("POST", "/api/worktime/sessions", {"work_date": day(5), "total_hours": 2})[0] == 400)
+    for body, why in (({"start_date": day(2)}, "later"), ({"start_date": day(3)}, "the same day"), ({"start_date": (TODAY + datetime.timedelta(days=1)).isoformat()}, "the future"),
+                      ({"start_date": "1999-12-31"}, "before 2000"), ({"start_date": "x"}, "not a date"), ({}, "nothing"), ({"start_date": day(5), "x": 1}, "an unknown field")):
+        s, r = call("PUT", "/api/worktime/start-date", body)
+        check(f"start move refused: {why}", s == 400, (s, r))
+    s, r = call("PUT", "/api/worktime/start-date?preview=1", {"start_date": day(5)})
+    check("start move: a preview says before and after", s == 200 and "before" in r and "after" in r and r["after"]["deficit_seconds"] >= r["before"]["deficit_seconds"], (s, r))
+    check("...and saves nothing", status()["start_date"] == day(3))
+    con = sqlite3.connect(DB)
+    con.execute("INSERT INTO month_close VALUES(?,0,0,1,0,0,0,0,0,'0','0','EUR',NULL)", (TODAY.strftime("%Y-%m"),))
+    con.commit()
+    con.close()
+    check("a closed month: the start can't move", call("PUT", "/api/worktime/start-date", {"start_date": day(5)})[0] == 409)
+    d = call("GET", f"/api/worktime/days/{day(5)}")[1]
+    check("...and the day says so, and why", d.get("can_move_start") is False and d.get("move_start_why") == "closed", d)
+    con = sqlite3.connect(DB)
+    con.execute("DELETE FROM month_close")
+    con.commit()
+    con.close()
+    v0 = call("GET", "/api/tasks")[1]["worktime"]
+    s, r = call("PUT", "/api/worktime/start-date", {"start_date": day(5)})
+    check("start moved earlier", s == 200 and r["start_date"] == day(5) and status()["start_date"] == day(5), (s, r))
+    check("...the panel follows", call("GET", "/api/tasks")[1]["worktime"] != v0)
+    check("...the first settings moved with it", call("POST", "/api/test/worktime-page", {})[1]["versions"][-1]["valid_from"] == day(5))
+    d = call("GET", f"/api/worktime/days/{day(5)}")[1]
+    check("...the day is editable now", d.get("editable") is True and d.get("before_start") is False, d)
+    s, r = call("POST", "/api/worktime/sessions", {"work_date": day(5), "total_hours": 2})
+    check("...and takes its hours", s == 200, (s, r))
+    check("the start can't move back later", call("PUT", "/api/worktime/start-date", {"start_date": day(3)})[0] == 400)
+
     # ---- the token and the guard hold here as everywhere
     req = urllib.request.Request(URL + "/api/worktime/status")
     try:

@@ -131,6 +131,8 @@ sealed class WorktimeStore
         // ---- settings
         public List<(DateOnly From, string Json)> Settings() =>
             Rows("SELECT valid_from, json FROM settings_history ORDER BY valid_from", r => (ParseD(r.GetString(0)), r.GetString(1)));
+        public void MoveSettings(DateOnly from, DateOnly to) =>
+            Run("UPDATE settings_history SET valid_from = $t WHERE valid_from = $f", ("$f", D(from)), ("$t", D(to)));
         public void SetSettings(DateOnly from, string json) =>
             Run("INSERT OR REPLACE INTO settings_history(valid_from, json) VALUES($d, $j)", ("$d", D(from)), ("$j", json));
 

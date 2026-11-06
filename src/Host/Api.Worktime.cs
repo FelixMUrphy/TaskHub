@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 namespace TaskHub;
 
 /// <summary>/api/worktime/*: the work hours module, behind the API's one token like the rest. Turning it on and its settings aren't here:
-/// money and the start date change only in Settings. The isolated hubs of the tests have a route for that.</summary>
+/// they change only in Settings; the isolated hubs of the tests have a route for that. The start date can only move earlier, like adding hours.</summary>
 sealed partial class Api
 {
     SettingsBridge testBridge;   // test hubs only: /api/test/worktime-page goes through it
@@ -27,6 +27,7 @@ sealed partial class Api
         R("PUT", "/api/worktime/days/hours", async (c, q, g) => Work.SetHours(await Body(c), Preview(q)));
         R("POST", $"/api/worktime/days/{DateId}/undo", async (c, q, g) => { await Body(c); return Work.Undo(g[0], Preview(q)); });
         R("GET", $"/api/worktime/days/{DateId}", (c, q, g) => V(Work.Day(g[0])));
+        R("PUT", "/api/worktime/start-date", async (c, q, g) => Work.MoveStart(await Body(c), Preview(q)));
         R("GET", "/api/worktime/breakdown", (c, q, g) => V(Work.Breakdown(q)));
         R("GET", $"/api/worktime/days/{DateId}/history", (c, q, g) => V(Work.History(g[0])));
         const string MonthId = @"(\d{4}-\d{2})";

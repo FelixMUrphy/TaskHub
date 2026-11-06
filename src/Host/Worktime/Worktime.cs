@@ -623,6 +623,25 @@ sealed partial class Worktime
         });
     }
 
+    static readonly DateOnly EarliestStart = new(2000, 1, 1);
+
+    /// <summary>Moves the start of the count to an earlier day, so the hours of the days before it can be filled in; the first version of the settings
+    /// moves with it. Never later (hours already entered would drop out), and not while a month is closed: its carry-over would change under it.</summary>
+    public JsonObject MoveStart(JsonObject b, bool preview = false) => Apply(preview, db =>
+    {
+        Only(b, "start_date");
+        var to = ParseDate(J.IsStr(b["start_date"]) ? J.Str(b["start_date"]) : "", "start_date");
+        var from = ParseDate(db.Meta("start_date"), "start_date");
+        if (to > Today()) throw new ApiError(400, "start_date can't be in the future");
+        if (to >= from) throw new ApiError(400, "start_date can only move earlier than " + WorktimeStore.D(from));
+        if (to < EarliestStart) throw new ApiError(400, "start_date can't be before " + WorktimeStore.D(EarliestStart));
+        if (db.Closes().Count > 0) throw new ApiError(409, "a month is closed: reopen it before moving the start date");
+        var first = db.Settings()[0].From;
+        if (first == from) db.MoveSettings(from, to);
+        db.SetMeta("start_date", WorktimeStore.D(to));
+        if (!preview) Log.I("worktime", "start date moved earlier");
+    });
+
     static void ClearDay(WorktimeStore.Db db, DateOnly d)
     {
         foreach (var s in db.SessionsOf(d))
@@ -740,6 +759,9 @@ sealed partial class Worktime
                     ["date"] = date, ["row"] = row == null ? null : RowJson(row), ["mark"] = J.C(day["mark"]), ["name"] = NameOf(db, c.Settings, d, J.Str(day["mark"]?["kind"])), ["sessions"] = J.C(day["sessions"]),
                     ["closed_month"] = db.MonthClosed(d), ["editable"] = d <= Today() && d >= c.Input.Start && !db.MonthClosed(d),
                     ["can_undo"] = !open && !db.MonthClosed(d) && last.Count > 0 && last[0].After == day.ToJsonString(),
+                    // a past day before the count: the start can move to it (PUT /api/worktime/start-date), unless a month is closed or it's too early
+                    ["before_start"] = d < c.Input.Start && d <= Today(), ["can_move_start"] = d < c.Input.Start && d <= Today() && d >= EarliestStart && db.Closes().Count == 0,
+                    ["move_start_why"] = !(d < c.Input.Start && d <= Today()) ? null : d < EarliestStart ? "too_early" : db.Closes().Count > 0 ? "closed" : null,
                 };
             });
         }

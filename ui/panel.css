@@ -109,6 +109,7 @@ main{padding:10px;display:flex;flex-direction:column;gap:9px}
 .wcd b{font-weight:600}
 .wcd span{color:var(--mut);white-space:nowrap}
 .wcd:hover,.wcd:focus-visible{background:var(--o2)}
+.wcd.pre{opacity:.5}   /* before the start of the count */
 .wcd.now{border-color:var(--ln)}
 .wcd.on,.wcd.sel{border-color:var(--acc);background:var(--o3)}
 .wcd.short span{color:var(--amber)}

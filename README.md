@@ -288,7 +288,7 @@ Each provider has its own two thresholds in $: **warn** (default $10) and **stop
 Details: [API.md → Balance guard](API.md#balance-guard).
 
 ### Work hours
-*Off until you turn it on.* Settings → *Work hours*: turn it on, then give the start date, your weekly norm, the working days, the salary and its currency, and the hours carried over from before. The start date and the carried hours are set once; the rest can be changed later.
+*Off until you turn it on.* Settings → *Work hours*: turn it on, then give the start date, your weekly norm, the working days, the salary and its currency, and the hours carried over from before. The carried hours are set once; the start date can later be moved earlier (open a day before it in the calendar) to fill in past hours; the rest can be changed later.
 - **The panel** gets *Start*, *Pause* and *Finish* above the task list, a week bar and a month bar coloured against the norm (under it, on it, above it), the overtime and the amount earned so far this month. A second session on the same day adds to that day.
 - **The calendar** in Settings shows each day's hours. A day opens with its periods: add, change or delete one, set a total for the whole day, mark it as a working day, a holiday or vacation, or undo the last change. Several days can be set at once. Every change first shows what it does to the overtime, the shortfall and the amount earned, and is saved only when you confirm it.
 - **Overtime and the month.** Hours above the norm are paid at your multipliers (weekday, weekend, holiday). After a month ends, Settings offers to close it: cover a shortfall with weekend or holiday hours, carry the rest over or not. The latest closed month can be reopened.

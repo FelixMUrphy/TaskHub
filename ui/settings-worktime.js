@@ -6,7 +6,7 @@ const wcMonth=d=>d.slice(0,7);
 const wcDate=d=>new Date(d+"T12:00:00");
 function wtErr(e){
   const m=String(e && e.message || e);
-  for (const [re,k] of [[/overlaps/,"wt_e_overlap"],[/future/,"wt_e_future"],[/before the start/,"wt_e_before"],[/is closed/,"wt_e_closed"],[/has changed since/,"wt_e_changed"],[/is open/,"wt_e_open"],[/after start/,"wt_e_end"],[/at most \d+ hours|number of hours/,"wt_e_hours"]])
+  for (const [re,k] of [[/overlaps/,"wt_e_overlap"],[/future/,"wt_e_future"],[/can only move earlier/,"wt_e_start_later"],[/reopen it before moving/,"wt_move_start_closed"],[/before the start/,"wt_e_before"],[/is closed/,"wt_e_closed"],[/has changed since/,"wt_e_changed"],[/is open/,"wt_e_open"],[/after start/,"wt_e_end"],[/at most \d+ hours|number of hours/,"wt_e_hours"]])
     if (re.test(m)) return T(k);
   return T("wt_not_done");
 }
@@ -62,7 +62,7 @@ function wcCalendar(){
   let cells="<span></span>".repeat(pad);
   for (let n=1;n<=days;n++){
     const d=`${WC.month}-${String(n).padStart(2,"0")}`, r=WC.rows[d], kind=WC.marks[d]||(r?r.kind:""), worked=r&&r.worked_seconds>0? hm(r.worked_seconds) : "";
-    const short=r&&r.closed&&r.to_deficit_seconds>0, cls=["wcd",d===WC.today?"now":"",d===WC.day&&!WC.many?"on":"",WC.sel.has(d)?"sel":"",short?"short":""].filter(Boolean).join(" ");
+    const short=r&&r.closed&&r.to_deficit_seconds>0, cls=["wcd",WC.start&&d<WC.start?"pre":"",d===WC.today?"now":"",d===WC.day&&!WC.many?"on":"",WC.sel.has(d)?"sel":"",short?"short":""].filter(Boolean).join(" ");
     const word=WC.names[d] || (kind? T("wt_k_"+kind) : "");
     cells+=`<button class="${cls}" data-wd="${d}"${kind?` data-kd="${esc(kind)}"`:""} aria-pressed="${WC.many? WC.sel.has(d) : d===WC.day}" aria-label="${esc([wcDate(d).toLocaleDateString(LOC(),{day:"numeric",month:"long"}),word,worked].filter(Boolean).join(", "))}"><b>${n}</b><span>${esc(worked)}</span></button>`;
   }
@@ -106,6 +106,8 @@ function wcDay(){
     +(j.closed_month? "" : `<select data-wc-kind="day" aria-label="${esc(T("wt_day_type"))}">${wcKinds(kind)}</select>`)+`</div>${rows}`
     +(edit? `<div class="srow sub"><div class="sl">${esc(T("wt_total_hours"))}</div><div class="wcb"><input class="kin num" type="number" min="0" max="24" step="any" data-wf="${WC.day}_hours" aria-label="${esc(T("wt_total_hours"))}"><button class="btn" data-wc="day_set">${esc(T("wt_set_total"))}</button></div></div>`
       +(WC.edit? "" : wcForm(WC.day,null)) : "")
+    +(j.before_start? `<div class="srow sub"><div class="sl"><div>${esc(T("wt_before_start",wcDate(WC.start).toLocaleDateString(LOC())))}</div>${j.can_move_start||j.move_start_why==="closed"? `<div class="sd">${esc(T(j.can_move_start? "wt_move_start_d" : "wt_move_start_closed"))}</div>` : ""}</div>`
+      +(j.can_move_start? `<button class="btn" data-wc="move_start">${esc(T("wt_move_start"))}</button>` : "")+`</div>` : "")
     +(j.can_undo? `<div class="srow sub"><div class="sl"></div><button class="btn" data-wc="undo">${esc(T("wt_undo"))}</button></div>` : "")
     +wcPreview("day")+`</div>`;
 }
@@ -256,6 +258,7 @@ function wtTabClick(t){
   if (a==="retry"){ WC.err=false; WC.loaded=false; reSet(); wcLoad(); }
   else if (a==="prev") wcShift(-1);
   else if (a==="next") wcShift(1);
+  else if (a==="move_start") wcAsk("PUT","/api/worktime/start-date",{start_date:WC.day},"day");
   else if (a==="many"){ WC.many=!WC.many; WC.sel.clear(); WC.pv=null; reSet(); }
   else if (a==="commit") wcCommit();
   else if (a==="uncommit"){ WC.pv=null; reSet(); }
