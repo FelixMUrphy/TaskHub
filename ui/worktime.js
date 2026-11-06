@@ -38,8 +38,11 @@ function renderWt(){
     // in the display currency when a rate is there; else in the salary's, and said why
     const m=WT.money, d=m.display, c=d && !d.missing? d : m;
     const money=m.set? [T("wt_earned",wtMoney(c.earned,c.currency)), c.overtime>0? T("wt_of_overtime",wtMoney(c.overtime,c.currency)) : ""].filter(Boolean).join(" · ") : "";
-    const rate=!m.set || !d? "" : d.missing? (d.why==="pending"? T("wt_rate_wait") : d.why==="unsupported"? T("wt_rate_unsupported",d.currency) : T("wt_rate_missing",d.currency))
-      : d.manual? T("wt_rate_own") : d.stale && d.rate_date? T("wt_rate_of",wcDate(d.rate_date).toLocaleDateString(LOC())) : "";
+    // which rate is used: another source's when the chosen one failed or lacks the pair, an old one with its date; and why the chosen one failed
+    const src=x=>T("wt_src_"+x), day=x=>wcDate(x).toLocaleDateString(LOC());
+    const why=!m.set || !d || !d.chosen_error || !(d.fallback || d.missing || d.manual || d.stale)? "" : T(d.chosen_error==="blocked"? "wt_rate_blocked" : "wt_rate_down",src(d.chosen));
+    const rate=[!m.set || !d? "" : d.missing? (d.why==="pending"? T("wt_rate_wait") : d.why==="unsupported"? T("wt_rate_unsupported",d.currency) : T("wt_rate_missing",d.currency))
+      : d.manual? T("wt_rate_own") : d.fallback && d.rate_date? T("wt_rate_via",src(d.source),day(d.rate_date)) : d.stale && d.rate_date? T("wt_rate_of",day(d.rate_date)) : "", why].filter(Boolean).join(" · ");
     h=`<div class="wth"><span class="limh">${esc(T("wt_title"))}</span>${state?`<span class="wts">${esc(state)}</span>`:""}${NATIVE?`<a class="klink wtl" tabindex="0" role="link" data-wopen="1">${esc(T("wt_details"))}</a>`:""}<span class="wtb">${btns}</span></div>`
       +wtBar("wt_week",WT.week,WT.deficit_seconds,null)+wtBar("wt_month",WT.month,WT.deficit_seconds,WT.pools)
       +(money?`<div class="wtm">${esc(money)}${rate?` <span class="wtr">${esc(rate)}</span>`:""}</div>`:"")

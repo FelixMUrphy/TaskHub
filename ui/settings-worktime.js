@@ -119,7 +119,7 @@ const WT_ABOVE0=new Set(["weekly_norm_hours","manual_rate","fx_manual_rate","rem
 function wtNum(k,v){
   if ((k==="rate_time"||k==="remind_start"||k==="remind_open_after") && /^\d:[0-5]\d$/.test(v)) v="0"+v;   // 9:00 is 09:00
   if (k==="salary_currency"||k==="display_currency") return /^[A-Za-z]{3}$/.test(v)? v.toUpperCase() : undefined;
-  if (k==="rate_source") return v==="ecb"||v==="nbu"? v : undefined;
+  if (k==="rate_source") return ["ecb","nbp","nbu"].includes(v)? v : undefined;
   if (k==="rate_time"||k==="remind_start"||k==="remind_open_after") return /^([01]\d|2[0-3]):[0-5]\d$/.test(v)? v : undefined;
   if (k==="remind_repeat_minutes" && Number(v)<5) return undefined;
   if (k==="country") return /^[A-Za-z]{2}$/.test(v)? v.toUpperCase() : undefined;
@@ -205,7 +205,7 @@ function wtSettings(w){
     +srow(T("s_wt_currency"),"",`<select data-wset="salary_currency" aria-label="${esc(T("s_wt_currency"))}">${wtCurrencyOptions(s.salary_currency,null)}</select>`)
     +srow(T("s_wt_display"),T("s_wt_display_d"),`<select data-wset="display_currency" aria-label="${esc(T("s_wt_display"))}">${wtCurrencyOptions(s.display_currency||"",T("s_wt_display_same",s.salary_currency||""),w.rate_currencies,T("s_wt_cur_rated"))}</select>`)
     +(s.display_currency && s.display_currency!==s.salary_currency?
-      srow(T("s_wt_rsource"),T("s_wt_rsource_d"),`<select data-wset="rate_source" aria-label="${esc(T("s_wt_rsource"))}">${[["ecb","s_wt_ecb"],["nbu","s_wt_nbu"]].map(([v,k])=>`<option value="${v}"${(s.rate_source||"ecb")===v?" selected":""}>${esc(T(k))}</option>`).join("")}</select>`)
+      srow(T("s_wt_rsource"),T("s_wt_rsource_d"),`<select data-wset="rate_source" aria-label="${esc(T("s_wt_rsource"))}">${[["ecb","s_wt_ecb"],["nbp","s_wt_nbp"],["nbu","s_wt_nbu"]].map(([v,k])=>`<option value="${v}"${(s.rate_source||"ecb")===v?" selected":""}>${esc(T(k))}</option>`).join("")}</select>`)
       +srow(T("s_wt_rtime"),T("s_wt_rtime_d"),`<input class="kin num" maxlength="5" inputmode="numeric" placeholder="08:00" data-wset="rate_time" aria-label="${esc(T("s_wt_rtime"))}" value="${esc(s.rate_time||"08:00")}">`)
       +num("fx_manual_rate",T("s_wt_fx",s.salary_currency,s.display_currency),T("s_wt_fx_d")) : "")
     +num("weekly_norm_hours",T("s_wt_norm"),"")
