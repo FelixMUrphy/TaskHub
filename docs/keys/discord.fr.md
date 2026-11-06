@@ -15,7 +15,7 @@
 5. Laissez le reste tel quel : aucun intent privilégié, et **Interactions Endpoint URL** vide. Avec une URL à cet endroit, Discord lui envoie les appuis sur les boutons au lieu de TaskHub, et TaskHub vous avertit.
 
 ## Le coller dans TaskHub
-1. TaskHub → **Paramètres** → **Discord**. Collez le jeton et cliquez sur **Connecter**. Un jeton que Discord refuse n'est pas enregistré.
+1. TaskHub → **Paramètres** → **Messageries** → **Discord**. Collez le jeton et cliquez sur **Connecter**. Un jeton que Discord refuse n'est pas enregistré.
 2. Ajoutez le bot à un serveur (section suivante). Discord n'autorise un bot à écrire qu'à quelqu'un avec qui il partage un serveur ; d'ici là, TaskHub indique que le bot ne peut pas encore vous écrire.
 3. Cliquez sur **Vérifier à nouveau**. Le bot vous envoie un message privé avec un bouton **Connecter**. Appuyez dessus.
 
@@ -37,7 +37,7 @@ Seul le propriétaire de l'application peut être associé (pour l'application d
 
 ## Le révoquer
 - **Chez Discord :** Developer Portal → votre application → **Bot** → **Reset Token**. L'ancien jeton cesse de fonctionner.
-- **Dans TaskHub :** Paramètres → Discord → **Déconnecter** (le supprime du Gestionnaire d'identification). Le bot reste dans votre compte Discord jusqu'à ce que vous supprimiez l'application. Désinstaller TaskHub avec **Supprimer aussi mes données** supprime aussi le jeton ; une désinstallation simple le conserve.
+- **Dans TaskHub :** Paramètres → Messageries → Discord → **Déconnecter** (le supprime du Gestionnaire d'identification). Le bot reste dans votre compte Discord jusqu'à ce que vous supprimiez l'application. Désinstaller TaskHub avec **Supprimer aussi mes données** supprime aussi le jeton ; une désinstallation simple le conserve.
 
 ## Si le jeton cesse de fonctionner
 Discord réinitialise le jeton d'un bot après 1000 nouvelles connexions en un jour et prévient le propriétaire par e-mail. TaskHub reste très en dessous de cette limite et patiente quand il s'en approche. Si cela arrive malgré tout, la page indique que le jeton a été refusé : créez-en un nouveau et reconnectez-vous.

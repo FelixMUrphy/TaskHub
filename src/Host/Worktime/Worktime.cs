@@ -89,14 +89,17 @@ sealed partial class Worktime
         ["weekday_mult"] = 1.5, ["weekend_mult"] = 2, ["holiday_mult"] = null, ["holidays_reduce_norm"] = true, ["deduct_unclosed"] = true,
         ["tolerance_pct"] = 2, ["count_today"] = true, ["country"] = null, ["region"] = null,
         ["display_currency"] = null, ["rate_source"] = "ecb", ["rate_time"] = "08:00", ["fx_manual_rate"] = null,
-        ["remind_start"] = null, ["remind_paused_hours"] = 2, ["remind_open_after"] = "23:00", ["remind_repeat_minutes"] = 30, ["remind_messengers"] = true,
+        ["remind_start"] = null, ["remind_paused_hours"] = 2, ["remind_open_after"] = "23:00", ["remind_repeat_minutes"] = 30, ["remind_messengers"] = true, ["remind_to"] = "all",
     };
 
-    /// <summary>A saved version of the settings with the keys added since it was saved, at their defaults.</summary>
+    /// <summary>A saved version of the settings with the keys added since it was saved, at their defaults. One saved before remind_to existed
+    /// keeps what its remind_messengers said: on is every linked messenger, off is none.</summary>
     static JsonObject Filled(string json)
     {
         var s = Defaults();
-        foreach (var kv in (JsonObject)J.Parse(json)) s[kv.Key] = J.C(kv.Value);
+        var saved = (JsonObject)J.Parse(json);
+        foreach (var kv in saved) s[kv.Key] = J.C(kv.Value);
+        if (!saved.ContainsKey("remind_to")) s["remind_to"] = J.Truthy(s["remind_messengers"]) ? "all" : "none";
         return s;
     }
 
@@ -286,7 +289,19 @@ sealed partial class Worktime
 
     static string Merged(JsonObject baseOn, JsonObject given)
     {
+        var wasTo = J.C(baseOn["remind_to"]);
         foreach (var kv in given) baseOn[kv.Key] = J.C(kv.Value);
+        // remind_messengers is the older form of remind_to and kept in step with it: true = all linked messengers, false = none. Both given (a
+        // client sending back all it read): remind_to counts unless it is unchanged and only remind_messengers was changed
+        bool toGiven = given.ContainsKey("remind_to") && !(given.ContainsKey("remind_messengers") && JsonNode.DeepEquals(given["remind_to"], wasTo));
+        if (toGiven) baseOn["remind_messengers"] = !(J.IsStr(baseOn["remind_to"]) && J.Str(baseOn["remind_to"]) == "none");
+        else if (given.ContainsKey("remind_messengers") && J.IsBool(baseOn["remind_messengers"]))
+        {
+            bool on = J.Truthy(baseOn["remind_messengers"]);
+            // unchanged in effect: a chosen messenger stays chosen
+            if (on != (J.IsStr(wasTo) && J.Str(wasTo) != "none")) baseOn["remind_to"] = on ? "all" : "none";
+            else baseOn["remind_to"] = J.C(wasTo);
+        }
         CheckSettings(baseOn);
         return baseOn.ToJsonString();
     }

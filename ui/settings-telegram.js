@@ -10,7 +10,7 @@ const tgRows=tg=>{
   const btns=(...b)=>`<div class="srow sub tgb">${b.map(([w,txt,q])=>`<button class="btn" data-do="${w}"${q?` data-q="${esc(q)}"`:""}>${esc(txt)}</button>`).join("")}</div>`;
   if (TGBUSY && tg.configured) h+=srow(T("s_key_checking"),"","","sub");   // a token / New link being checked
   const field=()=>TGBUSY? (tg.configured? "" : srow(T("s_key_checking"),"","","sub"))
-    : sub(`<div>${esc(x.token||"")}</div>`, `<input class="kin" type="password" autocomplete="off" spellcheck="false" data-tgtok="" aria-label="${esc(x.token||"")}" placeholder="123456789:AA...">`
+    : sub(`<div>${esc(x.token||"")}</div>`, `<input class="kin" type="password" autocomplete="off" spellcheck="false" data-tgtok="tg" aria-label="${esc(x.token||"")}" placeholder="123456789:AA...">`
       + `<button class="btn" data-do="tg_pair">${esc(x.connect||"")}</button>`);
   if (!tg.configured){
     // the steps; "@BotFather" opens the bot in Telegram

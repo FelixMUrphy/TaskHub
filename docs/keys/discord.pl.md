@@ -15,7 +15,7 @@
 5. Resztę zostaw bez zmian: bez uprzywilejowanych intentów i z pustym **Interactions Endpoint URL**. Gdy jest tam adres, Discord wysyła naciśnięcia przycisków na niego zamiast do TaskHub, a TaskHub Cię o tym ostrzega.
 
 ## Wklej go do TaskHub
-1. TaskHub → **Ustawienia** → **Discord**. Wklej token i kliknij **Połącz**. Token, który Discord odrzuci, nie zostanie zapisany.
+1. TaskHub → **Ustawienia** → **Komunikatory** → **Discord**. Wklej token i kliknij **Połącz**. Token, który Discord odrzuci, nie zostanie zapisany.
 2. Dodaj bota do serwera (następna sekcja). Discord pozwala botowi pisać tylko do osoby, z którą ma wspólny serwer, więc do tego czasu TaskHub informuje, że bot jeszcze nie może do Ciebie pisać.
 3. Kliknij **Sprawdź ponownie**. Bot wyśle Ci wiadomość prywatną z przyciskiem **Połącz**. Naciśnij go.
 
@@ -37,7 +37,7 @@ Połączyć można tylko właściciela aplikacji (w przypadku aplikacji zespołu
 
 ## Odwołaj go
 - **W Discordzie:** Developer Portal → Twoja aplikacja → **Bot** → **Reset Token**. Stary token przestaje działać.
-- **W TaskHub:** Ustawienia → Discord → **Rozłącz** (usuwa go z Menedżera poświadczeń). Bot zostaje na Twoim koncie Discord, dopóki nie usuniesz aplikacji. Odinstalowanie TaskHub z opcją **Usuń też moje dane** usuwa też token; zwykłe odinstalowanie go zostawia.
+- **W TaskHub:** Ustawienia → Komunikatory → Discord → **Rozłącz** (usuwa go z Menedżera poświadczeń). Bot zostaje na Twoim koncie Discord, dopóki nie usuniesz aplikacji. Odinstalowanie TaskHub z opcją **Usuń też moje dane** usuwa też token; zwykłe odinstalowanie go zostawia.
 
 ## Jeśli token przestanie działać
 Discord resetuje token bota po 1000 nowych połączeń w ciągu doby i wysyła właścicielowi e-mail. TaskHub trzyma się dużo poniżej tego limitu i czeka, gdy się do niego zbliża. Jeśli mimo to się zdarzy, strona napisze, że token został odrzucony: utwórz nowy i połącz się ponownie.

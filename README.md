@@ -149,7 +149,7 @@ Scripted: `TaskHubHost.exe --integrations claude=on codex=on claude-mcp=on codex
 [API.md → Claude Code hooks](API.md#claude-code-hooks), [Codex hooks](API.md#codex-hooks), [MCP server](API.md#mcp-server).
 
 ### Telegram
-Settings → *Telegram*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
+Settings → *Messengers* → *Telegram*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
 *Connect*, scan the QR code with your phone (or open the link on this PC) and press *Start* (in a private chat with the bot:
 groups can't be linked, since every member could press the tasks' buttons). Everything is set up right on the settings
 page. To link another account later (e.g. the one on your phone), press
@@ -168,7 +168,7 @@ requests*) instead of dropping messages, and long texts are shortened so they al
 ### Discord
 *Built from Discord's documentation, tested against a simulator and checked with a real bot.*
 
-Settings → *Discord*: create an application with a bot in the [Developer Portal](https://discord.com/developers/applications), paste the bot's token, press *Connect*, add the bot to a server of yours (a bot can't write to someone it shares no server with), press *Check again* and then the *Connect* button in the bot's direct message. Only the application's owner can be linked, and only that person's presses in that chat count. *Disconnect* removes the token from this PC.
+Settings → *Messengers* → *Discord*: create an application with a bot in the [Developer Portal](https://discord.com/developers/applications), paste the bot's token, press *Connect*, add the bot to a server of yours (a bot can't write to someone it shares no server with), press *Check again* and then the *Connect* button in the bot's direct message. Only the application's owner can be linked, and only that person's presses in that chat count. *Disconnect* removes the token from this PC.
 
 From then on every notification also arrives there. A task's notification buttons become buttons, a list becomes a list (up to 25 options), number and text inputs open Discord's input window, and what doesn't fit in 5 rows stays in the panel. A task with progress gets one silent message that is edited in place, and its charts arrive as a picture when it finishes (option *Progress and charts*, `discord_progress`). Commands: `/tasks`, `/mute`, `/unmute`. Option: send only when you are away from the PC (`discord_away_only`, `discord_away_minutes`).
 
@@ -294,7 +294,7 @@ Details: [API.md → Balance guard](API.md#balance-guard).
 - **Overtime and the month.** Hours above the norm are paid at your multipliers (weekday, weekend, holiday). After a month ends, Settings offers to close it: cover a shortfall with weekend or holiday hours, carry the rest over or not. The latest closed month can be reopened.
 - **Holidays.** With a country (and optionally a region) set, the month's public holidays are fetched from [nagerholidays.com](https://nagerholidays.com) and count only after you confirm them; you can drop any and add your own. Ukrainian holidays have their Ukrainian names.
 - **Another currency.** The amounts can be shown in a currency of your choice at the daily rate of the European Central Bank, the National Bank of Poland or the National Bank of Ukraine, refreshed each morning. When the chosen bank doesn't answer (some refuse VPNs) or hasn't got the pair, another one stands in and the panel says which; your own rate is used only when none has the pair, and an old rate shows its date.
-- **Reminders** (in the same settings): a session paused longer than 2 hours or still open after 23:00, repeated every 30 minutes until you answer — *Finish now*, *Finish at* your last activity, *Still working*; and, if you set a time, work not started on a working day — *Start now*, *Start from*, *Not working today*. A month to close or holidays to confirm are said once a day while you haven't opened Settings. At the PC they are notifications; away from it they go to Telegram or Discord if one is connected, never with amounts. **TaskHub never finishes a session by itself.**
+- **Reminders** (in the same settings): a session paused longer than 2 hours or still open after 23:00, repeated every 30 minutes until you answer — *Finish now*, *Finish at* your last activity, *Still working*; and, if you set a time, work not started on a working day — *Start now*, *Start from*, *Not working today*. A month to close or holidays to confirm are said once a day while you haven't opened Settings. At the PC they are notifications; away from it they go where you choose — Telegram, Discord, every linked messenger, or nowhere but this PC — never with amounts (one that isn't linked can't be chosen; until it is, a notification comes instead). **TaskHub never finishes a session by itself.**
 - Everything stays in `worktime.db` in the data folder on your PC (see [PRIVACY.md](PRIVACY.md)). Details: [API.md → Work hours](API.md#work-hours).
 
 ## Install details

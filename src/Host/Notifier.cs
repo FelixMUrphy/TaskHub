@@ -155,7 +155,8 @@ sealed class Notifier : INotifier
     double Rate => J.Num(S.Get("toast_rate")) is double r && r >= 0 ? r : 10;
     double TaskGap => J.Num(S.Get("toast_task_gap")) is double g && g >= 0 ? g : 2;
 
-    /// <param name="only">null: everywhere as set; "toast": no messengers; "messengers": no toast, unless no messenger is linked.</param>
+    /// <param name="only">null: everywhere as set; "toast": no messengers; "messengers": no toast, unless no messenger is linked; "telegram" /
+    /// "discord": that one only, no toast, unless it isn't linked.</param>
     public void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false, bool controls = true, string only = null)
     {
         var p = new Pending
@@ -253,14 +254,16 @@ sealed class Notifier : INotifier
     void Deliver(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly, bool controls, string only = null)
     {
         if (only == "messengers" && Telegram?.Linked != true && Discord?.Linked != true) only = "toast";   // nowhere else to go
+        if (only == "telegram" && Telegram?.Linked != true || only == "discord" && Discord?.Linked != true) only = "toast";
+        bool away = only is "messengers" or "telegram" or "discord";
         Log.I("toast", $"shown {level}" + (taskId != null ? " task " + Log.Id(taskId) : "") + (only != null ? " (" + only + " only)" : ""));
         Log.D("toast", $"TOAST [{level}] {title}: {msg}");   // also with Windows toasts off: Telegram still gets it
         if (only != "toast")
         {
-            try { Telegram?.Notify(title, msg, level, taskId, task, controls, only == "messengers"); } catch (Exception e) { Log.W("telegram", e.Message); }
-            try { Discord?.Notify(title, msg, level, taskId, task, controls, only == "messengers"); } catch (Exception e) { Log.W("discord", e.GetType().Name); }
+            if (only != "discord") try { Telegram?.Notify(title, msg, level, taskId, task, controls, away); } catch (Exception e) { Log.W("telegram", e.Message); }
+            if (only != "telegram") try { Discord?.Notify(title, msg, level, taskId, task, controls, away); } catch (Exception e) { Log.W("discord", e.GetType().Name); }
         }
-        if (only == "messengers" || !S.Bool("toasts", true)) return;   // Windows toasts disabled (config.json "toasts": false)
+        if (away || !S.Bool("toasts", true)) return;   // Windows toasts disabled (config.json "toasts": false)
         queue.Add(() => ShowToast(J.Cut(string.IsNullOrEmpty(title) ? Settings.AppId : title, 150), J.Cut(msg ?? "", 500), level, taskId, task, dismissOnly, controls));
     }
 

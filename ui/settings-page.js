@@ -17,8 +17,7 @@ function renderSet(){
     // turned off in Windows (Settings › Notifications): toasts vanish silently, so say it and offer the switch
     const winOff=/^disabled/.test(s.notifications||"")? srow(T("s_win_off"),T("s_win_off_d"),sbtn("notif_settings",T("s_open"))) : "";
     if (tab==="notif") h=sec(winOff + mute + srow(HL("test_toast"),"",sbtn("test_toast",T("s_send"))));
-    if (tab==="telegram" && tg) h=sec(tgRows(tg));
-    if (tab==="discord" && s.discord) h=sec(dcRows(s.discord));
+    if (tab==="messengers") h=(tg? sec(tgRows(tg)) : "")+(s.discord? sec(dcRows(s.discord)) : "");   // each in its own card
     if (tab==="worktime" && s.worktime) h=wtTab(s.worktime);
     if (tab==="connectors") h=sec((s.connectors||[]).map(connRow).join(""), T("s_conn_note"));
     if (tab==="agents") h=sec((s.agents||[]).map(a=>srow(a.name, a.detected? "" : T("s_not_found"), "")

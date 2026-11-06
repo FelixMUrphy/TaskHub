@@ -15,7 +15,7 @@
 5. Deixe o resto como está: nenhuma intent privilegiada e **Interactions Endpoint URL** vazio. Com uma URL ali, o Discord envia os toques nos botões para ela em vez de enviar ao TaskHub, e o TaskHub avisa você.
 
 ## Cole no TaskHub
-1. TaskHub → **Configurações** → **Discord**. Cole o token e clique em **Conectar**. Um token que o Discord recusa não é salvo.
+1. TaskHub → **Configurações** → **Mensageiros** → **Discord**. Cole o token e clique em **Conectar**. Um token que o Discord recusa não é salvo.
 2. Adicione o bot a um servidor (próxima seção). O Discord só deixa um bot escrever para quem compartilha um servidor com ele; até lá, o TaskHub informa que o bot ainda não pode escrever para você.
 3. Clique em **Verificar novamente**. O bot envia uma mensagem direta com um botão **Conectar**. Toque nele.
 
@@ -37,7 +37,7 @@ Só o dono do aplicativo pode ser vinculado (no caso de um aplicativo de equipe,
 
 ## Revogue o token
 - **No Discord:** Developer Portal → seu aplicativo → **Bot** → **Reset Token**. O token antigo para de funcionar.
-- **No TaskHub:** Configurações → Discord → **Desconectar** (apaga o token do Gerenciador de Credenciais). O bot continua na sua conta do Discord até você excluir o aplicativo. Desinstalar o TaskHub com **Excluir também meus dados** também apaga o token; uma desinstalação simples o mantém.
+- **No TaskHub:** Configurações → Mensageiros → Discord → **Desconectar** (apaga o token do Gerenciador de Credenciais). O bot continua na sua conta do Discord até você excluir o aplicativo. Desinstalar o TaskHub com **Excluir também meus dados** também apaga o token; uma desinstalação simples o mantém.
 
 ## Se o token deixar de funcionar
 O Discord redefine o token de um bot após 1000 novas conexões em um dia e avisa o dono por e-mail. O TaskHub fica bem abaixo desse limite e espera quando chega perto. Se acontecer mesmo assim, a página informa que o token foi rejeitado: crie um novo e conecte de novo.

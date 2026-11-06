@@ -139,7 +139,7 @@ try:
     # ---- away and locked: to the messengers, a toast when none is linked
     toasts = log().count("(toast only)")
     r = tick(0, idle=0, locked=True)
-    check("locked: away from the PC", r["sent"] and r["sent"][0]["at_pc"] is False and r["sent"][0]["messengers"] is True, r)
+    check("locked: away from the PC", r["sent"] and r["sent"][0]["at_pc"] is False and r["sent"][0]["to"] == "all", r)
     end = time.time() + 10
     while time.time() < end and log().count("(toast only)") == toasts:
         time.sleep(.2)

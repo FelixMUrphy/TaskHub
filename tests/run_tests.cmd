@@ -67,6 +67,7 @@ for %%D in ("%EXE%") do "%PYTHON%" run_one.py "%DATA%\results" token_test.py "%E
 "%PYTHON%" run_one.py "%DATA%\results" worktime_month_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" worktime_rates_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" worktime_remind_test.py "%EXE%" || set RC=1
+"%PYTHON%" run_one.py "%DATA%\results" worktime_remind_to_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" limits_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" hooks_offer_test.py "%EXE%" || set RC=1
 "%PYTHON%" run_one.py "%DATA%\results" codex_limits_test.py "%EXE%" || set RC=1

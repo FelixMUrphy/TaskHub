@@ -15,7 +15,7 @@
 5. Lass den Rest, wie er ist: keine privilegierten Intents und **Interactions Endpoint URL** leer. Ist dort eine URL eingetragen, sendet Discord Klicks auf Schaltflächen an sie statt an TaskHub, und TaskHub warnt dich.
 
 ## In TaskHub einfügen
-1. TaskHub → **Einstellungen** → **Discord**. Füge das Token ein und klicke auf **Verbinden**. Ein Token, das Discord ablehnt, wird nicht gespeichert.
+1. TaskHub → **Einstellungen** → **Messenger** → **Discord**. Füge das Token ein und klicke auf **Verbinden**. Ein Token, das Discord ablehnt, wird nicht gespeichert.
 2. Füge den Bot einem Server hinzu (nächster Abschnitt). Discord erlaubt einem Bot nur, jemandem zu schreiben, mit dem er einen Server teilt; bis dahin sagt TaskHub, dass der Bot dir noch nicht schreiben kann.
 3. Klicke auf **Erneut prüfen**. Der Bot schickt dir eine Direktnachricht mit einer Schaltfläche **Verbinden**. Drücke sie.
 
@@ -37,7 +37,7 @@ Verknüpft werden kann nur der Besitzer der Anwendung (bei der Anwendung eines T
 
 ## Widerrufen
 - **Bei Discord:** Developer Portal → deine Anwendung → **Bot** → **Reset Token**. Das alte Token funktioniert nicht mehr.
-- **In TaskHub:** Einstellungen → Discord → **Trennen** (löscht es aus der Anmeldeinformationsverwaltung). Der Bot bleibt in deinem Discord-Konto, bis du die Anwendung löschst. Die Deinstallation von TaskHub mit **Auch meine Daten löschen** löscht auch das Token; eine einfache Deinstallation behält es.
+- **In TaskHub:** Einstellungen → Messenger → Discord → **Trennen** (löscht es aus der Anmeldeinformationsverwaltung). Der Bot bleibt in deinem Discord-Konto, bis du die Anwendung löschst. Die Deinstallation von TaskHub mit **Auch meine Daten löschen** löscht auch das Token; eine einfache Deinstallation behält es.
 
 ## Wenn das Token nicht mehr funktioniert
 Discord setzt das Token eines Bots nach 1000 neuen Verbindungen an einem Tag zurück und schreibt dem Besitzer eine E-Mail. TaskHub bleibt weit darunter und wartet, wenn es sich der Grenze nähert. Passiert es trotzdem, steht auf der Seite, dass das Token abgelehnt wurde: Erstelle ein neues und verbinde dich erneut.

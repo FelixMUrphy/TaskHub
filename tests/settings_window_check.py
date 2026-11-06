@@ -163,7 +163,7 @@ try:
     until(lambda: ws.eval('!!SET'))
     time.sleep(.3)
     tabs = ws.eval('[...document.querySelectorAll("#rail .rt")].map(b=>b.dataset.tab)')
-    check("seven tabs, About last", tabs == ["look", "notif", "telegram", "connectors", "agents", "system", "about"], tabs)
+    check("seven tabs, About last", tabs == ["look", "notif", "messengers", "connectors", "agents", "system", "about"], tabs)
     check("the focus is on the active tab", ws.eval('document.activeElement.classList.contains("rt") && document.activeElement.getAttribute("aria-selected")==="true"'))
     check("every tab has a name for a screen reader", ws.eval('[...document.querySelectorAll("#rail .rt")].every(b=>b.getAttribute("aria-label"))'))
     ws.shot("set_look.png")
@@ -177,7 +177,7 @@ try:
     ws.shot("set_tip.png")
 
     # one section per tab; a dot on the connector tab (Runpod is on, without a key)
-    for t, title in (("notif", "Сповіщення"), ("telegram", "Telegram"), ("connectors", "Конектори"), ("agents", "AI-агенти"), ("system", "Система"), ("about", "Про TaskHub")):
+    for t, title in (("notif", "Сповіщення"), ("messengers", "Месенджери"), ("connectors", "Конектори"), ("agents", "AI-агенти"), ("system", "Система"), ("about", "Про TaskHub")):
         ws.click(f"#st-{t}")
         time.sleep(.15)
         check(f"tab {t}: its title", ws.eval('document.getElementById("settitle").textContent') == title, ws.eval('document.getElementById("settitle").textContent'))

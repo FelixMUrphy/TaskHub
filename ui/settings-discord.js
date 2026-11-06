@@ -9,7 +9,7 @@ const dcRows=d=>{
   if (DCBUSY) return h+srow(T("s_key_checking"),"","","sub");
   const btns=(...b)=>`<div class="srow sub tgb">${b.map(([w,txt,q])=>`<button class="btn" data-do="${w}"${q?` data-q="${esc(q)}"`:""}>${esc(txt)}</button>`).join("")}</div>`;
   const link=(url,txt)=>`<a class="klink" tabindex="0" role="link" data-open="${esc(url)}">${esc(txt)}</a>`;
-  const field=()=>sub(`<div>${esc(x.token||"")}</div>`, `<input class="kin" type="password" autocomplete="off" spellcheck="false" data-dctok="" aria-label="${esc(x.token||"")}">`
+  const field=()=>sub(`<div>${esc(x.token||"")}</div>`, `<input class="kin" type="password" autocomplete="off" spellcheck="false" data-dctok="dc" aria-label="${esc(x.token||"")}">`
     + `<button class="btn" data-do="dc_pair">${esc(x.connect||"")}</button>`);
   const out=["dc_disconnect",x.disconnect,x.disconnect_q];
   if (!d.configured) return h+sub(`<div class="sd">${esc(x.intro||"").replace(/\n/g,"<br>")}</div><div class="sd">${link(d.help_url,T("s_key_help"))}</div>`)+field();

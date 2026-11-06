@@ -119,6 +119,7 @@ const WT_ABOVE0=new Set(["weekly_norm_hours","manual_rate","fx_manual_rate","rem
 function wtNum(k,v){
   if ((k==="rate_time"||k==="remind_start"||k==="remind_open_after") && /^\d:[0-5]\d$/.test(v)) v="0"+v;   // 9:00 is 09:00
   if (k==="salary_currency"||k==="display_currency") return /^[A-Za-z]{3}$/.test(v)? v.toUpperCase() : undefined;
+  if (k==="remind_to") return ["none","telegram","discord","all"].includes(v)? v : undefined;
   if (k==="rate_source") return ["ecb","nbp","nbu"].includes(v)? v : undefined;
   if (k==="rate_time"||k==="remind_start"||k==="remind_open_after") return /^([01]\d|2[0-3]):[0-5]\d$/.test(v)? v : undefined;
   if (k==="remind_repeat_minutes" && Number(v)<5) return undefined;
@@ -192,6 +193,17 @@ function wcHolCard(){
     +`<div class="wcb"><button class="btn" data-wc="hol_add">${esc(T("wt_hol_add"))}</button></div></div></div>`
     +`<div class="srow sub"><div class="sl"></div><button class="btn primary" data-wc="hol_ok">${esc(T("wt_hol_ok"))}</button></div>${wcPreview("hol")}</div>`;
 }
+// where a reminder goes when you're away: nowhere but this PC, one messenger, or every linked one; one that isn't linked can't be picked (a saved
+// one stays shown, said as not linked: the reminder then comes as a notification here)
+function wtRemindTo(s){
+  const linked={telegram:!!(SET.telegram && SET.telegram.linked), discord:!!(SET.discord && SET.discord.linked)}, cur=s.remind_to||"all";
+  const opt=(v,text,ok,say=true)=>`<option value="${v}"${v===cur?" selected":""}${ok||v===cur? "" : " disabled"}>${esc(text+(ok||!say? "" : " ("+T("s_wt_rem_unlinked")+")"))}</option>`;
+  const none=!linked.telegram && !linked.discord;
+  const desc=cur==="none"? T("s_wt_rem_to_d") : none? T("s_wt_rem_to_none_d") : (cur==="telegram" && !linked.telegram) || (cur==="discord" && !linked.discord)? T("s_wt_rem_to_gone_d") : T("s_wt_rem_to_d");
+  return srow(T("s_wt_rem_to"),desc,`<select data-wset="remind_to" aria-label="${esc(T("s_wt_rem_to"))}">`
+    +opt("none",T("s_wt_rem_to_pc"),true)+opt("telegram","Telegram",linked.telegram)+opt("discord","Discord",linked.discord)
+    +opt("all",T("s_wt_rem_to_all"),!none,false)+`</select>`);
+}
 function wtSettings(w){
   const s=w.settings||{}, num=(k,title,desc)=>srow(title,desc,`<input class="kin num" type="number" step="any" min="0" max="${WT_MAX[k]}" data-wset="${k}" aria-label="${esc(title)}" value="${s[k]==null?"":esc(s[k])}">`);
   const week=[1,2,3,4,5,6,7].map(n=>`<button class="wcw${(s.work_days||[]).includes(n)?" on":""}" data-wday="${n}" aria-pressed="${(s.work_days||[]).includes(n)}">${esc(new Date(2024,0,n).toLocaleDateString(LOC(),{weekday:"short"}))}</button>`).join("");
@@ -221,7 +233,7 @@ function wtSettings(w){
     +`<div class="srow"><div class="sl"><div><b>${esc(T("s_wt_rem"))}</b></div><div class="sd">${esc(T("s_wt_rem_d"))}</div></div></div>`
     +tm("remind_start",T("s_wt_rem_start"),T("s_wt_rem_start_d"),"09:00")+num("remind_paused_hours",T("s_wt_rem_pause"),T("s_wt_rem_off"))
     +tm("remind_open_after",T("s_wt_rem_late"),T("s_wt_rem_off"),"23:00")+num("remind_repeat_minutes",T("s_wt_rem_repeat"),"")
-    +sw("remind_messengers",T("s_wt_rem_msg"),T("s_wt_rem_msg_d"))
+    +wtRemindTo(s)
     +((w.versions||[]).length>1? `<div class="srow"><div class="sl"><div>${esc(T("s_wt_history"))}</div><div class="sd">${(w.versions||[]).map(v=>esc(T("s_wt_version",when(v.valid_from),v.settings.weekly_norm_hours,v.settings.salary,v.settings.salary_currency))).join("<br>")}</div></div></div>` : "");
 }
 function wtTab(w){

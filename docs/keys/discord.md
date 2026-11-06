@@ -15,7 +15,7 @@
 5. Leave the rest as it is: no privileged intents, and **Interactions Endpoint URL** empty. With a URL there, Discord sends button presses to it instead of TaskHub, and TaskHub warns you.
 
 ## Paste it into TaskHub
-1. TaskHub → **Settings** → **Discord**. Paste the token and click **Connect**. A token Discord refuses isn't saved.
+1. TaskHub → **Settings** → **Messengers** → **Discord**. Paste the token and click **Connect**. A token Discord refuses isn't saved.
 2. Add the bot to a server (next section). Discord lets a bot write only to someone it shares a server with, so until then TaskHub says the bot can't write to you yet.
 3. Click **Check again**. The bot sends you a direct message with a **Connect** button. Press it.
 
@@ -37,7 +37,7 @@ Only the application's owner can be linked (for a team's application, the team's
 
 ## Revoke it
 - **At Discord:** Developer Portal → your application → **Bot** → **Reset Token**. The old token stops working.
-- **In TaskHub:** Settings → Discord → **Disconnect** (deletes it from the Credential Manager). The bot stays in your Discord account until you delete the application. Uninstalling TaskHub with **Also delete my data** deletes the token too; a plain uninstall keeps it.
+- **In TaskHub:** Settings → Messengers → Discord → **Disconnect** (deletes it from the Credential Manager). The bot stays in your Discord account until you delete the application. Uninstalling TaskHub with **Also delete my data** deletes the token too; a plain uninstall keeps it.
 
 ## If the token stops working
 Discord resets a bot's token after 1000 new connections in a day and emails the owner. TaskHub stays well below that and waits when it gets close. If it happens anyway, the page says the token was rejected: make a new one and connect again.

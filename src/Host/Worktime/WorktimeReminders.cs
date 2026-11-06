@@ -5,7 +5,7 @@ namespace TaskHub;
 
 /// <summary>The work hours reminders in the hub: a task with the reminder's buttons (panel, toast, Telegram, Discord), one at a time, gone once
 /// answered or no longer due; a notice without buttons is only a notification. At the PC (input within 5 minutes, session not locked) it comes as
-/// a toast, otherwise to the messengers when the module's setting allows it. Registered as a connector only so the buttons come back here; it has
+/// a toast, otherwise to the messengers the module's setting names (one, or every linked one), and as a toast when none of them is linked. Registered as a connector only so the buttons come back here; it has
 /// no settings of its own and isn't listed with the connectors.</summary>
 sealed class WorktimeReminders : IConnector
 {
@@ -97,7 +97,7 @@ sealed class WorktimeReminders : IConnector
     void Show(Worktime.Reminder r)
     {
         if (r == null) { Drop(); return; }
-        var only = r.AtPc || !r.Messengers ? "toast" : "messengers";
+        var only = r.AtPc || r.To == "none" ? "toast" : r.To is "telegram" or "discord" ? r.To : "messengers";
         if (r.Buttons.Count == 0) { hub.Remind(r.Title, r.Message, null, only); return; }
         var controls = new JsonArray(r.Buttons.Select(b => (JsonNode)new JsonObject
         {

@@ -11,7 +11,7 @@ sealed partial class Worktime
 {
     /// <summary>A reminder to show. "open" and "start" carry buttons (id, label); "need" is a plain notice. AtPc: as a toast, else to the messengers
     /// when <see cref="Messengers"/> allows it.</summary>
-    public sealed record Reminder(string Kind, string Title, string Message, IReadOnlyList<KeyValuePair<string, string>> Buttons, bool AtPc, bool Messengers);
+    public sealed record Reminder(string Kind, string Title, string Message, IReadOnlyList<KeyValuePair<string, string>> Buttons, bool AtPc, string To);
 
     /// <summary>Set by the host: shows a reminder, or with null takes away the one shown.</summary>
     public Action<Reminder> Remind;
@@ -34,6 +34,7 @@ sealed partial class Worktime
         if (s["remind_paused_hours"] != null && Range(s, "remind_paused_hours", 0, 24) <= 0) throw new ApiError(400, "remind_paused_hours must be above 0, or null for off");
         Range(s, "remind_repeat_minutes", 5, 1440);
         if (!J.IsBool(s["remind_messengers"])) throw new ApiError(400, "remind_messengers must be true or false");
+        if (!(J.IsStr(s["remind_to"]) && J.Str(s["remind_to"]) is "none" or "telegram" or "discord" or "all")) throw new ApiError(400, "remind_to must be none, telegram, discord or all");
     }
 
     /// <summary>The clock the reminders run on (the test clock included).</summary>
@@ -80,7 +81,7 @@ sealed partial class Worktime
             Try(x);
             sent.Add(new JsonObject
             {
-                ["kind"] = x.Kind, ["title"] = x.Title, ["message"] = x.Message, ["at_pc"] = x.AtPc, ["messengers"] = x.Messengers,
+                ["kind"] = x.Kind, ["title"] = x.Title, ["message"] = x.Message, ["at_pc"] = x.AtPc, ["to"] = x.To,
                 ["buttons"] = new JsonArray(x.Buttons.Select(b => (JsonNode)new JsonObject { ["id"] = b.Key, ["label"] = b.Value }).ToArray()),
             });
         }
@@ -99,9 +100,10 @@ sealed partial class Worktime
         if (versions.Count == 0 || db.Meta("start_date") is not { } startText) return (null, null, null);
         var current = versions.Last(x => x.From <= today || x.From == versions[0].From);
         var s = Filled(current.Json);
-        bool atPc = idle < AtPcIdleSec && !locked, messengers = J.Truthy(s["remind_messengers"]);
+        bool atPc = idle < AtPcIdleSec && !locked;
+        var to = J.Str(s["remind_to"]);
         double repeat = (J.Num(s["remind_repeat_minutes"]) ?? 30) * 60;
-        Reminder Make(string kind, string title, string msg, params KeyValuePair<string, string>[] b) => new(kind, title, msg, b, atPc, messengers);
+        Reminder Make(string kind, string title, string msg, params KeyValuePair<string, string>[] b) => new(kind, title, msg, b, atPc, to);
         static KeyValuePair<string, string> B(string id, string label) => new(id, label);
 
         string due = null;

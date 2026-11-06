@@ -23,7 +23,7 @@ sealed partial class Hub
         return new JsonObject { ["ok"] = true };
     }
 
-    /// <summary>A built-in reminder (work hours): <paramref name="only"/> "toast" or "messengers" (Telegram, Discord; a toast when neither is
+    /// <summary>A built-in reminder (work hours): <paramref name="only"/> "toast", "messengers" (Telegram, Discord), "telegram" or "discord" (a toast when none of them is
     /// linked). Muted: nothing, it comes again.</summary>
     public void Remind(string title, string msg, string tid, string only)
     {
