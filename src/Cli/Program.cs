@@ -182,7 +182,7 @@ http://127.0.0.1:47800; env TASKHUB_URL / TASKHUB_TOKEN override them)
   taskhub delete ID [--force]
   taskhub api                                      (print API.md served by the hub)
   taskhub mcp [--source NAME]                      (MCP server over stdio for AI agents: notify, task_start/update/finish,
-                                                    task_commands, task_list; starts the hub on first use)
+                                                    task_commands, task_list, task_wait; starts the hub on first use)
   taskhub hook claude|codex                        (agent hook: event JSON on stdin or as the last argument -> toast;
                                                     prints nothing, always exits 0, never starts the hub)
   taskhub statusline                               (Claude Code status line, added by the ""plan limits"" switch: runs your own

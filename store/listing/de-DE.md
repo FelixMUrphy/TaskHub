@@ -22,7 +22,7 @@ Unter Einstellungen → KI-Agenten verbinden Sie TaskHub mit Claude Code und Cod
 Konnektoren (optional, standardmäßig aus)
 • GitHub Actions: die Workflow-Läufe der Repositorys, die Sie angeben, als Aufgaben: Fortschritt nach Jobs und Schritten, der fehlgeschlagene Schritt und das Ende seines Protokolls, Schaltflächen zum Abbrechen und erneuten Ausführen.
 • Runpod und Vast.ai: Ihre GPU-Maschinen als Aufgaben: GPU, Preis pro Stunde, bisherige Kosten, Laufzeit, SSH, Auslastungsdiagramme, eine Warnung „GPU untätig“, Guthaben und Reichweite mit Warnung bei niedrigem Guthaben, Stoppen / Starten / Neustarten (Löschen nur im Panel, nach Eingabe des Maschinennamens).
-• AWS: EC2-Instanzen, SageMaker-Trainingsjobs und AWS-Batch-Jobs als Aufgaben, Kosten und Prognose dieses Monats und AWS Budgets, jeweils mit eigenem Schalter. Nur Lesezugriff. Cost Explorer wird von AWS berechnet (0,01 $ pro Anfrage, höchstens etwa 1,80 $ im Monat).
+• AWS: EC2-Instanzen, SageMaker-Trainingsjobs und AWS-Batch-Jobs als Aufgaben, Kosten und Prognose dieses Monats und AWS Budgets, jeweils mit eigenem Schalter. Nur Lesezugriff. Cost Explorer wird von AWS berechnet (0,01 $ pro Anfrage, höchstens etwa 1,80 $ im Monat). Dieser Konnektor wurde nach der AWS-Dokumentation gebaut und gegen einen Simulator getestet, noch nicht mit einem echten AWS-Konto.
 Jeder Konnektor arbeitet erst, wenn Sie ihn einschalten und Ihren eigenen API-Schlüssel eingeben. Der Schlüssel liegt nur in der Windows-Anmeldeinformationsverwaltung, und der Konnektor spricht nur mit der API seines eigenen Dienstes (api.github.com, api.runpod.io, console.vast.ai, *.amazonaws.com).
 
 Guthabenschutz (optional, aus, bis Sie ihn einschalten)

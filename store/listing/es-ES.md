@@ -22,7 +22,7 @@ En Configuración → Agentes de IA puedes conectar TaskHub con Claude Code y Co
 Conectores (opcionales, desactivados por defecto)
 • GitHub Actions: las ejecuciones de workflows de los repositorios que indiques, como tareas: progreso por jobs y pasos, el paso que falló y el final de su registro, botones para cancelar y volver a ejecutar.
 • Runpod y Vast.ai: tus máquinas GPU como tareas: GPU, precio por hora, gasto acumulado, tiempo encendida, SSH, gráficos de carga, aviso de «GPU inactiva», saldo y autonomía con aviso de saldo bajo, detener / iniciar / reiniciar (eliminar solo en el panel, tras escribir el nombre de la máquina).
-• AWS: instancias EC2, trabajos de entrenamiento de SageMaker y trabajos de AWS Batch como tareas, el coste y la previsión de este mes y AWS Budgets, cada uno con su propio interruptor. Solo lectura. AWS cobra Cost Explorer (0,01 $ por solicitud, como máximo unos 1,80 $ al mes).
+• AWS: instancias EC2, trabajos de entrenamiento de SageMaker y trabajos de AWS Batch como tareas, el coste y la previsión de este mes y AWS Budgets, cada uno con su propio interruptor. Solo lectura. AWS cobra Cost Explorer (0,01 $ por solicitud, como máximo unos 1,80 $ al mes). Este conector se ha creado a partir de la documentación de AWS y se ha probado con un simulador, todavía no con una cuenta real de AWS.
 Cada conector funciona solo cuando lo activas e introduces tu propia clave de API. La clave se guarda solo en el Administrador de credenciales de Windows, y el conector habla solo con la API de su propio servicio (api.github.com, api.runpod.io, console.vast.ai, *.amazonaws.com).
 
 Protección de saldo (opcional, desactivada hasta que la actives)

@@ -17,7 +17,7 @@ Base URL: `http://127.0.0.1:47800` (env `TASKHUB_URL`). Localhost only. JSON in/
   `curl --data-binary @body.json` (file saved as UTF-8) or `-Body ([Text.Encoding]::UTF8.GetBytes($json))`.
 
 **Rules for every client (scripts, Claude, ChatGPT/Codex, PowerShell, curl):**
-- Write requests (`POST`/`DELETE`) MUST send header `X-TaskHub: 1` (CSRF guard). Browser requests from other origins are rejected.
+- Write requests (`POST`/`PUT`/`PATCH`/`DELETE`) MUST send header `X-TaskHub: 1` (CSRF guard). Browser requests from other origins are rejected.
 - <a id="token"></a>Send `Authorization: Bearer <token>` on every `/api/` request except `GET /api/health` and `GET /api/hub-proof` (without it: 401). TaskHub generates the token and keeps it in `api.token` in its data folder (`%APPDATA%\TaskHub`), readable only by your Windows account. `taskhub token` prints it for your own scripts. The `taskhub` CLI, the MCP server, agent hooks and the Python client find it themselves, and send it only to a hub that proves it holds `hub.key`. `TASKHUB_TOKEN` in the environment takes precedence, for the hub and for those clients (use it with a hub on its own `--data`); next comes `"token"` in `config.json` (any text, then restart the hub). A hook that gets no token stays silent and doesn't hold up the agent. `/ui` needs no token and carries none: the panel gets it in the address's fragment, and `taskhub ui` opens your browser the same way.
   The token keeps out other Windows accounts on this PC and whatever can reach the port without reading your files. It is no wall against programs running as you: they can read the file, as they can read everything else of yours. What each caller may do:
 
@@ -82,7 +82,7 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 
 | Method | Path | Body / query | Purpose |
 |---|---|---|---|
-| GET | `/api/health` | | `{ok, app:"TaskHub", version, edition: "exe"\|"store", active, notifications, toast_queue}` — `notifications`: Windows' switch for TaskHub's notifications, `enabled` \| `disabled_app` \| `disabled_user` \| `disabled_policy` \| `disabled_manifest` \| `unknown` (when disabled, toasts vanish silently; failure notifications fall back to a tray balloon); `toast_queue`: notifications waiting for the rate limit (`toast_rate` per minute, one per task every `toast_task_gap` s; bursts fold into the latest) |
+| GET | `/api/health` | | `{ok, app:"TaskHub", version, impl, edition: "exe"\|"store", pid, tasks, active, notifications, toast_queue}` — `tasks`: all tasks, `active`: the running ones; `notifications`: Windows' switch for TaskHub's notifications, `enabled` \| `disabled_app` \| `disabled_user` \| `disabled_policy` \| `disabled_manifest` \| `unknown` (when disabled, toasts vanish silently; failure notifications fall back to a tray balloon); `toast_queue`: notifications waiting for the rate limit (`toast_rate` per minute, one per task every `toast_task_gap` s; bursts fold into the latest) |
 | GET | `/api/hub-proof?nonce=<16-128 hex>` | | `{proof}` = hex of HMAC-SHA256 with the key in `hub.key` (data folder, 64 hex characters: decode them to the 32 bytes) over `taskhub-hub-proof\|<port>\|<nonce>`; no token needed. Lets a client tell the hub from another program on its port. The `taskhub` CLI and MCP server check it before every request, unless `--url` is given, `TASKHUB_URL` is another address than the hub's own, or it cannot see the key |
 | GET | `/api/help` | | this document |
 | GET | `/api/tasks` | `?since=V&wait=25` ([long-poll](#long-poll)), `?active=1`, `?brief=1` | all tasks ([fields](#task-fields)) + `version`; `active=1`: only unfinished ones; `brief=1`: only the last 5 log lines of each |
@@ -106,19 +106,20 @@ Invoke-RestMethod "$u/api/tasks/$id/finish" -Method Post -Headers $h -ContentTyp
 | GET | `/api/connectors?view=settings` | | the rows of the settings page's Connectors section: `{connectors: [{id, name, kind, enabled, uses_key, key_set, key_check, summary, help_url, thresholds?, fields?, guard?, setup?, key_parts?, list?, switches?, notes?, help_needed?}], lang}` - `key_parts` = a key entered in several fields, sent joined with `:`; `key_check` = the last verdict on the saved key (`ok` / `revoked` / `denied` / `clock` / `network` / `unavailable` / null), `summary` = the state line in the UI language ("Connected, balance $X", "Connected as @login · 3 repositories"...), `help_url` = the "how to get a key" page (`docs/keys/<id>.md`, or `<id>.<lang>.md` when that language exists); `fields` = the connector's number inputs as the page draws them: `[{key, label, min, max, step, value, empty_ok?}]` (`label` = a key of the panel's translations; `thresholds` is there as well); never a key |
 | POST | `/api/connectors/github` | `{enabled?, repos?: ["owner/repo"], interval?: 15-3600, notify_success?, logs?, auth?: "token"\|"gcm", token?, forget_token?, pr_reviews?, pr_dependabot?}` | GitHub Actions connector (below) |
 | GET | `/api/connectors/runpod` | | `{enabled, key_set, key_check, key_check_text, status, can_act, probed_at, machines: [{id, name, state, task}], running, balance: {amount, spend_per_hr, spend_limit, runway_hours, raw, at}, low, idle_minutes, idle_util, low_runway_hours, low_balance, graphql_balance, summary}` (the key is never returned) |
-| POST | `/api/connectors/runpod` | `{enabled?, key?, forget_key?, idle_minutes?: 1-1440, idle_util?: 1-50, low_runway_hours?: 0-720, low_balance?: $\|null, list_interval?: 30-3600, detail_interval?: 15-3600, billing_interval?: 300-86400, graphql_balance?}` | Runpod connector (below). `idle_minutes`, `idle_util`, `billing_interval`, `graphql_balance` and the guard's keys answer 403 here: Settings only |
+| POST | `/api/connectors/runpod` | `{enabled?, key?, forget_key?, idle_minutes?: 1-1440, idle_util?: 1-50, low_runway_hours?: 0-720, low_balance?: $\|null, list_interval?: 30-3600, detail_interval?: 15-3600, billing_interval?: 300-86400, graphql_balance?}` | Runpod connector (below). Some keys answer 403 here, Settings only: see [Balance guard](#balance-guard) |
 | GET | `/api/connectors/vastai` | | the same as Runpod without `graphql_balance`; `balance.label` says what `amount` is ("Balance $x · Credit"), `balance.raw = {balance, credit, ...}` (the key is never returned) |
-| POST | `/api/connectors/vastai` | `{enabled?, key?, forget_key?, idle_minutes?, idle_util?, low_runway_hours?, low_balance?, list_interval?, detail_interval?, billing_interval?}` (ranges as Runpod) | Vast.ai connector (below). `idle_minutes`, `idle_util`, `billing_interval`, `graphql_balance` and the guard's keys answer 403 here: Settings only |
+| POST | `/api/connectors/vastai` | `{enabled?, key?, forget_key?, idle_minutes?, idle_util?, low_runway_hours?, low_balance?, list_interval?, detail_interval?, billing_interval?}` (ranges as Runpod) | Vast.ai connector (below). Some keys answer 403 here, Settings only: see [Balance guard](#balance-guard) |
 | GET | `/api/connectors/aws` | | `{enabled, key_set, key_check, key_check_text, status, regions: {<region>: {state, code, count, read_at}}, regions_chosen, machines: [{id, name, region, state, task}], running, forgotten_hours, forgotten_exempt, list_interval, sagemaker, batch, job_interval, jobs: [{kind, id, name, region, state, task}], job_polls, cost, budgets, cost_read: {state, code, period, month, forecast, unit, read_at, next_at}, budgets_read: {state, code, read_at, items: [{name, actual, limit, forecast, unit}]}, summary}`; never a key |
 | GET | `/api/connectors/ssh` | | SSH connector (below): `{enabled, client, interval, disk_warn, tmux_notify, hosts: [{host, state, text}]}` |
 | POST | `/api/connectors/ssh` | | 403: Settings only; an empty body changes nothing and gives the state |
 | POST | `/api/connectors/aws` | `{enabled?, key?: "id:secret", forget_key?, regions?: [..], forgotten_hours?: 0-8760, list_interval?: 300-3600, sagemaker?: bool, batch?: bool, job_interval?: 120-3600, cost?: bool, budgets?: bool}` | changes the settings; a key AWS rejects -> 400, nothing saved; `cost: true` -> 403, it goes on only in Settings because it costs money (`cost: false` works) |
-| POST | `/api/connectors/runpod`, `/api/connectors/vastai` | the connector's own fields ([Runpod](#connectors-runpod), [Vast.ai](#connectors-vastai)) | changes its settings; any invalid value → 400 and nothing is saved. The [balance guard](#balance-guard)'s fields and `idle_stop_minutes` are refused here (403): they change only in Settings |
+| POST | `/api/connectors/runpod`, `/api/connectors/vastai` | the connector's own fields ([Runpod](#connectors-runpod), [Vast.ai](#connectors-vastai)) | changes its settings; any invalid value → 400 and nothing is saved. The keys listed in [Balance guard](#balance-guard) (the guard's, `idle_stop_minutes`, `idle_minutes`, `idle_util`, `billing_interval`, `graphql_balance`) are refused here (403): they change only in Settings |
 | GET | `/api/guard/log` | `?provider=runpod\|vastai&limit=1-200` (50) | what the balance guard stopped, newest first: `{entries: [{t, provider, machine_id, name, trigger: "auto"\|"stop_now"\|"idle", balance, threshold, idle_minutes, burn_per_hr, spent, spent_estimated, result: "stopped"\|"failed", error, storage_per_day, storage_note, storage_approx}]}` |
 | GET | `/api/limits` | | plan limits as last reported: `{claude: {five_hour: {used_percentage, resets_at, at}, seven_day: {...}}, codex: {...}}`, only agents with their switch on; also `limits` and `limits_warn` in `GET /api/tasks`; empty while the switch is off |
 | POST | `/api/limits/claude` | `{five_hour?: {used_percentage, resets_at?}, seven_day?: {...}}` | a reading, from `taskhub statusline`; only these numbers are kept; ignored while the switch is off (`{ok: true, ignored: true}`); a `resets_at` further off than its window's length counts as none; a body with no limit window → 400 |
 | POST | `/api/clear` | | remove finished tasks |
 | POST | `/api/settings` | `{muted?: bool, seen?: true \| [task ids], language?, theme?: "system"\|"light"\|"dark", accent?: "system"\|"taskhub", panel_transparency?: 0-100, card_transparency?: 0-100, panel_group?: "project"\|"source"\|"none", panel_pinned?: bool}` | mute toasts; panel look (also in `GET /api/tasks` → `panel`, which also shows `panel_push_windows`: read-only, it changes only on the panel's settings page) |
+| POST | `/api/ui/hide` | | hide the panel → `{ok, hidden}` |
 | POST | `/api/ui/open` | `{task?}` | open panel (focus a task) |
 
 ### Long-poll
@@ -286,7 +287,7 @@ One rotated copy, `taskhub.log.1`, past 4 MB. At `debug` the CLI also writes its
 A beta build (`build.cmd beta`) defaults to `debug` and keeps three copies of 20 MB. Text that looks like a token or key is masked at any level.
 
 ## Work hours
-Off until it's turned on in Settings; while off, `GET /api/worktime/status` says `{"enabled":false}` and the rest answers 409. There's no way to turn it on, change the salary or the settings over the API. Times are ISO 8601 with an offset, dates `yyyy-MM-dd`; a session belongs to the local date it started on.
+Off until it's turned on in Settings; while off, `GET /api/worktime/status` says `{"enabled":false}` and the rest answers 409. There's no way to turn it on, change the salary or the settings over the API; the export of a period is on the settings page only. Times are ISO 8601 with an offset, dates `yyyy-MM-dd`; a session belongs to the local date it started on.
 
 | Method | Path | What |
 |---|---|---|
@@ -303,7 +304,6 @@ Off until it's turned on in Settings; while off, `GET /api/worktime/status` says
 | POST | `/api/worktime/days/{date}/undo` | Takes back the day's last manual change. 409 if the day has changed since or a session is open |
 | PUT | `/api/worktime/start-date` | `start_date`: moves the start of the count to an earlier day (never later, not in the future, not before 2000-01-01), with the first version of the settings; its days can then be filled in. 409 while a month is closed |
 | GET | `/api/worktime/breakdown?from=&to=` | Day by day, as counted: `today`, `start_date`, `days` (each with `worked_seconds`, `norm_seconds`, `kind`, `pool`, `to_pool_seconds`, `to_deficit_seconds`, `paid_off_seconds`, `deficit_after_seconds`, `closed`), `marks`, `closed_months` |
-
 | GET | `/api/worktime/months/{yyyy-MM}` | A month as the closing sees it: `closed`, `can_close` (a past month, the earliest one not closed), `can_reopen` (the latest closed one), `close_first`, `deficit_seconds`, `weekday_seconds`, `weekend_seconds`, `holiday_seconds`, `max_cover_seconds`, `deduct_unclosed`, and `close` (what was decided) once closed. The numbers are from before its closing |
 | POST | `/api/worktime/months/{yyyy-MM}/close` | `cover_hours` (default 0) of the shortfall are covered with weekend and holiday hours, the lower multiplier first; the rest is carried on (`carry`, default true) or not, and then the "deducted from salary or written off" setting applies. The overtime left is paid. 409 if it isn't the month to close now |
 | POST | `/api/worktime/months/{yyyy-MM}/reopen` | Only the latest closed month; its days can be changed again and it's closed anew |
@@ -317,6 +317,11 @@ Amounts are worked out in the salary currency. With a display currency set in Se
 Reminders (settings `remind_start`: a time or null, off by default; `remind_paused_hours`: default 2 or null; `remind_open_after`: default "23:00" or null; `remind_repeat_minutes`: 5-1440, default 30; `remind_to`: none, telegram, discord or all (every linked messenger), default all; `remind_messengers`: its older form, kept in step: true is all, false is none (sent together, `remind_to` counts unless only `remind_messengers` changed); settings saved before `remind_to` read it from `remind_messengers`). A session paused too long or still open after the set time (not within its first hour), and work not started by the set time on a working day, come as a task `worktime-reminder` (source `worktime`) with buttons: `finish_now`, `finish_at`, `still` (quiet for 2 hours); `start_now`, `start_from`, `not_today`. They are pressed like any task control (`POST /api/tasks/worktime-reminder/controls/<id>`), also from toasts, Telegram and Discord, and the task goes once one is pressed or the reminder is no longer due; a button pressed late answers 409. At the PC (input within 5 minutes, session not locked) a reminder is a notification; away, it goes to the messengers `remind_to` names that are linked, otherwise it is a notification as well. A month waiting to be closed or holidays waiting to be confirmed are said once a day from 10:00 unless Settings was opened that day. A session started from a reminder has the interval source `reminder`. TaskHub never finishes a session by itself.
 
 An interval with times is refused if it overlaps another one (409), ends in the future or lasts more than 48 h (400). A date before the start date or in the future is refused (400), a date in a closed month too (409). The task snapshot's `worktime` is null while off, otherwise a number that changes with every change.
+
+## Telegram
+A mirror of notifications to a private chat with your bot. Settings page only (token, linking, switches); `GET /api/telegram` reads its state. Controls pressed there arrive with `via` `telegram` (panel-only controls are refused).
+
+Config keys: `telegram_away_only` (false), `telegram_away_minutes` (5), `telegram_progress` (true); set by linking: `telegram_chat`. `telegram_api`: tests only.
 
 ## Discord
 
@@ -332,7 +337,7 @@ id `gh-<run id>`, source `github`, project = repository name, description `owner
 `stage` = job › step; ETA and progress both from the median duration of the workflow's last successful runs (past it: no `progress`, the status says "longer than usual"); without such runs, or waiting for an approval, progress by the steps of all jobs;
 on failure the message names the job › step, and (option `logs`) the last 30 lines of its log go to the task log.
 Buttons: open on GitHub, cancel (running), re-run failed jobs (failed), re-run all (finished), each with a confirmation; links to
-the artifacts and to the release of a tag after a successful run. Failures always notify (Windows + Telegram), successes if
+the artifacts and to the release of a tag after a successful run. Failures always notify (Windows + Telegram / Discord), successes if
 `notify_success`. Runs that finished before TaskHub started are not shown; a re-run (also one started on github.com) shows the task again.
 Access: your own fine-grained token (Actions: Read and write, Contents: Read-only, Metadata: Read-only; only these repositories),
 kept in the Windows Credential Manager - or `auth: "gcm"`, the Git Credential Manager's github.com token (broad rights).
@@ -365,10 +370,10 @@ source `runpod`, project `Runpod`, `meta.runpod = {id, name, state, status}`. RU
 SSH, balance), `gpu` (chart: GPU = highest util of its GPUs, VRAM) and `load` (chart: CPU, RAM), 240 points, from TaskHub's own
 polls (Runpod keeps no history). Links: `https://<pod>-<port>.proxy.runpod.net` for each `<port>/http`.
 Buttons (only when the key may run actions - probed with `POST /v2/pods/pod_taskhub_probe/action` when the key changes and
-daily: 403 = read-only): stop / restart (running; also in toasts and Telegram), start (stopped), delete (panel only: sent as a WebView2
-message after typing the pod's exact name; HTTP, toasts and Telegram get 403) - each with a confirmation. Errors: 409 *not possible in the current
+daily: 403 = read-only): stop / restart (running; also in toasts, Telegram and Discord), start (stopped), delete (panel only: sent as a WebView2
+message after typing the pod's exact name; HTTP, toasts, Telegram and Discord get 403) - each with a confirmation. Errors: 409 *not possible in the current
 state*, *no free GPU* for a start whose host is full, 403 *the key may not do this*.
-GPU idle: every GPU under `idle_util` % (5) for `idle_minutes` (30) → `attention` + a warning (Windows + Telegram, with Stop),
+GPU idle: every GPU under `idle_util` % (5) for `idle_minutes` (30) → `attention` + a warning (Windows + Telegram / Discord, with Stop),
 once per idle period. Balance: GraphQL `myself {clientBalance currentSpendPerHr spendLimit}` (`graphql_balance`, default on);
 runway = balance / spend per hour (Runpod's, else the sum of the running pods' prices); runway under `low_runway_hours` (12)
 or balance under `low_balance` → one warning per crossing + `attention` on running pods. Spent = pod billing of the last 30
@@ -432,11 +437,11 @@ pending: {seq, deadline, held, waiting, capped, machines, task, kind: "balance"|
 - balance ≤ warn: one warning per crossing (re-armed when the balance is back above warn + 5 %) with balance, burn, hours.
 - balance ≤ stop: a pending stop of the running, non-exempt machines, shown as the task `<prefix>--guard` (`rp--guard`,
   `va--guard`; source = the connector) with the buttons `gstop.<seq>` (Stop now, asks for confirmation first — panel,
-  toast, Telegram) and `gsnooze.<seq>` (Snooze), also in the notification and Telegram. Deadline = now + grace, capped at the projected $0 minus 5 min; Snooze adds `guard_snooze_min`
+  toast, Telegram) and `gsnooze.<seq>` (Snooze), also in the notification, Telegram and Discord. Deadline = now + grace, capped at the projected $0 minus 5 min; Snooze adds `guard_snooze_min`
   (same cap; the reply says until when). A press on a button of an earlier pending stop answers "already handled". A balance
   above stop cancels it. At the deadline the balance is read again. At or below stop: stopped. Above it, with money being spent: nothing is stopped on the estimate alone, `waiting`, read each minute until the figure reaches stop or money comes in. Unreadable: `held`, one warning and one more when the estimated $0 is 15 minutes away, retried each
   minute. *Stop now* still acts. Stop = the connector's stop action (never delete), confirmed by polling the list; one result
-  per machine in `guard_log.json` (at most 200 entries, data folder) and in the summary (Windows + Telegram). A machine
+  per machine in `guard_log.json` (at most 200 entries, data folder) and in the summary (Windows + Telegram / Discord). A machine
   whose stop failed is tried again at each following reading while the balance stays below stop (no new grace; quiet until
   it works); `retry` lists them. The pending stop and the button counter are kept in `guard_<id>.json` (data folder): after
   a restart the stop goes on with its deadline (at least a minute away), and buttons of an earlier run never match.
@@ -456,13 +461,13 @@ task `cancelled`; pressed during the last frame: Blender ends by itself, `done`)
 command to resume on stderr; Blender's `Error:` lines (except the leak detector's "Not freed memory blocks", logged as a warning) fail the task and `run` exits with 1 although Blender exits with 0; video frames ("Append frame N") and stereo view files count by frame; chosen by the command's file name
 unless `--progress-regex` / `--status-regex` / `--auto-progress` is given; the command may print `::progress 5/20`, `::percent 40`, `::status s`, `::stage s`, `::warn s`,
 `::error s`, `::toast s`, `::total n`, `::log s`, `::metric k=v`, `::widget id=value` lines; a `::widget` id not seen yet becomes a text widget, up to 40; an id the hub wouldn't take makes it an ordinary line). The command gets `TASKHUB_URL` and `TASKHUB_TASK_ID` in its environment. A wrong `--progress-regex` / `--status-regex` stops with exit code 2 before anything runs. `taskhub --help` lists all flags. Also `notify`, `list`, `show`, `register`, `update`,
-`log`, `finish`, `control`, `commands`, `ack`, `wait ID` (blocks until finished; exit code 0 done, 1 failed or lost, 2 cancelled or a task it can't find, 124 its timeout), `panel`, `delete`,
+`log`, `finish`, `control`, `commands`, `ack`, `health`, `api` (prints this file), `token`, `ui`, `wait ID` (blocks until finished; exit code 0 done, 1 failed or lost, 2 cancelled or a task it can't find, 124 its timeout), `panel`, `delete`,
 `mcp` ([MCP server](#mcp-server)), `hook claude|codex` (agent hooks), `statusline` ([plan limits](#plan-limits-claude-code)). `taskhub --help`.
 
 ## Claude Code hooks
 Easiest: setup dialog checkbox or Settings → *AI agents* (or `TaskHubHost.exe --integrations claude=on codex=on`)
 writes exactly these entries for you and removes them on uninstall. When an agent is used on the PC, its hooks are off and no choice was made,
-the panel shows a card with *Connect* / *Not now* and one notification says so; nothing is written before *Connect* (`hooks_offer` = `[{agent, name}]`, `hooks_offer_tg` = whether these notifications also go to Telegram, in
+the panel shows a card with *Connect* / *Not now* and one notification says so; nothing is written before *Connect* (`hooks_offer` = `[{agent, name}]`, `hooks_offer_tg` / `hooks_offer_dc` = whether these notifications also go to Telegram / Discord, in
 `GET /api/tasks`; the choice can't be made over HTTP; `integration_claude` / `integration_codex` in `config.json` hold it, `hooks_offer_told` the agents already told about).
 `Stop` shows no toast if the same agent has just (30 s, once) sent a notification or finished a task through TaskHub's MCP server (one whose `notify` allows that finish notification) from the same project folder; other events are never held back. Manual setup:
 Notifications when Claude Code finishes a response (`Stop`, toast shows the first line of the answer and the project folder)

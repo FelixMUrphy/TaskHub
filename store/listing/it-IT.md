@@ -22,7 +22,7 @@ In Impostazioni → Agenti IA puoi collegare TaskHub a Claude Code e Codex. L'ag
 Connettori (facoltativi, disattivati per impostazione predefinita)
 • GitHub Actions: le esecuzioni dei workflow dei repository che indichi, come attività: avanzamento per job e passaggi, il passaggio non riuscito e la fine del suo registro, pulsanti per annullare e rieseguire.
 • Runpod e Vast.ai: le tue macchine GPU come attività: GPU, prezzo orario, spesa finora, tempo di attività, SSH, grafici di carico, avviso "GPU inattiva", saldo e autonomia con avviso di saldo basso, arresto / avvio / riavvio (eliminazione solo nel pannello, dopo aver digitato il nome della macchina).
-• AWS: istanze EC2, job di addestramento SageMaker e job AWS Batch come attività, costo e previsione del mese e AWS Budgets, ciascuno con il proprio interruttore. Sola lettura. Cost Explorer è addebitato da AWS (0,01 $ per richiesta, al massimo circa 1,80 $ al mese).
+• AWS: istanze EC2, job di addestramento SageMaker e job AWS Batch come attività, costo e previsione del mese e AWS Budgets, ciascuno con il proprio interruttore. Sola lettura. Cost Explorer è addebitato da AWS (0,01 $ per richiesta, al massimo circa 1,80 $ al mese). Questo connettore è stato costruito dalla documentazione AWS e testato su un simulatore, non ancora su un account AWS reale.
 Ogni connettore funziona solo dopo che lo attivi e inserisci la tua chiave API. La chiave è conservata solo in Gestione credenziali di Windows, e il connettore comunica solo con l'API del proprio servizio (api.github.com, api.runpod.io, console.vast.ai, *.amazonaws.com).
 
 Protezione del saldo (facoltativa, disattivata finché non la attivi)

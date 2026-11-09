@@ -14,7 +14,7 @@ sealed partial class Worktime
     public sealed record ExportDay(DateOnly Date, string Kind, string Name, long Norm, long Worked, long Short, long Covered, long Overtime, string Pool);
     public sealed record ExportMonth(int Year, int Month, string Currency, decimal Salary, decimal Overtime, bool Closed);
     public sealed record Export(DateOnly From, DateOnly To, IReadOnlyList<ExportDay> Days, long Norm, long Worked, long Short, long Covered,
-        long OtWeekday, long OtWeekend, long OtHoliday, long? ShortLeft, IReadOnlyList<ExportMonth> Months, JsonObject Display);
+        long OtWeekday, long OtWeekend, long OtHoliday, long? ShortLeft, IReadOnlyList<ExportMonth> Months, JsonObject Display, string Currency);
 
     /// <summary>The period's days (only days counted: from the start, not after today) and their sums. Amounts: each month the period touches, as
     /// a whole month (its salary part and overtime so far), with the display currency at the current rate when one is set.</summary>
@@ -43,6 +43,7 @@ sealed partial class Worktime
                 long Ot(WorktimeCalc.PoolKind k) => rows.Where(x => x.Pool == k).Sum(x => x.ToPool);
                 var months = new List<ExportMonth>();
                 JsonObject display = null;
+                string current = null;   // the salary currency of the settings now: the display rate is from it
                 if (amounts)
                 {
                     var versions = db.Settings();
@@ -53,7 +54,8 @@ sealed partial class Worktime
                         months.Add(new ExportMonth(m.Year, m.Month, J.Str(Filled(v.Json)["salary_currency"]), m.SalaryPart, m.OvertimeMoney, m.Closed));
                     }
                     var s = Filled(versions.Last().Json);
-                    // the display currency at the rate the panel uses now, for the months in the current salary currency
+                    current = J.Str(s["salary_currency"]);
+                    // the display currency at the rate the panel uses now; the file converts only the months in the current salary currency
                     if (DisplayOf(s) != null)
                     {
                         string err;
@@ -63,7 +65,7 @@ sealed partial class Worktime
                 }
                 return new Export(from, to, days, rows.Sum(x => x.Norm), rows.Sum(x => x.Worked), rows.Sum(x => x.ToDeficit), rows.Sum(x => x.PaidOff),
                     Ot(WorktimeCalc.PoolKind.Weekday), Ot(WorktimeCalc.PoolKind.Weekend), Ot(WorktimeCalc.PoolKind.Holiday),
-                    rows.Count > 0 ? rows[^1].DeficitAfter : null, months, display);
+                    rows.Count > 0 ? rows[^1].DeficitAfter : null, months, display, current);
             });
         }
     }
@@ -130,7 +132,7 @@ sealed partial class Worktime
             var head = new List<Cell> { Txt(L.T("wt_x_m_month"), Bold), Txt(L.T("wt_x_m_salary"), Bold), Txt(L.T("wt_x_m_over"), Bold), Txt(L.T("wt_x_m_total"), Bold), Txt(L.T("wt_x_m_currency"), Bold) };
             if (disp) head.Add(Txt(L.T("wt_x_m_in", J.Str(x.Display["currency"])), Bold));
             sum.Add(head.ToArray());
-            var cur = x.Months[^1].Currency;
+            var cur = x.Currency;   // not the last month's: a month in an earlier currency has no rate here
             foreach (var m in x.Months)
             {
                 var row = new List<Cell> { Txt(new DateTime(m.Year, m.Month, 1).ToString("Y", ui) + (m.Closed ? "" : " (" + L.T("wt_x_m_open") + ")")), Money(m.Salary), Money(m.Overtime),
@@ -147,7 +149,8 @@ sealed partial class Worktime
             sum.Add(new[] { Txt(L.T("wt_x_m_note")) });
         }
 
-        var tmp = path + ".tmp";
+        // a name of our own beside the target (the move stays on one volume): never a file the user already has
+        var tmp = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!, "." + Path.GetFileName(path) + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp");
         try
         {
             WriteParts(tmp, sum, days);
@@ -170,7 +173,7 @@ sealed partial class Worktime
 
     static void WriteParts(string tmp, List<Cell[]> sum, List<Cell[]> days)
     {
-        using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write))
+        using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write))
         using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
         {
             void Part(string name, string xml)

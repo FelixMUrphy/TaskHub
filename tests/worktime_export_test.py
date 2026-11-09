@@ -22,6 +22,10 @@ SHIFT = 15 - datetime.date.today().day
 TODAY = datetime.date.today() + datetime.timedelta(days=SHIFT)
 START = TODAY.replace(day=1)
 SALARY = 4321
+PREV = (START - datetime.timedelta(days=1)).replace(day=1)
+PREVEND = START - datetime.timedelta(days=1)
+ECB = ("<?xml version='1.0' encoding='UTF-8'?><gesmes:Envelope xmlns:gesmes='http://www.gesmes.org/xml/2002-08-01' xmlns='http://www.ecb.int/vocabulary/2002-08-01/eurofxref'>"
+       f"<Cube><Cube time='{(TODAY - datetime.timedelta(days=1)).isoformat()}'><Cube currency='USD' rate='1.1000'/><Cube currency='PLN' rate='4.0000'/></Cube></Cube></gesmes:Envelope>")
 
 
 def check(name, cond, extra=""):
@@ -49,6 +53,14 @@ class Bot(BaseHTTPRequestHandler):
             self.wfile.write(data)
         except OSError:
             pass
+
+    def do_GET(self):   # the European Central Bank's daily file, for the display currency
+        d = ECB.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/xml")
+        self.send_header("Content-Length", str(len(d)))
+        self.end_headers()
+        self.wfile.write(d)
 
     def do_POST(self):
         m = re.match(r"^/bot([^/]+)/(\w+)$", self.path)
@@ -129,7 +141,8 @@ with open(os.path.join(data, "config.json"), "w", encoding="utf-8") as f:
 ThreadingHTTPServer.request_queue_size = 64
 server = ThreadingHTTPServer(("127.0.0.1", MOCK), Bot)
 threading.Thread(target=server.serve_forever, daemon=True).start()
-env = dict(os.environ, TASKHUB_NO_AUTOSTART="1", TASKHUB_TEST_HOME=home, TASKHUB_TEST_WORKTIME_SHIFT_DAYS=str(SHIFT))
+env = dict(os.environ, TASKHUB_NO_AUTOSTART="1", TASKHUB_TEST_HOME=home, TASKHUB_TEST_WORKTIME_SHIFT_DAYS=str(SHIFT),
+           TASKHUB_TEST_ECB=f"http://127.0.0.1:{MOCK}/ecb.xml", TASKHUB_TEST_NBU="http://127.0.0.1:9/x", TASKHUB_TEST_NBP="http://127.0.0.1:9/x")
 hub = subprocess.Popen([EXE, "--port", str(PORT), "--data", data, "--no-tray"], env=env)
 do = lambda b: call("POST", "/api/test/worktime-page", dict(b, settings="do", what="wt_export"))[1]
 try:
@@ -216,6 +229,17 @@ try:
         k32.CloseHandle(ctypes.c_void_p(held))
     check("a file open elsewhere: said to close it", "open in another program" in (r.get("error") or ""), r)
     check("...no temp file left beside it", not [x for x in os.listdir(EXPORTS) if x.endswith(".tmp")], os.listdir(EXPORTS))
+
+    # ---- a file of the user's named like a temp copy of the target stays as it was
+    mine = path2 + ".tmp"
+    with open(mine, "w", encoding="utf-8") as f:
+        f.write("USER DATA")
+    r = do({"from": START.isoformat(), "to": TODAY.isoformat(), "dest": "excel", "amounts": True})
+    check("a file of the user's named '<file>.tmp' beside it: saved", r.get("info", "").startswith("Saved: "), r)
+    check("...and that file left as it was", os.path.exists(mine) and open(mine, encoding="utf-8").read() == "USER DATA", os.listdir(EXPORTS))
+    if os.path.exists(mine):
+        os.remove(mine)
+    check("...no temp file of ours left", not [x for x in os.listdir(EXPORTS) if x.endswith(".tmp")], os.listdir(EXPORTS))
     f2 = sorted(os.listdir(EXPORTS))
 
     # ---- a messenger: the summary only
@@ -240,6 +264,32 @@ try:
         check("...no amounts, even when asked", "EUR" not in text and str(SALARY) not in text and "€" not in text and "Salary" not in text, text)
         check("...no day list, no buttons", text.count("\n") <= 5 and "reply_markup" not in got[0], got)
         check("...nothing written to the exports folder", sorted(os.listdir(EXPORTS)) == f2, os.listdir(EXPORTS))
+    # ---- the salary currency changed this month (EUR before, PLN now; amounts shown in USD): only the PLN month is converted, at the PLN rate
+    s, r = call("PUT", "/api/worktime/start-date", {"start_date": PREV.isoformat()})
+    check("(the start moved to last month)", s == 200, (s, r))
+    s, r = call("POST", "/api/worktime/setup", {"valid_from": START.isoformat(), "settings": {"salary": 8000, "salary_currency": "PLN", "display_currency": "USD", "rate_source": "ecb"}})
+    check("(PLN from this month, shown in USD)", s == 200, (s, r))
+    check("(the rate read)", until(lambda: ((call("GET", "/api/worktime/status")[1].get("money") or {}).get("display") or {}).get("rate")), call("GET", "/api/worktime/status")[1].get("money"))
+
+    def months_of(frm, to):
+        r = do({"from": frm.isoformat(), "to": to.isoformat(), "dest": "excel", "amounts": True})
+        names = [x for x in os.listdir(EXPORTS) if x.startswith(re.sub(r"\.xlsx$", "", r.get("info", "")[7:]))] if r.get("info") else []
+        summ = sheets(os.path.join(EXPORTS, names[0]))["Summary"] if names else []
+        head = next((row for row in summ if row[:1] == ["Month"]), None)
+        rows = []
+        for row in summ[summ.index(head) + 1:] if head else []:
+            if len(row) < 5:
+                break
+            rows.append(row)
+        return head, rows, r
+
+    head, rows, r = months_of(PREV, PREVEND)
+    check("last month only: a column in USD", head and head[5:] == ["Total in USD"], (head, r))
+    check("...last month in EUR, the earlier currency: no figure at the PLN rate", len(rows) == 1 and rows[0][4] == "EUR" and (rows[0][5:] + [""])[0] in ("", None), rows)
+    head, rows, r = months_of(PREV, TODAY)
+    pln = [x for x in rows if x[4] == "PLN"]
+    check("both months: this month in PLN converted at the PLN rate", len(rows) == 2 and pln and abs(pln[0][5] - round(pln[0][3] * 1.1 / 4, 2)) < .011, rows)
+    check("...last month in EUR left empty", [x for x in rows if x[4] == "EUR"] and (([x for x in rows if x[4] == "EUR"][0][5:]) + [""])[0] in ("", None), rows)
 finally:
     try:
         call("POST", "/api/telegram", {"disconnect": True})

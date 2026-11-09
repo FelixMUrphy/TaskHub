@@ -62,7 +62,7 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
   reminder; SageMaker training jobs, AWS Batch jobs, this month's cost and forecast, and AWS Budgets, each behind its own switch. Read-only. [AWS](#aws).
 - **Balance guard** *(off until you turn it on)*: for Runpod and Vast.ai — a warning at your own balance threshold
   (balance, $/h, time left), and at the stop threshold the running machines are **stopped** (never deleted) after a
-  notification with *Stop now* / *Snooze* (Windows and Telegram) — see [Balance guard](#balance-guard).
+  notification with *Stop now* / *Snooze* (Windows, and Telegram / Discord when linked) — see [Balance guard](#balance-guard).
 - **Work hours** *(off until you turn it on)*: Start / Pause / Finish above the task list, week and month bars against your norm, overtime and the amount earned; a calendar to correct any day, month closing, public holidays you confirm, amounts in another currency, and reminders for a session left open — see [Work hours](#work-hours).
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
@@ -76,7 +76,7 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
   (or set in ⚙). The settings say when Windows itself draws no blur (energy saver on, or *Transparency
   effects* off in Windows settings), with a link to that setting.
 - **Settings**: ⚙ in the panel (or *Settings* in the tray menu) opens them next to it, one icon tab per section —
-  appearance, notifications, Telegram, connectors, AI agents, system (autostart, updates, data folder, API reference), about; the tray
+  appearance, notifications, messengers (Telegram, Discord), work hours, connectors, AI agents, system (autostart, updates, data folder, API reference), about; the tray
   menu keeps only the quick actions (open the panel, mute, settings, support, exit) in the Windows 11 style. While the panel is pinned, only their own button closes them.
   On battery the panel and settings appear and go at once, without the slide.
 - 10 UI languages (English, Українська, Español, Deutsch, Français, Italiano, Português, Polski, 中文, 日本語).
@@ -180,7 +180,7 @@ The token is kept only in the Windows Credential Manager; without it TaskHub doe
 [fine-grained token](https://github.com/settings/personal-access-tokens/new) limited to those repositories (Actions: Read and
 write, Contents: Read-only, Metadata: Read-only; kept in the Windows Credential Manager, never in `config.json`), or the token
 the Git Credential Manager already has (broad rights: all your repositories). Your workflows stay unchanged. Each run becomes a
-task with the repository, workflow, branch / tag, commit and actor; failures always notify (Windows and Telegram), successes
+task with the repository, workflow, branch / tag, commit and actor; failures always notify (Windows, and Telegram / Discord when linked), successes
 if you want. TaskHub talks only to `api.github.com`; the optional log tail is fetched from GitHub's log storage through the
 one-time link GitHub gives, without the token. A notification warns a week before the token expires. A run waiting for
 approval (e.g. from a fork) shows *Waiting for approval on GitHub* and is followed once approved; a renamed repository is
@@ -206,7 +206,7 @@ When every GPU of a pod stays under 5 % for 30 minutes (`idle_minutes`, `idle_ut
 in Telegram, with a Stop button. Balance and runway (balance ÷ current spend per hour) are shown in Settings and on the pods;
 below 12 hours (`low_runway_hours`, or under `low_balance` $) TaskHub warns once — at $0 Runpod stops pods and terminates the
 ones without a network volume. Stop, start and restart ask for a confirmation (stop and restart also work from the
-notification and Telegram); delete works only in the panel, after typing the pod's name (never through the HTTP API). TaskHub talks only to
+notification, Telegram and Discord); delete works only in the panel, after typing the pod's name (never through the HTTP API). TaskHub talks only to
 `api.runpod.io`: REST v2 for pods and billing, and GraphQL for the balance (`graphql_balance`, on by default; turn it off to
 skip the balance). Details: [API.md → Connectors](API.md#connectors-runpod).
 *How to get a key:* [docs/keys/runpod.md](docs/keys/runpod.md) (step by step, minimum permissions, revoking; [українською](docs/keys/runpod.uk.md)).
@@ -249,7 +249,7 @@ Details: [API.md → Connectors](API.md#connectors-ssh). *Setting up a host:* [d
 ### Balance guard
 *Off until you turn it on.* Settings → *Connectors* → *Runpod* / *Vast.ai* → *Auto-stop at low balance*.
 Each provider has its own two thresholds in $: **warn** (default $10) and **stop** (default $2; warn must be above stop).
-- At the warning threshold TaskHub warns once (Windows notification, and Telegram if it is connected): the balance, the
+- At the warning threshold TaskHub warns once (Windows notification, and Telegram / Discord if linked): the balance, the
   current spend per hour and how long until the stop threshold. It warns again only after the balance has gone back up.
 - At the stop threshold TaskHub announces a stop of the running machines with *Stop now* and *Snooze N min* buttons (in
   the notification, in Telegram and on the *balance guard* card in the panel). Without an answer the machines are stopped
@@ -290,7 +290,7 @@ Details: [API.md → Balance guard](API.md#balance-guard).
 ### Work hours
 *Off until you turn it on.* Settings → *Work hours*: turn it on, then give the start date, your weekly norm, the working days, the salary and its currency, and the hours carried over from before. The carried hours are set once; the start date can later be moved earlier (open a day before it in the calendar) to fill in past hours; the rest can be changed later.
 - **The panel** gets *Start*, *Pause* and *Finish* above the task list, a week bar and a month bar coloured against the norm (under it, on it, above it), the overtime and the amount earned so far this month. A second session on the same day adds to that day.
-- **The calendar** in Settings shows each day's hours. A day opens with its periods: add, change or delete one, set a total for the whole day, mark it as a working day, a holiday or vacation, or undo the last change. Several days can be set at once. Every change first shows what it does to the overtime, the shortfall and the amount earned, and is saved only when you confirm it.
+- **The calendar** in Settings shows each day's hours. A day opens with its periods: add, change or delete one, set a total for the whole day, mark it as a holiday or vacation (or clear the mark: the day is then as in the calendar), or undo the last change. Several days can be set at once. Every change first shows what it does to the overtime, the shortfall and the amount earned, and is saved only when you confirm it.
 - **Overtime and the month.** Hours above the norm are paid at your multipliers (weekday, weekend, holiday). After a month ends, Settings offers to close it: cover a shortfall with weekend or holiday hours, carry the rest over or not. The latest closed month can be reopened.
 - **Holidays.** With a country (and optionally a region) set, the month's public holidays are fetched from [nagerholidays.com](https://nagerholidays.com) and count only after you confirm them; you can drop any and add your own. Ukrainian holidays have their Ukrainian names.
 - **Another currency.** The amounts can be shown in a currency of your choice at the daily rate of the European Central Bank, the National Bank of Poland or the National Bank of Ukraine, refreshed each morning. When the chosen bank doesn't answer (some refuse VPNs) or hasn't got the pair, another one stands in and the panel says which; your own rate is used only when none has the pair, and an old rate shows its date.
@@ -348,13 +348,17 @@ Windows runs nothing on a package uninstall, so the Store edition points the age
 `%LOCALAPPDATA%\TaskHub\bin` (with `store.json` naming the package): when an agent starts it after the package is gone,
 it removes TaskHub's entries from the agents' settings (the copy stays; the setup-exe edition removes it on start).
 
-Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no tray, no notifications) and runs
-`api_test.py` (API contract, agent hooks, CLI), `validation_test.py` (input validation: non-finite numbers, widget attributes, control values, shell controls), `parallel_test.py` (8 concurrent workers + notification burst),
-`integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder), `install_test.py` (setup /
-uninstall in a temporary folder), `mcp_test.py` (`taskhub mcp`), `telegram_test.py` (Telegram bridge against a mock Bot API),
-`discord_test.py` (the Discord bridge against a mock of its API and gateway), `github_test.py`, `runpod_test.py`, `vastai_test.py` and `guard_test.py` (connectors and the balance guard against mock APIs),
-`aws_sigv4_test.py` and `aws_test.py` (the AWS signer against AWS's test suite, the connector against a simulator), `limits_test.py` and `codex_limits_test.py` (plan limits), `payload_bounds_test.py` (what a local process can post),
-`hooks_offer_test.py` and `hook_form_test.py` (agent hooks), `log_test.py` (log levels, masking, rotation).
+Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no tray, no notifications) and runs, each with temporary data and,
+where needed, its own hub or mock APIs: the API and its contract (`api_test.py`, `api_contract_test.py`, `validation_test.py`, `payload_bounds_test.py`,
+`bounds_test.py`, `parallel_test.py`, `durable_test.py`, `token_test.py`, `hub_proof_test.py`, `link_pid_test.py`, `backoff_test.py`), the CLI and the MCP
+server (`cli_console_test.py`, `mcp_test.py`), setup, packaging and updates (`install_test.py`, `package_test.py`, `update_test.py`), agent settings and hooks
+(`integration_test.py`, `hooks_offer_test.py`, `hook_form_test.py`), plan limits (`limits_test.py`, `codex_limits_test.py`), Telegram and Discord against
+mocks of their APIs (`telegram_test.py`, `telegram_gate_test.py`, `discord_test.py`), the connectors and the balance guard against mock APIs (`github_test.py`,
+`github_prs_test.py`, `github_askpass_test.py`, `runpod_test.py`, `vastai_test.py`, `guard_test.py`, `guard_timing_test.py`, `guard_403_test.py`,
+`guard_unknown_test.py`, `connector_trust_test.py`, `ssh_test.py`, `blender_test.py`), AWS (`aws_sigv4_test.py`: the signer against AWS's own test suite;
+`aws_test.py`, `aws_http_test.py`: the connector against a simulator), work hours (`worktime_test.py`, `worktime_month_test.py`, `worktime_rates_test.py`,
+`worktime_remind_test.py`, `worktime_remind_to_test.py`, `worktime_export_test.py`), the log (`log_test.py`), the translations (`i18n_test.py`), unit tests
+(`unit_test.py`) and a check of the suite itself (`suite_honesty_test.py`).
 Every push runs the build and these tests on GitHub Actions (`.github/workflows/ci.yml`, Windows runner); pushing a tag
 `v<version>` (matching `Settings.Version`, `build.cmd` and both `.csproj`) also publishes the release with the setup exe
 and its SHA-256.
