@@ -5,6 +5,9 @@ from here), followed by the list of commits.
 
 ## Unreleased
 
+## 4.2.0 — 2026-11-09
+
+- **Also in this release: 4.1.0 and 4.0.0**, which weren't published on GitHub separately (their sections below in [CHANGELOG.md](https://github.com/FelixMUrphy/TaskHub/blob/main/CHANGELOG.md)). **Breaking for scripts that call the local API directly:** it now requires a token (`taskhub token` prints it; the `taskhub` command, the MCP server, agent hooks and the Python client send it by themselves).
 - **Work hours: the Settings tab.** A month calendar with each day's hours; a day opens with its periods, which can be added, changed or deleted, a total for the whole day, its type (working day, holiday, vacation) and an undo of the last change. Several days can be set at once. Every change shows first what it does to the overtime, the shortfall and the amount earned, and is saved only then. The settings of the count (norm, working days, salary, multipliers, tolerance) are here too, and when it's turned on the start date, the norm, the working days, the salary and the hours carried from before are asked once.
 - **Work hours: closing a month and holidays.** After a month ends, Settings offers to close it: cover the shortfall with weekend or holiday hours, carry the rest over or not; the overtime left is paid. The latest closed month can be reopened. With a country (and optionally a region) set, the public holidays of each month are fetched from nagerholidays.com and counted only after you confirm them; you can drop any and add your own. Ukrainian holidays have their Ukrainian names.
 - **Work hours: amounts in another currency.** The earned amount can be shown in a currency of your choice, at the daily rates of the European Central Bank, the National Bank of Poland or the National Bank of Ukraine, refreshed each morning; a rate you enter stands in when none of them has the pair, and an old rate shows its date.
