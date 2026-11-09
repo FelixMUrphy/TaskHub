@@ -24,6 +24,8 @@ static class Runner
         public JsonObject Widgets = new();
         public JsonObject Metrics = new();
         public string Toast;
+        public readonly HashSet<string> Declared = new() { "last" };   // the hub refuses a value for a widget it doesn't have, and a batch with it
+        public JsonArray NewWidgets = new();                           // ::widget with a new id: declared with its first value
     }
 
     public static int Run(Client c, List<string> a)
@@ -58,8 +60,11 @@ static class Runner
             _ => new UTF8Encoding(false),
         };
 
-        Regex prog = progRx != null ? new Regex(progRx) : auto ? new Regex(@"(?<pct>\d{1,3}(?:\.\d+)?)\s?%|(?<cur>\d+)\s?/\s?(?<tot>\d+)") : null;
-        Regex stat = statRx != null ? new Regex(statRx) : null;
+        Regex prog, stat;
+        try { prog = progRx != null ? UserRegex(progRx) : auto ? new Regex(@"(?<pct>\d{1,3}(?:\.\d+)?)\s?%|(?<cur>\d+)\s?/\s?(?<tot>\d+)") : null; }
+        catch (ArgumentException e) { Console.Error.WriteLine("taskhub run: bad --progress-regex: " + e.Message); return 2; }
+        try { stat = statRx != null ? UserRegex(statRx) : null; }
+        catch (ArgumentException e) { Console.Error.WriteLine("taskhub run: bad --status-regex: " + e.Message); return 2; }
 
         // ---- start the process
         var psi = new ProcessStartInfo
@@ -97,11 +102,12 @@ static class Runner
 
         // ---- register
         var pending = new Pending();
+        foreach (var pw in preset?.Widgets ?? Enumerable.Empty<JsonObject>()) pending.Declared.Add(Program.S(pw["id"]));
         if (useHub)
         {
             var controls = new JsonArray
             {
-                (JsonNode)new JsonObject { ["id"] = "interrupt", ["label"] = "Ctrl+C", ["kind"] = "signal", ["confirm"] = "Надіслати Ctrl+C процесу?", ["toast"] = toastCtl },
+                (JsonNode)new JsonObject { ["id"] = "interrupt", ["label"] = "Ctrl+C", ["kind"] = "signal", ["confirm"] = "Send Ctrl+C to the process?", ["toast"] = toastCtl },
                 (JsonNode)new JsonObject { ["id"] = "stdin", ["label"] = "Send input", ["kind"] = "signal", ["input"] = new JsonObject { ["type"] = "text", ["label"] = "stdin" } },
             };
             foreach (var pc in preset?.Controls ?? Enumerable.Empty<JsonObject>()) controls.Add((JsonNode)pc);
@@ -138,7 +144,7 @@ static class Runner
         {
             sender = new Thread(() => SenderLoop(c, tid, pending, stop.Token)) { IsBackground = true };
             sender.Start();
-            new Thread(() => PollLoop(c, tid, p, stop.Token, v => forwarding = v, preset, pending.L)) { IsBackground = true }.Start();
+            new Thread(() => PollLoop(c, tid, p, stop.Token, v => forwarding = v, () => userCancelled = true, preset, pending.L)) { IsBackground = true }.Start();
         }
 
         string lastLine = "";
@@ -172,7 +178,7 @@ static class Runner
                 pending.Widgets["last"] = Cut(line, 300);
                 if (prog != null)
                 {
-                    var m = prog.Match(line);
+                    var m = MatchLine(prog, line);
                     if (m.Success)
                     {
                         if (m.Groups["pct"].Success && Num(m.Groups["pct"].Value) is double pct) pending.Fields["percent"] = pct;
@@ -183,7 +189,7 @@ static class Runner
                 }
                 if (stat != null)
                 {
-                    var m = stat.Match(line);
+                    var m = MatchLine(stat, line);
                     if (m.Success) pending.Fields["status"] = m.Groups.Count > 1 ? m.Groups[1].Value : m.Value;
                 }
             }
@@ -247,9 +253,28 @@ static class Runner
 
     static string Cut(string s, int n) => s.Length > n ? s[..n] : s;
     static double? Num(string s) => double.TryParse(s.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : null;
-    static string Quote(string s) => s.Length > 0 && !s.Any(ch => char.IsWhiteSpace(ch) || ch == '"') ? s : "\"" + s.Replace("\"", "\\\"") + "\"";
+    /// <summary>For the cmd.exe fallback: an argument stays one argument. An operator on its own (`&`, `|`, `>`, `2>&1`) or a redirection (`>file`) stays an operator.</summary>
+    static string Quote(string s)
+    {
+        bool plain = s.Length > 0 && !s.Any(ch => char.IsWhiteSpace(ch) || ch == '"');
+        if (plain && (!s.Any(ch => ch is '&' or '|' or '<' or '>' or '^') || Regex.IsMatch(s, @"^(&&?|\|\|?|[0-9]?>>?(&[0-9])?|<|[0-9]?(>>?|<)[^&|<>^]+)$"))) return s;
+        return "\"" + s.Replace("\"", "\\\"") + "\"";
+    }
 
     /// <summary>::directive handling; returns true if the line was a directive.</summary>
+    /// <summary>A regex given by the caller; Python's named groups, as in the docs of the Python client, work too.</summary>
+    static Regex UserRegex(string pattern) =>
+        new(Regex.Replace(pattern.Replace("(?P<", "(?<"), @"\(\?P=(\w+)\)", @"\k<$1>"), RegexOptions.None, TimeSpan.FromSeconds(1));
+
+    /// <summary>A line of the command's output, against a regex that may be slow: it must not hold up the command.</summary>
+    static Match MatchLine(Regex r, string line)
+    {
+        try { return r.Match(Cut(line, 2000)); }
+        catch (RegexMatchTimeoutException) { return Match.Empty; }
+    }
+
+    const int MaxWidgets = 40;   // the hub's limit for a task
+
     static bool Directive(string line, Pending pd)
     {
         var m = Regex.Match(line, @"^::(\w+)\s*(.*)$");
@@ -292,7 +317,15 @@ static class Runner
             {
                 var kv = arg.Split('=', 2);
                 if (kv.Length != 2) return false;
-                pd.Widgets[kv[0].Trim()] = Program.ParseValue(kv[1].Trim());
+                var wid = kv[0].Trim();
+                if (!Regex.IsMatch(wid, @"^[A-Za-z0-9_.:-]{1,48}$")) return false;   // the hub's rule: an ordinary line then
+                if (!pd.Declared.Contains(wid))
+                {
+                    if (pd.Declared.Count >= MaxWidgets) return true;
+                    pd.Declared.Add(wid);
+                    pd.NewWidgets.Add((JsonNode)new JsonObject { ["id"] = wid, ["type"] = "text", ["label"] = wid });
+                }
+                pd.Widgets[wid] = Program.ParseValue(kv[1].Trim());
                 return true;
             }
         }
@@ -320,7 +353,7 @@ static class Runner
         var bodies = new List<JsonObject>();
         lock (pd.L)
         {
-            if (pd.Log.Count == 0 && pd.Fields.Count == 0 && pd.Widgets.Count == 0 && pd.Metrics.Count == 0 && pd.Toast == null) return;
+            if (pd.Log.Count == 0 && pd.Fields.Count == 0 && pd.Widgets.Count == 0 && pd.Metrics.Count == 0 && pd.NewWidgets.Count == 0 && pd.Toast == null) return;
             var info = new JsonArray();
             void FlushInfo()
             {
@@ -342,6 +375,7 @@ static class Runner
             if (bodies.Count == 0) bodies.Add(new JsonObject());
             var main = bodies[^1];
             foreach (var (k, v) in pd.Fields) main[k] = v?.DeepClone();
+            if (pd.NewWidgets.Count > 0) { main["add_widgets"] = pd.NewWidgets; pd.NewWidgets = new JsonArray(); }
             if (pd.Widgets.Count > 0) main["widgets"] = pd.Widgets.DeepClone();
             if (pd.Metrics.Count > 0) main["metrics"] = pd.Metrics.DeepClone();
             if (pd.Toast != null) main["toast"] = pd.Toast;
@@ -350,11 +384,16 @@ static class Runner
         foreach (var b in bodies)
         {
             try { c.Call("POST", $"/api/tasks/{tid}/update", b, 5); }
-            catch { /* fail-soft: the command keeps running even if the hub is gone */ }
+            catch
+            {
+                // fail-soft: the command keeps running even if the hub is gone. A new widget is asked for again, or its later values would fail too
+                if (b["add_widgets"] is JsonArray again)
+                    lock (pd.L) foreach (var w in again) pd.NewWidgets.Add(w.DeepClone());
+            }
         }
     }
 
-    static void PollLoop(Client c, string tid, Process p, CancellationToken ct, Action<bool> setForwarding, IOutputPreset preset, object presetLock)
+    static void PollLoop(Client c, string tid, Process p, CancellationToken ct, Action<bool> setForwarding, Action interrupted, IOutputPreset preset, object presetLock)
     {
         while (!ct.IsCancellationRequested && !p.HasExited)
         {
@@ -375,6 +414,7 @@ static class Runner
                             if (GetConsoleWindow() == IntPtr.Zero) { ok = false; reply = "no console - use Kill"; break; }
                             setForwarding(true);
                             ok = GenerateConsoleCtrlEvent(0, 0);   // CTRL_C to every process on this console (we ignore it)
+                            if (ok) interrupted();   // at once, the child can end before the pause does; a non-zero exit after it is "cancelled", as with Ctrl+C in the console
                             Thread.Sleep(300);
                             setForwarding(false);
                             reply = ok ? "Ctrl+C sent" : "GenerateConsoleCtrlEvent failed";

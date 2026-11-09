@@ -10,14 +10,16 @@ using Microsoft.Extensions.Logging;
 namespace TaskHub;
 
 /// <summary>HTTP API (Kestrel on loopback) - same routes and guards as the Python version.</summary>
-sealed class Api
+sealed partial class Api
 {
     readonly Settings S;
     readonly Hub hub;
     public Func<string, bool> UiOpen;    // task -> ok
     public Func<bool> UiHide;            // -> hidden
     public TelegramBridge Telegram;
+    public DiscordBridge Discord;
     public Connectors Conns;
+    public readonly Worktime Work;
     WebApplication app;
 
     delegate Task<JsonNode> Handler(HttpContext ctx, Dictionary<string, string> q, string[] g);
@@ -27,7 +29,10 @@ sealed class Api
     {
         S = s;
         hub = h;
+        Work = new Worktime(s, h.Poke) { Toast = (t, m) => { if (!h.Muted) h.Notifier?.LocalToast(t, m); } };   // this PC only, not Telegram / Discord
+        h.WorktimeMark = () => Work.Mark;
         Routes();
+        WorktimeRoutes();
     }
 
     void R(string method, string pattern, Handler h) => routes.Add((method, new Regex("^" + pattern + "$"), h));
@@ -40,8 +45,7 @@ sealed class Api
         R("GET", "/ui", async (c, q, g) =>
         {
             var html = UiPage.Html();
-            html = html.Replace("__TOKEN__", J.Dump(JsonValue.Create(S.Token)))
-                .Replace("__VERSION__", Settings.Version)
+            html = html.Replace("__VERSION__", Settings.Version)
                 .Replace("__AUTOHIDE__", S.Bool("panel_autohide", true) ? "true" : "false");
             await Raw(c, 200, Encoding.UTF8.GetBytes(html), "text/html; charset=utf-8");
             return null;
@@ -60,9 +64,17 @@ sealed class Api
             {
                 ["ok"] = true, ["app"] = Settings.AppId, ["version"] = Settings.Version, ["impl"] = "dotnet", ["edition"] = Install.Edition,
                 ["pid"] = Environment.ProcessId, ["tasks"] = total, ["active"] = active,
-                ["notifications"] = hub.Notifier?.SystemSetting,   // Windows' switch for TaskHub's notifications (2.9)
-                ["toast_queue"] = hub.Notifier?.QueueLength ?? 0,  // notifications waiting for the rate limit (2.9)
+                ["notifications"] = hub.Notifier?.SystemSetting,   // Windows' switch for TaskHub's notifications
+                ["toast_queue"] = hub.Notifier?.QueueLength ?? 0,  // notifications waiting for the rate limit
             });
+        });
+        R("GET", "/api/hub-proof", (c, q, g) =>
+        {
+            // taskhub.exe asks this before it sends anything; the port is signed too, so a proof can't be passed on from another port
+            var nonce = q.TryGetValue("nonce", out var nv) ? nv : "";
+            if (nonce.Length is < 16 or > 128 || !nonce.All(Uri.IsHexDigit)) throw new ApiError(400, "nonce: 16-128 hex characters");
+            var mac = System.Security.Cryptography.HMACSHA256.HashData(S.HubKey, System.Text.Encoding.UTF8.GetBytes($"taskhub-hub-proof|{S.Port}|{nonce}"));
+            return V(new JsonObject { ["proof"] = Convert.ToHexString(mac).ToLowerInvariant() });
         });
         R("GET", "/api/help", async (c, q, g) =>
         {
@@ -77,13 +89,13 @@ sealed class Api
                 await hub.WaitChange(since, Math.Min(w, 55), c.RequestAborted);
             return hub.Snapshot(Flag(q, "active"), Flag(q, "brief"));
         });
-        R("POST", "/api/tasks", async (c, q, g) => hub.Register(await Body(c)));
+        R("POST", "/api/tasks", async (c, q, g) => hub.RegisterApi(NoConnectorReference(await Body(c))));
         R("GET", $"/api/tasks/{Id}", (c, q, g) => V(hub.GetTask(g[0])));
         R("DELETE", $"/api/tasks/{Id}", (c, q, g) => V(hub.Delete(g[0], Flag(q, "force"))));
-        R("POST", $"/api/tasks/{Id}/update", async (c, q, g) => hub.Update(g[0], await Body(c)));
+        R("POST", $"/api/tasks/{Id}/update", async (c, q, g) => hub.UpdateApi(g[0], NoConnectorReference(await Body(c))));
         R("POST", $"/api/tasks/{Id}/log", async (c, q, g) => hub.AddLogApi(g[0], await Body(c)));
         R("POST", $"/api/tasks/{Id}/heartbeat", async (c, q, g) => { await Body(c); return hub.Heartbeat(g[0]); });
-        R("POST", $"/api/tasks/{Id}/finish", async (c, q, g) => hub.Finish(g[0], await Body(c)));
+        R("POST", $"/api/tasks/{Id}/finish", async (c, q, g) => hub.FinishApi(g[0], await Body(c)));
         R("POST", $"/api/tasks/{Id}/controls/([A-Za-z0-9_.:-]+)", async (c, q, g) =>
         {
             var b = await Body(c);
@@ -97,11 +109,19 @@ sealed class Api
         });
         R("POST", $"/api/tasks/{Id}/commands/([A-Za-z0-9]+)/ack", async (c, q, g) => hub.Ack(g[0], g[1], await Body(c)));
         R("POST", "/api/clear", async (c, q, g) => { await Body(c); return hub.ClearFinished(); });
-        R("POST", "/api/notify", async (c, q, g) => { var b = await Body(c); var r = hub.Notify(b); AgentHooks.AgentSpoke(b); return r; });
+        R("POST", "/api/notify", async (c, q, g) => { var b = await Body(c); Hub.CheckNotify(b); var r = hub.Notify(b); AgentHooks.AgentSpoke(b); return r; });
         R("POST", "/api/hooks/(claude|codex)", async (c, q, g) => AgentHooks.Handle(hub, g[0], await Body(c)));
         R("POST", "/api/limits/(claude)", async (c, q, g) => hub.ReportLimits(g[0], await Body(c)));
         R("GET", "/api/limits", (c, q, g) => V(hub.LimitsView()));
-        R("GET", "/api/telegram", (c, q, g) => V(Telegram?.State() ?? new JsonObject { ["status"] = "off" }));
+        R("GET", "/api/telegram", (c, q, g) =>
+        {
+            var st = Telegram?.State() ?? new JsonObject { ["status"] = "off" };
+            if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is not { Length: > 0 }) st.Remove("link");   // the pairing code stays on the settings page
+            return V(st);
+        });
+        // setting it up is only on the settings page (WebView2 messages): a pairing code gives a chat the user's notifications and buttons.
+        // This is for the isolated hubs of the tests
+        if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
         R("POST", "/api/telegram", async (c, q, g) =>
         {
             var b = await Body(c);
@@ -114,6 +134,28 @@ sealed class Api
             if (J.Truthy(b["test"])) Telegram.Test();
             return Telegram.State();
         });
+        R("GET", "/api/discord", (c, q, g) => V(Discord?.State() ?? new JsonObject { ["status"] = "off" }));
+        // a toast's button as Windows would press it, for the isolated hubs of the tests
+        if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+            R("POST", "/api/test/toast", async (c, q, g) =>
+            {
+                var b = await Body(c);
+                ((Notifier)hub.Notifier).Activate(J.Str(b["argument"]), new Dictionary<string, object>());
+                return new JsonObject { ["ok"] = true };
+            });
+        // setting it up is only on the settings page (WebView2 messages): this is for the isolated hubs of the tests
+        if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 })
+            R("POST", "/api/discord", async (c, q, g) =>
+            {
+                var b = await Body(c);
+                if (J.Truthy(b["disconnect"])) Discord.Disconnect();
+                if (b.ContainsKey("away_only")) Discord.SetAwayOnly(J.Truthy(b["away_only"]));
+                if (b.ContainsKey("progress")) Discord.SetProgress(J.Truthy(b["progress"]));
+                if (J.IsStr(b["token"])) return await Task.Run(() => Discord.Pair(J.Str(b["token"])));
+                if (J.Truthy(b["retry"])) return await Task.Run(() => Discord.Retry());
+                if (J.Truthy(b["test"])) await Task.Run(Discord.Test);
+                return Discord.State();
+            });
         R("GET", "/api/connectors", (c, q, g) =>
         {
             // the rows of the settings page's Connectors section (read-only; never a key): {connectors: [...]}
@@ -127,13 +169,13 @@ sealed class Api
                 });
             }
             var o = new JsonObject();
-            foreach (var k in Conns?.All ?? Enumerable.Empty<IConnector>()) o[k.Id] = k.State();
+            foreach (var k in Conns?.All ?? Enumerable.Empty<IConnector>()) if (k is not WorktimeReminders) o[k.Id] = k.State();   // reminders: no settings, not a connector to the user
             return V(o);
         });
         R("GET", "/api/connectors/([a-z0-9]{1,20})", (c, q, g) => V(Conn(g[0]).State()));
         R("GET", "/api/guard/log", (c, q, g) =>
         {
-            // what the balance guard stopped (2.9), newest first: ?provider=runpod|vastai&limit=1-200 (default 50)
+            // what the balance guard stopped, newest first: ?provider=runpod|vastai&limit=1-200 (default 50)
             var prov = q.TryGetValue("provider", out var pv) && pv.Length > 0 ? pv : null;
             int lim = q.TryGetValue("limit", out var lv) && int.TryParse(lv, out var li) ? li : 50;
             var a = new JsonArray();
@@ -147,8 +189,9 @@ sealed class Api
             return await Task.Run(() => (JsonNode)(conn switch
             {
                 GitHubConnector gh => gh.Configure(b),
-                MachineConnector mc => mc.Configure(b),
+                MachineConnector mc => mc.ConfigureHttp(b),
                 AwsConnector aw => aw.ConfigureHttp(b),
+                SshConnector sc => sc.ConfigureHttp(b),
                 _ => throw new ApiError(404, "not configurable"),
             }));
         });
@@ -175,7 +218,8 @@ sealed class Api
         });
     }
 
-    IConnector Conn(string id) => Conns?.Get(id) ?? throw new ApiError(503, $"connector '{id}' not available");
+    IConnector Conn(string id) => Conns == null ? throw new ApiError(503, "connectors not available")
+        : Conns.Get(id) ?? throw new ApiError(404, $"no connector '{id}'");
 
     static bool Flag(Dictionary<string, string> q, string k) => q.TryGetValue(k, out var v) && v is "1" or "true";
 
@@ -190,7 +234,10 @@ sealed class Api
         JsonNode n;
         try { n = J.Parse(text); }
         catch { throw new ApiError(400, "body must be JSON"); }
-        return n as JsonObject ?? throw new ApiError(400, "body must be a JSON object");
+        if (n is not JsonObject o) throw new ApiError(400, "body must be a JSON object");
+        try { _ = o.Count; }   // a key sent twice shows only when the object is first read
+        catch (ArgumentException) { throw new ApiError(400, "body has a key twice"); }
+        return o;
     }
 
     static async Task Raw(HttpContext c, int code, byte[] body, string ctype)
@@ -205,6 +252,16 @@ sealed class Api
     static Task Json(HttpContext c, int code, JsonNode n) =>
         Raw(c, code, Encoding.UTF8.GetBytes(J.Dump(n)), "application/json; charset=utf-8");
 
+    /// <summary>meta.&lt;connector&gt; says what a connector's buttons act on (a run, a pull request, a machine), with the user's key:
+    /// only the connector sets it.</summary>
+    JsonObject NoConnectorReference(JsonObject b)
+    {
+        if (b["meta"] is not JsonObject m) return b;
+        m.Remove("github_pr");
+        foreach (var k in Conns?.All ?? Enumerable.Empty<IConnector>()) m.Remove(k.Id);
+        return b;
+    }
+
     void Check(HttpContext c, string method, string path)
     {
         var port = S.Port;
@@ -218,9 +275,9 @@ sealed class Api
             if (o != $"http://127.0.0.1:{port}" && o != $"http://localhost:{port}") throw new ApiError(403, "cross-origin requests are not allowed");
         }
         if (!path.StartsWith("/api/")) return;
-        var tok = S.Token;
-        if (!string.IsNullOrEmpty(tok) && c.Request.Headers.Authorization.ToString() != "Bearer " + tok && path != "/api/health")
-            throw new ApiError(401, "token required");
+        if (path is not ("/api/health" or "/api/hub-proof") && !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(c.Request.Headers.Authorization.ToString()), Encoding.UTF8.GetBytes("Bearer " + S.Token)))
+            throw new ApiError(401, "token required (an agent started before an update: restart it)");
         if (method is "POST" or "DELETE" or "PUT" or "PATCH" && string.IsNullOrEmpty(c.Request.Headers["X-TaskHub"].ToString()))
             throw new ApiError(403, "header 'X-TaskHub: 1' required on write requests");   // CSRF guard
     }
@@ -276,6 +333,7 @@ sealed class Api
             if (ipv6) o.Listen(IPAddress.IPv6Loopback, S.Port);
         });
         var a = b.Build();
+        _ = S.Token;   // the file is there before the first client looks for it
         a.Run(Dispatch);
         return a;
     }

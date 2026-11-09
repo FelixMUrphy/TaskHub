@@ -8,6 +8,9 @@ namespace TaskHub;
 sealed partial class Hub
 {
     // ------------------------------------------------------------ controls & commands
+    /// <summary>A task source that is a built-in connector: its tasks and buttons are the connector's.</summary>
+    public Func<string, bool> IsConnector;
+
     /// <summary>A "connector" control pressed: (source, task, control, value, via) -> the connector that made the task.
     /// via: null from the HTTP API (also the panel's ordinary buttons), "toast", "telegram", or "panel" (the panel's WebView2
     /// bridge - the only way to panel_only controls).</summary>
@@ -67,7 +70,7 @@ sealed partial class Hub
                 if (ConnectorControl == null) throw new ApiError(503, "connectors not available");
                 return ConnectorControl(source, tid, cid, value, via);
             case "kill":
-                if (pid is not > 0) throw new ApiError(400, "task has no pid");
+                if (pid is not > 0) throw new ApiError(409, "task has no pid");
                 var kr = KillTree(pid.Value, ct, out var why);
                 if (kr == KillResult.Failed)
                 {
@@ -161,9 +164,58 @@ sealed partial class Hub
         return Native.PidAlive(pid, ct) ? KillResult.Failed : KillResult.Killed;
     }
 
+    /// <summary>A line of a shell control's output: UTF-8 if it is valid UTF-8, else the OEM code page console tools write.</summary>
+    static string ShellLine(string latin1)
+    {
+        var bytes = System.Text.Encoding.Latin1.GetBytes(latin1);
+        try { return strictUtf8.GetString(bytes); }
+        catch (System.Text.DecoderFallbackException) { return oem.Value.GetString(bytes); }
+    }
+    static readonly System.Text.Encoding strictUtf8 = new System.Text.UTF8Encoding(false, true);
+    static readonly Lazy<System.Text.Encoding> oem = new(() =>
+    {
+        try
+        {
+            System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+            return System.Text.Encoding.GetEncoding((int)GetOEMCP());
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException) { return System.Text.Encoding.Latin1; }
+    });
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] static extern uint GetOEMCP();
+
+    /// <summary>What an "open" control names: the task's owner chose to run it.</summary>
     public static void OpenTarget(string target)
     {
         Process.Start(new ProcessStartInfo(target) { UseShellExecute = true })?.Dispose();
+    }
+
+    static readonly string Explorer = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+
+    /// <summary>Opens a link, from the panel or a toast: http / https / mailto in the default handler. A local or network file
+    /// (file: URL or a plain path; only when <paramref name="local"/>, i.e. task links) is never run: a folder opens in
+    /// Explorer, a file is shown selected in its folder. Anything else is refused.</summary>
+    public static void OpenLink(string url, bool local)
+    {
+        try
+        {
+            if (!LinkOk(url, out var u)) { Log.W("panel", "refused to open " + (Uri.TryCreate(url, UriKind.Absolute, out var refused) ? refused.Scheme + "://" + refused.Host : "a malformed address")); return; }
+            if (!u.IsFile)
+            {
+                Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true })?.Dispose();
+                return;
+            }
+            if (!local) { Log.W("panel", "refused to open a local path from a page"); return; }
+            var path = u.LocalPath;
+            // the tests check the choice: an Explorer window would land on the desktop of whoever runs them
+            if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 }) { Log.I("panel", "would show in Explorer"); return; }
+            if (Directory.Exists(path))
+                Process.Start(new ProcessStartInfo(Explorer, "\"" + Path.TrimEndingDirectorySeparator(path) + "\"")
+                    { UseShellExecute = false })?.Dispose();
+            else if (File.Exists(path))
+                Process.Start(new ProcessStartInfo(Explorer, "/select,\"" + path + "\"") { UseShellExecute = false })?.Dispose();
+            else Log.W("panel", "open: path not found");
+        }
+        catch (Exception e) { Log.W("panel", "open failed: " + e.Message); }
     }
 
     /// <summary>Shell control as a list: the value may not choose the program, and .bat / .cmd targets (run through
@@ -214,6 +266,8 @@ sealed partial class Hub
             psi.CreateNoWindow = true;
             psi.RedirectStandardOutput = true;
             psi.RedirectStandardError = true;
+            // bytes as they are: each line is decoded below, as a command can print either
+            psi.StandardOutputEncoding = psi.StandardErrorEncoding = System.Text.Encoding.Latin1;
             psi.Environment["PYTHONIOENCODING"] = "utf-8";
             psi.Environment["TASKHUB_TASK_ID"] = tid;
             psi.Environment["TASKHUB_URL"] = S.Url;
@@ -227,7 +281,7 @@ sealed partial class Hub
             {
                 string l;
                 while ((l = await r.ReadLineAsync()) != null)
-                    if (l.Length > 0) lock (tail) { tail.Enqueue(J.Cut(l, 2000)); if (tail.Count > 25) tail.Dequeue(); }
+                    if (l.Length > 0) lock (tail) { tail.Enqueue(J.Cut(ShellLine(l), 2000)); if (tail.Count > 25) tail.Dequeue(); }
             }
             var drained = Task.WhenAll(Drain(p.StandardOutput), Drain(p.StandardError));
             var secs = Math.Clamp(J.Num(c["timeout"]) ?? 300, 1, 86400);
@@ -301,14 +355,11 @@ sealed partial class Hub
             var t = Get(tid);
             bool ok = !b.ContainsKey("ok") || J.Truthy(b["ok"]);
             var msg = J.Cut(J.Truthy(b["message"]) ? J.Str(b["message"]) : (ok ? "ok" : "failed"), 500);
-            foreach (var h in (t["commands"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
-            {
-                if (J.Str(h["id"]) != cmdId) continue;
-                h["status"] = ok ? "ok" : "error";
-                h["reply"] = msg;
-                AddLog(t, $"⇠ {J.Str(h["control"])}: {msg}", ok ? "cmd" : "error");
-                break;
-            }
+            var h = (t["commands"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().FirstOrDefault(x => J.Str(x["id"]) == cmdId)
+                ?? throw new ApiError(404, $"no command '{J.Cut(cmdId, 64)}' on this task");
+            h["status"] = ok ? "ok" : "error";
+            h["reply"] = msg;
+            AddLog(t, $"⇠ {J.Str(h["control"])}: {msg}", ok ? "cmd" : "error");
             Bump();
         }
         return new JsonObject { ["ok"] = true };

@@ -16,15 +16,17 @@ sealed class HubError : Exception
 sealed class Client
 {
     public readonly string Url;
-    readonly string token;
+    readonly string envToken;
     readonly HttpClient http;
+    readonly bool addressChosen;
 
     public Client(string url)
     {
+        // TaskHub itself gives TASKHUB_URL to the commands it starts: its own address isn't one the user chose
+        var env = Environment.GetEnvironmentVariable("TASKHUB_URL");
+        addressChosen = url != null || (!string.IsNullOrEmpty(env) && !string.Equals(env.TrimEnd('/'), OwnUrl(), StringComparison.OrdinalIgnoreCase));
         Url = (url ?? DefaultUrl()).TrimEnd('/');
-        token = Environment.GetEnvironmentVariable("TASKHUB_TOKEN");
-        // the agents' MCP server and hooks run this exe without TASKHUB_TOKEN: use the hub's own token
-        if (string.IsNullOrEmpty(token) && HubConfig()?["token"] is JsonValue tv && tv.TryGetValue<string>(out var t)) token = t;
+        envToken = Environment.GetEnvironmentVariable("TASKHUB_TOKEN");
         http = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
@@ -33,7 +35,11 @@ sealed class Client
     public static string DefaultUrl()
     {
         var env = Environment.GetEnvironmentVariable("TASKHUB_URL");
-        if (!string.IsNullOrEmpty(env)) return env;
+        return string.IsNullOrEmpty(env) ? OwnUrl() : env;
+    }
+
+    static string OwnUrl()
+    {
         foreach (var o in new[] { ExeSettings(), HubConfig() })
             if (o?["port"] is JsonValue pv && pv.TryGetValue<double>(out var port) && port is > 0 and < 65536)
                 return "http://127.0.0.1:" + (int)port;
@@ -57,10 +63,65 @@ sealed class Client
         : ExeSettings()?["data"] is JsonValue dv && dv.TryGetValue<string>(out var d) ? Environment.ExpandEnvironmentVariables(d)
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaskHub");
 
+    /// <summary>The token this account's hub wants: "token" in its config.json, else its api.token. The agents' MCP server and hooks
+    /// run this exe without TASKHUB_TOKEN, so it finds it itself.</summary>
+    static string OwnToken()
+    {
+        if (HubConfig()?["token"] is JsonValue tv && tv.ToString() is { Length: > 0 } t) return t;   // a number too, as the hub reads it
+        try { return File.ReadAllText(Path.Combine(DataFolder(), "api.token")).Trim() is { Length: > 0 } text ? text.ToUpperInvariant() : null; }   // the hub's form of the hex
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>What to send: TASKHUB_TOKEN as it is; the hub's own token only to whoever has just proved it holds the hub's key.</summary>
+    string TokenFor(CancellationToken ct) => ProveHub(ct) ? OwnToken() : null;
+
+    /// <summary>The token for a command that hands it to the user, or null.</summary>
+    public string Token() => !string.IsNullOrEmpty(envToken) ? envToken : TokenFor(CancellationToken.None);
+
+    /// <summary>With TaskHub closed, another program can listen on its port: before any token or data leaves, whoever answers must show it
+    /// holds the hub's key. True when it did. An address the user chose that can't is just not this hub: it gets no token, and no error here.
+    /// Where the key can't be seen, false: another user's program can't remove the file, so nothing is refused, only no token goes.</summary>
+    bool ProveHub(CancellationToken ct)
+    {
+        byte[] key;
+        try
+        {
+            var text = File.ReadAllText(Path.Combine(DataFolder(), "hub.key")).Trim();
+            if (text.Length != 64) return false;
+            key = Convert.FromHexString(text);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException) { return false; }
+        var nonce = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        string answer = null;
+        using var req = new HttpRequestMessage(HttpMethod.Get, Url + "/api/hub-proof?nonce=" + nonce);
+        HttpResponseMessage r;
+        try { r = http.Send(req, ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception e)
+        {
+            if (addressChosen) return false;
+            throw new HubError(0, $"hub not reachable at {Url}: {e.GetBaseException().Message}");
+        }
+        using (r)
+            if (r.IsSuccessStatusCode)
+                try { answer = Program.S((JsonNode.Parse(r.Content.ReadAsStringAsync(ct).GetAwaiter().GetResult()) as JsonObject)?["proof"]); }
+                catch (Exception e) when (e is JsonException or HttpRequestException or InvalidOperationException) { }
+        var port = new Uri(Url).Port;
+        var good = System.Security.Cryptography.HMACSHA256.HashData(key, Encoding.UTF8.GetBytes($"taskhub-hub-proof|{port}|{nonce}"));
+        byte[] got = null;
+        try { got = Convert.FromHexString(answer ?? ""); } catch (FormatException) { }
+        if (got != null && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(got, good)) return true;
+        if (addressChosen) return false;
+        throw new HubError(0, $"the program at {Url} isn't TaskHub (it can't prove it): nothing was sent. Close it or restart TaskHub.");
+    }
+
     public JsonNode Call(string method, string path, JsonNode body = null, double timeoutSec = 10, CancellationToken ct = default)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(timeoutSec));
+        string token = envToken;
+        try { var own = TokenFor(cts.Token); if (string.IsNullOrEmpty(token)) token = own; }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { throw new HubError(0, $"hub not reachable at {Url}: no answer"); }
         var req = new HttpRequestMessage(new HttpMethod(method), Url + path);
         if (method != "GET")
         {
@@ -116,10 +177,12 @@ http://127.0.0.1:47800; env TASKHUB_URL / TASKHUB_TOKEN override them)
   taskhub ack ID CMD [--fail] [--message M]
   taskhub wait ID [--timeout SEC]                  (block until finished; exit 0 done, 1 failed/lost, 2 cancelled, 124 timeout)
   taskhub panel [ID]                               (open the panel, optionally focused on a task)
+  taskhub ui [--print]                             (open the panel's page in your browser, the token in the address's fragment; --print: only show the address)
+  taskhub token                                    (print the token the local API wants, for your own scripts)
   taskhub delete ID [--force]
   taskhub api                                      (print API.md served by the hub)
   taskhub mcp [--source NAME]                      (MCP server over stdio for AI agents: notify, task_start/update/finish,
-                                                    task_commands, task_list; starts the hub on first use)
+                                                    task_commands, task_list, task_wait; starts the hub on first use)
   taskhub hook claude|codex                        (agent hook: event JSON on stdin or as the last argument -> toast;
                                                     prints nothing, always exits 0, never starts the hub)
   taskhub statusline                               (Claude Code status line, added by the ""plan limits"" switch: runs your own
@@ -139,7 +202,8 @@ http://127.0.0.1:47800; env TASKHUB_URL / TASKHUB_TOKEN override them)
       given; --preset none turns it off.
       Adds Ctrl+C, 'Send input' (stdin) and Kill controls; exits with the command's exit code (1 when a preset saw
       the tool fail while it exited with 0).
-      The child gets TASKHUB_URL and TASKHUB_TASK_ID in its environment (so it can call the API itself).
+      The child gets TASKHUB_URL and TASKHUB_TASK_ID in its environment, not the token: the taskhub command finds it
+      itself, for a raw request see `taskhub token`.
 
 Global option: --url URL";
 
@@ -289,6 +353,22 @@ Global option: --url URL";
                     try { AllowSetForegroundWindow(-1); } catch { }
                     c.Call("POST", "/api/ui/open", new JsonObject { ["task"] = args.Count > 0 ? args[0] : null });
                     return 0;
+                case "token":
+                {
+                    if (c.Token() is not { Length: > 0 } tok) return NoToken(c);
+                    Console.WriteLine(tok);
+                    return 0;
+                }
+                case "ui":
+                {
+                    bool print = TakeFlag(args, "--print");
+                    if (!c.Available()) return NoToken(c);   // no dead page
+                    if (c.Token() is not { Length: > 0 } tok) return NoToken(c);
+                    var page = c.Url + "/ui#token=" + Uri.EscapeDataString(tok);
+                    if (print) Console.WriteLine(page);
+                    else System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(page) { UseShellExecute = true })?.Dispose();
+                    return 0;
+                }
                 case "delete":
                 {
                     bool force = TakeFlag(args, "--force");
@@ -306,6 +386,13 @@ Global option: --url URL";
             Console.Error.WriteLine("taskhub: " + e.Message);
             return e.Code == 0 ? 3 : 1;
         }
+    }
+
+    /// <summary>Why there's no token to give: the hub isn't there, or it can't be read or this address isn't this PC's hub.</summary>
+    static int NoToken(Client c)
+    {
+        if (!c.Available()) { Console.Error.WriteLine($"taskhub: the hub is not running at {c.Url}"); return 3; }
+        return Fail($"no token for {c.Url}: api.token in {Client.DataFolder()} can't be read, or this address isn't this PC's hub. See TASKHUB_TOKEN in API.md");
     }
 
     [DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int pid);

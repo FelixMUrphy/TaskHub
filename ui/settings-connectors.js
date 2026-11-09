@@ -51,7 +51,9 @@ const connRow=c=>{
     h+=srow(s.text,"",tgl("cbool",s.value,` data-conn="${id}" data-cbool="${esc(s.key)}"`),"sub");
   }
   if ((c.notes||[]).length) h+=`<div class="srow sub"><div class="sl">${c.notes.map(n=>`<div class="sd">${esc(n)}</div>`).join("")}</div></div>`;
-  // balance guard (2.9): warn / stop thresholds, time to answer, snooze; forecast; a pending stop with Stop now / Snooze;
+  // a how-to page of a connector without a key of its own
+  if (!c.uses_key && c.help_url && c.help_label) h+=`<div class="srow sub"><div class="sl"><div class="sd"><a class="klink" tabindex="0" role="link" data-open="${esc(c.help_url)}">${esc(c.help_label)}</a></div></div></div>`;
+  // balance guard: warn / stop thresholds, time to answer, snooze; forecast; a pending stop with Stop now / Snooze;
   // "never auto-stop" per machine; the last stops. Texts in the UI language come from the host.
   if (gd){
     h+=srow(T("s_guard"), gd.note? "⚠ "+gd.note : T("s_guard_d"), tgl("cguard",gd.enabled,` data-conn="${id}"`), "sub");

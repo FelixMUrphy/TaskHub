@@ -1,6 +1,6 @@
 # Vast.ai: API key for TaskHub
 
-[Українською](vastai.uk.md) · [All keys](README.md)
+**English** · [Українська](vastai.uk.md) · [Español](vastai.es.md) · [Deutsch](vastai.de.md) · [Français](vastai.fr.md) · [Italiano](vastai.it.md) · [Português](vastai.pt.md) · [Polski](vastai.pl.md) · [中文](vastai.zh.md) · [日本語](vastai.ja.md) · [All pages](README.md)
 
 ## What TaskHub uses it for
 - **Watch:** your instances, their load, price, charges of the last 30 days, your balance and credit.

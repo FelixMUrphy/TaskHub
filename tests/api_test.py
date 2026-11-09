@@ -77,8 +77,7 @@ if os.path.exists(cli):
 s, r = call("GET", "/api/nope")
 check("404 route", s == 404 and "error" in r, (s, r))
 s, r = call("POST", "/api/tasks", None, raw=False)
-check("register without name ok (defaults)", s == 200, (s, r))
-call("DELETE", f"/api/tasks/{r.get('id')}?force=1")
+check("register without name -> 400 (API.md: required)", s == 400 and "name" in r.get("error", ""), (s, r))
 
 # register with widgets + controls
 reg = {
@@ -240,7 +239,7 @@ check("health: Windows notification setting reported", r.get("notifications") in
 p2 = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1)"])
 call("POST", "/api/tasks", {"id": "t-lost", "name": "will be lost", "pid": p2.pid, "notify": {"fail": False}})
 p2.wait()
-time.sleep(4.5)
+time.sleep(7.5)   # gone at two looks of the watchdog in a row, 3 s apart
 s, t = call("GET", "/api/tasks/t-lost")
 check("watchdog -> lost", t["state"] == "lost", t["state"])
 
@@ -319,7 +318,7 @@ check("panel settings: set", s == 200 and r.get("panel") == {"theme": "dark", "a
       "card_transparency": 55, "panel_group": "source", "panel_pinned": True, "panel_push_windows": False}, r)
 s, r = call("POST", "/api/settings", {"panel_push_windows": True})
 check("panel settings: moving other windows can't be turned on over HTTP", s == 200 and r["panel"]["panel_push_windows"] is False, (s, r))
-cfg_path = os.path.join(os.environ.get("TEMP", ""), "taskhub-tests", "config.json")
+cfg_path = os.path.join(os.environ.get("TASKHUB_DATA", os.path.join(os.environ.get("TEMP", ""), "taskhub-tests")), "config.json")
 if os.path.exists(cfg_path):
     with open(cfg_path, encoding="utf-8") as f:
         cfg = json.load(f)

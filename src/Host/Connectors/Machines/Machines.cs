@@ -42,6 +42,8 @@ sealed class Balance
     /// <summary>Not null: Amount isn't money left before the service stops the machines (post-paid, a card charged
     /// automatically, an unclear field) - the balance guard only warns; the text says why (UI language).</summary>
     public string NoStop;
+    /// <summary>Not null: said with an announced stop (UI language), e.g. what the guard couldn't find out.</summary>
+    public string StopNote;
     /// <summary>Not null: the reading failed (e.g. "HTTP 500"); <see cref="Code"/> is the answer's status (0 = none).</summary>
     public string Error;
     public int Code;
@@ -113,6 +115,7 @@ abstract partial class MachineConnector : ISettingsConnector
         public Machine M; public string LastSig; public double NextDetail;
         public double? IdleSince; public bool IdleWarned;
         public bool IdleStopAsked;   // an idle stop was started in this idle period (IdleStop.cs)
+        public bool GpuBusySeen, IdleUnprovenSaid;   // see IdleStopNeedsBusySeen
         public double? IdleSeenAt;   // the last load sample, when it was idle (null: busy or unknown load)
     }
     readonly Dictionary<string, Track> machines = new();   // machine id -> what we know / show
@@ -123,11 +126,13 @@ abstract partial class MachineConnector : ISettingsConnector
     bool low;                                              // balance / runway under the limit (warned once per crossing)
     protected string status = "off";
     bool? canAct;                                          // null: not probed yet / probe failed
-    double probedAt, nextList, nextBilling, pausedUntil, backoff;
+    double probedAt, nextList, nextBilling, nextSpend, pausedUntil, backoff, probeBackoff;
+    bool actsOffSaid;                                      // "auto-stop is off" was said; the way back is said too
     string keyHash;
     // the last verdict on the saved key: "ok" | "revoked" (the service stopped accepting it) | "network" | "unavailable"
     // (saved but not checked yet); null = no key / not checked. Never anything of the key itself.
     string keyCheck;
+    readonly KeyWatch keyWatch = new();
     int keyCheckCode;
 
     protected MachineConnector(Settings s, Hub h)
@@ -175,6 +180,15 @@ abstract partial class MachineConnector : ISettingsConnector
     };
 
     /// <summary>Changes the settings (settings page / API); unknown keys are ignored, bad values rejected (nothing changed).</summary>
+    /// <summary>The local API's way in. The switches and limits of the balance guard and idle stop, and what they go by (idle thresholds, how the balance is read), change only on the settings page, as with AWS's
+    /// paid read. The other settings, the connector's own switch among them, stay open to the API. The simulator stops nothing.</summary>
+    public JsonObject ConfigureHttp(JsonObject b)
+    {
+        if (!Mock && b.Any(kv => kv.Key.StartsWith("guard") || kv.Key is "idle_stop_minutes" or "idle_minutes" or "idle_util" or "billing_interval" or "graphql_balance"))
+            throw new ApiError(403, "the balance guard and idle stop can only be changed in Settings");
+        return Configure(b);
+    }
+
     public JsonObject Configure(JsonObject b)
     {
         var c = Connectors.Config(S, Id);
@@ -206,7 +220,7 @@ abstract partial class MachineConnector : ISettingsConnector
         if (J.IsStr(b["key"])) SetKey(J.Str(b["key"]));   // a rejected key: nothing is changed
         Connectors.SetConfig(S, Id, c);
         if (b.ContainsKey("idle_stop_minutes") && J.Num(b["idle_stop_minutes"]) == 0) CancelPending(_ => L.T("g_idle_off"), p => p.Idle);
-        if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); canAct = null; keyHash = null; keyCheck = null; balance = null; }
+        if (J.Truthy(b["forget_key"])) { Secrets.Delete(S, Id); hub.SetConnectorState(Id, null); canAct = null; probeBackoff = 0; actsOffSaid = false; keyHash = null; keyCheck = null; keyWatch.Reset(); balance = null; reading = null; }
         Start();
         return State();
     }
@@ -229,8 +243,8 @@ abstract partial class MachineConnector : ISettingsConnector
         try { Secrets.Write(S, Id, key); }
         catch (Exception e) { throw new ApiError(500, "the key was not saved: " + e.Message); }
         keyHash = null;   // probe again
-        canAct = null;
-        balance = null;   // the old key's account
+        canAct = null; probeBackoff = 0; actsOffSaid = false;
+        balance = null; reading = null;   // the old key's account
         SetCheck(r == null ? "network" : r.Code == 200 ? "ok" : "unavailable", r?.Code ?? 0);
         if (keyCheck != "ok") return;
         try
@@ -240,7 +254,7 @@ abstract partial class MachineConnector : ISettingsConnector
         catch (Exception e) { Log.W(Id, $"balance after the key: " + e.GetBaseException().Message); }
     }
 
-    protected void SetCheck(string verdict, int code = 0) { keyCheck = verdict; keyCheckCode = code; }
+    protected void SetCheck(string verdict, int code = 0) { keyCheck = verdict; keyCheckCode = code; keyWatch.Note(hub, Title, verdict, L.T("k_stopped_money")); }
 
     /// <summary>The service said 401 to the saved key (the adapters' list call): revoked / expired.</summary>
     protected void KeyRejected() { status = "key rejected"; SetCheck("revoked"); }
@@ -265,7 +279,6 @@ abstract partial class MachineConnector : ISettingsConnector
 
     // ------------------------------------------------------------ settings page row
     /// <summary>Languages (besides English) of its "how to get a key" page, docs/keys/&lt;id&gt;.&lt;lang&gt;.md.</summary>
-    protected virtual string[] KeyDocLangs => new[] { "uk" };
 
     const double IdleStopMin = 5;
 
@@ -284,7 +297,7 @@ abstract partial class MachineConnector : ISettingsConnector
             ["id"] = Id, ["name"] = Title, ["kind"] = "key", ["enabled"] = on, ["uses_key"] = true,
             ["key_set"] = J.Truthy(ms["key_set"]), ["key_check"] = check.Length > 0 ? check : null,
             ["summary"] = !on ? "" : SettingsRows.Line(J.Str(ms["summary"]), SettingsRows.Normal(st) ? "" : st),
-            ["help_url"] = SettingsRows.KeyHelpUrl(Id, KeyDocLangs),
+            ["help_url"] = SettingsRows.KeyHelpUrl(Id),
             ["thresholds"] = new JsonObject
             {
                 ["idle_minutes"] = J.C(ms["idle_minutes"]), ["low_runway_hours"] = J.C(ms["low_runway_hours"]),
@@ -293,13 +306,13 @@ abstract partial class MachineConnector : ISettingsConnector
             ["fields"] = new JsonArray
             {
                 SettingsRows.Field("idle_minutes", "s_idle_min", 1, 1440, 1, ms["idle_minutes"]),
-                // auto-stop on GPU idle (2.9.3): 0 = off
+                // auto-stop on GPU idle: 0 = off
                 SettingsRows.Field("idle_stop_minutes", "s_idle_stop", 0, 1440, 5, ms["idle_stop_minutes"]),
                 // the balance guard on: its warning replaces the old low-balance one (the keys stay as they are)
                 SettingsRows.Field("low_runway_hours", "s_low_runway", 0, 720, 1, ms["low_runway_hours"]),
                 SettingsRows.Field("low_balance", "s_low_bal", 0, 1000000, 1, ms["low_balance"], emptyOk: true),
             },
-            // the balance guard (2.9): its values, forecast / pending line, machines with "never auto-stop", last stops
+            // the balance guard: its values, forecast / pending line, machines with "never auto-stop", last stops
             ["guard"] = on ? GuardRow() : null,
         };
     }
@@ -374,7 +387,7 @@ abstract partial class MachineConnector : ISettingsConnector
     {
         Stop();
         var c = Cfg;
-        lock (gate) { pausedUntil = 0; backoff = 0; nextList = 0; nextBilling = 0; }
+        lock (gate) { pausedUntil = 0; backoff = 0; nextList = 0; nextBilling = 0; nextSpend = 0; }
         if (!c.Enabled) { status = "off"; return; }
         cts = new CancellationTokenSource();
         var ct = cts.Token;
@@ -415,7 +428,7 @@ abstract partial class MachineConnector : ISettingsConnector
             try { full = hub.GetTask(J.Str(t["id"])); } catch { continue; }
             if (J.Str(full["source"]) != Id || full["meta"]?[Id] is not JsonObject g) continue;
             var id = J.Str(g["id"]);
-            if (id.Length == 0) continue;
+            if (id.Length == 0 || Tid(id) != J.Str(t["id"])) continue;
             var st = J.Str(full["state"]);
             var m = new Machine
             {
@@ -481,8 +494,12 @@ abstract partial class MachineConnector : ISettingsConnector
     async Task Billing(string key, Conf c, CancellationToken ct)
     {
         nextBilling = J.Now() + BalanceEvery(c);
-        var sp = await Spend(key, ct);
-        if (sp != null) spent = sp;
+        if (J.Now() >= nextSpend)   // the charges keep to billing_interval, only the balance is read sooner
+        {
+            nextSpend = J.Now() + c.BillingEvery;
+            var sp = await Spend(key, ct);
+            if (sp != null) spent = sp;
+        }
         // a 429 on the charges pauses everything: the balance waits too (an answer would also reset the back-off)
         Balance b = null;
         bool tried = J.Now() >= pausedUntil;
@@ -493,10 +510,11 @@ abstract partial class MachineConnector : ISettingsConnector
             if (offline) status = "offline: " + why;
             if (b == null && code == 429) tried = false;   // rate limit: not an outage
         }
-        if (b != null) { balance = b; balanceAt = J.Now(); }
+        if (b != null) { balance = b; balanceAt = J.Now(); NoteReading(); }
         CheckLow(c);
         // an answer without an amount is a missed reading too (the guard is never silently off)
         if (tried) GuardOnBalance(b?.Amount != null, b != null && b.Amount == null ? "no balance in the answer" : why, key);
+        nextBilling = Math.Min(nextBilling, J.Now() + BalanceEvery(c));   // by what was just read
         List<Track> all;
         lock (gate) all = machines.Values.Where(t => t.M.State != "terminated").ToList();
         foreach (var t in all) Show(t, c, false);
@@ -521,21 +539,61 @@ abstract partial class MachineConnector : ISettingsConnector
     {
         var r = await Probe(key, ct);
         probedAt = J.Now();
-        bool? was = canAct;
-        canAct = r.Code switch
+        bool fromService = r.Code != 403 || r.Body != null;   // a page from something in between (a challenge, a proxy) says nothing about the key
+        bool? now = !fromService ? canAct : r.Code switch
         {
             403 => false,
             400 or 404 or 405 or 409 or 422 => true,
             401 => null,
-            _ => was,   // can't tell (network, 5xx, rate limit): keep what we knew
+            _ => canAct,   // can't tell (network, 5xx, rate limit): keep what we knew
         };
-        if (r.Code is not (400 or 401 or 403 or 404 or 405 or 409 or 422)) probedAt = J.Now() - 86400 + 600;   // again in 10 min
-        Log.W(Id, $"action probe -> HTTP {r.Code}, actions {(canAct == true ? "allowed" : canAct == false ? "not allowed" : "unknown")}");
-        if (was != canAct)
+        if (r.Code == 403 && fromService) ProbeAgainSoon();
+        else
         {
-            List<Track> all;
-            lock (gate) all = machines.Values.ToList();
-            foreach (var t in all) t.LastSig = null;   // controls change
+            probeBackoff = 0;
+            if (!fromService || r.Code is not (400 or 401 or 404 or 405 or 409 or 422)) probedAt = J.Now() - 86400 + 600;   // again in 10 min
+        }
+        SetCanAct(now);
+        Log.W(Id, $"action probe -> HTTP {r.Code}, actions {(canAct == true ? "allowed" : canAct == false ? "not allowed" : "unknown")}");
+    }
+
+    /// <summary>A 403 on an action, not a rate limit. The service's own answer: no actions for now, and asked again within
+    /// minutes (a refusal can be momentary; until the next probe nothing else would bring them back). A page from something
+    /// in between says nothing about the key.</summary>
+    void ActionForbidden(Resp r)
+    {
+        if (r.Body == null) { Log.W(Id, "action -> HTTP 403 that isn't the service's answer: actions stay as they were"); return; }
+        ProbeAgainSoon();
+        SetCanAct(false);
+    }
+
+    void ProbeAgainSoon()
+    {
+        probeBackoff = Math.Clamp(probeBackoff * 2, Mock ? 1 : 120, 3600);
+        probedAt = J.Now() - 86400 + probeBackoff;
+    }
+
+    /// <summary>What the key may do. Machines' controls follow; losing it while auto-stop is on is said out loud (it is about
+    /// money), and so is getting it back.</summary>
+    void SetCanAct(bool? now)
+    {
+        bool? was = canAct;
+        if (was == now) return;
+        canAct = now;
+        List<Track> all;
+        lock (gate) all = machines.Values.ToList();
+        foreach (var t in all) t.LastSig = null;   // controls change
+        if (was == true && now == false && (GCfg.On || Cfg.IdleStopMinutes > 0) && !actsOffSaid)
+        {
+            actsOffSaid = true;
+            GuardNotify(L.T("g_acts_off", Title), "error");
+            Log.W(Id, "actions refused: auto-stop and Stop are off until the next probe allows them");
+        }
+        if (now == true)
+        {
+            if (actsOffSaid) GuardNotify(L.T("g_acts_back", Title), "info");
+            actsOffSaid = false;
+            nextBilling = Math.Min(nextBilling, J.Now() + FastRead);   // below the threshold meanwhile: seen soon
         }
     }
 
@@ -588,7 +646,8 @@ abstract partial class MachineConnector : ISettingsConnector
         var m = t.M;
         var tid = Tid(m.Id);
         var task = TryTask(tid);
-        bool taskActive = task != null && Hub.IsActive(J.Str(task["state"]));
+        // a task under this id that some client made isn't this machine's: it is registered over
+        bool taskActive = task != null && J.Str(task["source"]) == Id && Hub.IsActive(J.Str(task["state"]));
         if (m.Active)
         {
             if (!taskActive) { Register(t, c, quiet: false); return; }
@@ -758,6 +817,7 @@ abstract partial class MachineConnector : ISettingsConnector
         var m = t.M;
         var tid = Tid(m.Id);
         var gpuMax = m.GpuUtil.Where(x => x != null).Select(x => x.Value).DefaultIfEmpty(double.NaN).Max();
+        if (gpuMax > 1) t.GpuBusySeen = true;
         var w = new JsonObject
         {
             ["gpu"] = new JsonArray(double.IsNaN(gpuMax) ? null : JsonValue.Create(Math.Round(gpuMax, 1)), Pct(m.GpuMem)),
@@ -858,6 +918,7 @@ abstract partial class MachineConnector : ISettingsConnector
         var task = hub.GetTask(tid);
         if (J.Str(task["source"]) != Id || task["meta"]?[Id] is not JsonObject g) throw new ApiError(404, $"not a {Title} machine");
         var id = J.Str(g["id"]);
+        if (Tid(id) != tid) throw new ApiError(404, $"not a {Title} machine");   // the task's id says which machine, whatever meta says
         Track t;
         lock (gate) machines.TryGetValue(id, out t);
         var m = t?.M ?? new Machine { Id = id, Name = J.Str(g["name"], id) };
@@ -878,7 +939,7 @@ abstract partial class MachineConnector : ISettingsConnector
         var r = Act(m, action, key, CancellationToken.None).GetAwaiter().GetResult();
         if (r.Code is not (200 or 201 or 202 or 204))
         {
-            if (r.Code == 403 && !r.Limited) { canAct = false; lock (gate) if (t != null) t.LastSig = null; }
+            if (r.Code == 403 && !r.Limited) ActionForbidden(r);
             var text = ActionError(r, action) ?? r.Code switch
             {
                 403 => L.T("m_err_403"),

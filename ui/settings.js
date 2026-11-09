@@ -28,20 +28,22 @@ window.addEventListener("resize",()=>settingsSize());
 function settingsGone(){ if (!setOpen()) document.body.classList.remove("setwide"); }
 
 /* ---------------- tabs: a strip of icons, one section at a time ---------------- */
-const TAB_ICON={look:"\uE790",notif:"\uEA8F",telegram:"\uE724",connectors:"\uE703",agents:"\uE99A",system:"\uE770",about:"\uE946"};
-let setTab=(()=>{ try{ return localStorage.th_settab||"look"; }catch(e){ return "look"; } })();
+const TAB_ICON={look:"\uE790",notif:"\uEA8F",messengers:"\uE8BD",worktime:"\uE823",connectors:"\uE703",agents:"\uE99A",system:"\uE770",about:"\uE946"};
+// Telegram and Discord had a tab each: a remembered one opens the Messengers tab that holds both
+let setTab=(()=>{ try{ const t=localStorage.th_settab||"look"; return t==="telegram"||t==="discord"? "messengers" : t; }catch(e){ return "look"; } })();
 const TAB_TIP=500;
 function tabList(){
   if (!NATIVE) return ["look","notif"];   // a browser tab has only what the HTTP API allows
-  return ["look","notif",...(SET && !SET.telegram? [] : ["telegram"]),"connectors","agents","system","about"];
+  return ["look","notif",...(SET && !SET.telegram && !SET.discord? [] : ["messengers"]),"worktime","connectors","agents","system","about"];
 }
-const tabName=id=>({look:T("sec_look"),notif:T("sec_notif"),telegram:"Telegram",connectors:T("tab_connectors"),agents:T("tab_agents"),system:T("sec_system"),about:T("sec_about")})[id];
+const tabName=id=>({look:T("sec_look"),notif:T("sec_notif"),messengers:T("tab_messengers"),worktime:T("wt_title"),connectors:T("tab_connectors"),agents:T("tab_agents"),system:T("sec_system"),about:T("sec_about")})[id];
 // a section with something the user has to do: the strip shows it, as its title can't be read without hovering
 function tabAttention(id){
   if (!NATIVE || !SET) return false;
   if (id==="notif") return /^disabled/.test(SET.notifications||"");
-  if (id==="telegram") return !!(SET.telegram && SET.telegram.warning);
+  if (id==="messengers") return !!((SET.telegram && SET.telegram.warning) || (SET.discord && SET.discord.warning));
   if (id==="system") return !!(SET.updates && SET.updates.available);
+  if (id==="worktime") return !!(SET.worktime && SET.worktime.broken);
   if (id==="connectors") return (SET.connectors||[]).some(c=>c.enabled && ((c.uses_key && !c.key_set) || c.key_check==="revoked" || c.key_check==="denied" || c.help_needed || (c.guard && c.guard.pending)));
   return false;
 }
@@ -81,4 +83,4 @@ const tgl=(k,on,extra)=>`<button class="tgl${on?" on":""}" role="switch" aria-ch
 const srow=(title,desc,ctl,cls)=>(ctl=(ctl||"").replace('<button class="tgl',`<button aria-label="${esc(title)}" class="tgl`),   // a switch is named by its row
   `<div class="srow${cls?" "+cls:""}"><div class="sl"><div>${esc(title)}</div>${desc?`<div class="sd">${esc(desc)}</div>`:""}</div>${ctl}</div>`);
 const sbtn=(what,txt,cls)=>`<button class="btn${cls?" "+cls:""}" data-do="${what}">${esc(txt)}</button>`;
-const ckey=e=>[e.dataset.open,e.dataset.tgtok,e.dataset.ladd,e.dataset.lrm,e.dataset.lplus,e.dataset.csel,e.dataset.cbool,e.dataset.do,e.dataset.k,e.dataset.agent,e.dataset.kind,e.dataset.conn,e.dataset.ck,e.dataset.ckey,e.dataset.kp,e.dataset.cset,e.dataset.open,e.dataset.mid,e.dataset.gact].join("|");
+const ckey=e=>[e.dataset.open,e.dataset.tgtok,e.dataset.dctok,e.dataset.ladd,e.dataset.lrm,e.dataset.lplus,e.dataset.csel,e.dataset.cbool,e.dataset.do,e.dataset.k,e.dataset.agent,e.dataset.kind,e.dataset.conn,e.dataset.ck,e.dataset.ckey,e.dataset.kp,e.dataset.cset,e.dataset.wset,e.dataset.wf,e.dataset.wc,e.dataset.wi,e.dataset.wd,e.dataset.wday,e.dataset.wsd,e.dataset.wh,e.dataset.wcKind,e.dataset.open,e.dataset.mid,e.dataset.gact].join("|");

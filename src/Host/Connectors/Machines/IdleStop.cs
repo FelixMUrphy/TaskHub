@@ -31,6 +31,13 @@ abstract partial class MachineConnector
         }
         if (c.IdleStopMinutes <= 0 || t.IdleStopAsked || t.IdleSince is not double since || now - since < c.IdleStopMinutes * 60) return;
         if (canAct != true || GCfg.Exempt.Contains(m.Id)) return;   // can't stop / never auto-stop: the idle warning is all
+        if (IdleStopNeedsBusySeen && !t.GpuBusySeen)
+        {
+            if (t.IdleUnprovenSaid) return;
+            t.IdleUnprovenSaid = true;
+            Try(() => hub.Update(Tid(m.Id), new JsonObject { ["log"] = L.T("g_idle_unproven"), ["level"] = "warn" }, trusted: true));
+            return;
+        }
         StartIdlePending(t, c);
     }
 

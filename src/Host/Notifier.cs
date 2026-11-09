@@ -19,6 +19,7 @@ sealed class Notifier : INotifier
     public Action<string, string> Balloon;     // fallback: tray balloon (title, msg)
     public Func<bool> PanelOpen;               // true -> no popup banners, toasts go silently to the notification center
     public TelegramBridge Telegram;            // every notification is mirrored there (if linked)
+    public DiscordBridge Discord;              // and there
     readonly BlockingCollection<Action> queue = new();
     readonly HashSet<string> progressDismissed = new();
     readonly Dictionary<string, uint> progressSeq = new();
@@ -136,7 +137,7 @@ sealed class Notifier : INotifier
     // without a task coalesce too). Finished / failed tasks and errors are never replaced or dropped first.
     sealed class Pending
     {
-        public string Title, Msg, Level, Tid;
+        public string Title, Msg, Level, Tid, Only;
         public JsonObject Task;
         public bool DismissOnly, Controls, Final;
         public int More;                       // notifications folded into this one
@@ -154,11 +155,13 @@ sealed class Notifier : INotifier
     double Rate => J.Num(S.Get("toast_rate")) is double r && r >= 0 ? r : 10;
     double TaskGap => J.Num(S.Get("toast_task_gap")) is double g && g >= 0 ? g : 2;
 
-    public void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false, bool controls = true)
+    /// <param name="only">null: everywhere as set; "toast": no messengers; "messengers": no toast, unless no messenger is linked; "telegram" /
+    /// "discord": that one only, no toast, unless it isn't linked.</param>
+    public void Toast(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly = false, bool controls = true, string only = null)
     {
         var p = new Pending
         {
-            Title = title, Msg = msg, Level = level, Tid = taskId, Task = task, DismissOnly = dismissOnly, Controls = controls,
+            Title = title, Msg = msg, Level = level, Tid = taskId, Task = task, DismissOnly = dismissOnly, Controls = controls, Only = only,
             Final = level == "error" || (task != null && Hub.IsFinal(J.Str(task["state"]))),
         };
         lock (gate)
@@ -242,17 +245,25 @@ sealed class Notifier : INotifier
                     dropped = 0;
                 }
                 var msg = more > 0 ? (string.IsNullOrEmpty(p.Msg) ? "" : p.Msg + "\n") + L.N("toast_more", more) : p.Msg;
-                Deliver(p.Title, msg, p.Level, p.Tid, p.Task, p.DismissOnly, p.Controls);
+                Deliver(p.Title, msg, p.Level, p.Tid, p.Task, p.DismissOnly, p.Controls, p.Only);
             }
             catch (Exception e) { Log.W("toast", "toast gate: " + e.Message); }
         }
     }
 
-    void Deliver(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly, bool controls)
+    void Deliver(string title, string msg, string level, string taskId, JsonObject task, bool dismissOnly, bool controls, string only = null)
     {
-        Log.I("toast", $"shown {level}" + (taskId != null ? " task " + Log.Id(taskId) : "")); Log.D("toast", $"TOAST [{level}] {title}: {msg}");   // also with Windows toasts off: Telegram still gets it
-        try { Telegram?.Notify(title, msg, level, taskId, task, controls); } catch (Exception e) { Log.W("telegram", e.Message); }
-        if (!S.Bool("toasts", true)) return;   // Windows toasts disabled (config.json "toasts": false)
+        if (only == "messengers" && Telegram?.Linked != true && Discord?.Linked != true) only = "toast";   // nowhere else to go
+        if (only == "telegram" && Telegram?.Linked != true || only == "discord" && Discord?.Linked != true) only = "toast";
+        bool away = only is "messengers" or "telegram" or "discord";
+        Log.I("toast", $"shown {level}" + (taskId != null ? " task " + Log.Id(taskId) : "") + (only != null ? " (" + only + " only)" : ""));
+        Log.D("toast", $"TOAST [{level}] {title}: {msg}");   // also with Windows toasts off: Telegram still gets it
+        if (only != "toast")
+        {
+            if (only != "discord") try { Telegram?.Notify(title, msg, level, taskId, task, controls, away); } catch (Exception e) { Log.W("telegram", e.Message); }
+            if (only != "telegram") try { Discord?.Notify(title, msg, level, taskId, task, controls, away); } catch (Exception e) { Log.W("discord", e.GetType().Name); }
+        }
+        if (away || !S.Bool("toasts", true)) return;   // Windows toasts disabled (config.json "toasts": false)
         queue.Add(() => ShowToast(J.Cut(string.IsNullOrEmpty(title) ? Settings.AppId : title, 150), J.Cut(msg ?? "", 500), level, taskId, task, dismissOnly, controls));
     }
 
@@ -374,7 +385,12 @@ sealed class Notifier : INotifier
                     {
                         var opts = (inp["options"] as JsonArray).Select(x => J.Str(x)).Take(5).ToList();
                         var def = J.Str(cur);
-                        if (!opts.Contains(def)) def = opts[0];
+                        // a toast shows 5 at most: the current value stays among them, or pressing the button would send another one
+                        if (!opts.Contains(def))
+                        {
+                            if ((inp["options"] as JsonArray).Any(x => J.Str(x) == def)) { opts = opts.Take(4).ToList(); opts.Add(def); }
+                            else def = opts[0];
+                        }
                         // the option itself is the id (it is the value sent back); only the shown text is shortened
                         b.AddComboBox(iid, lbl, def, opts.Select(o => (o, J.Cut(o, 60))).ToArray());
                     }
@@ -572,14 +588,17 @@ sealed class Notifier : INotifier
     readonly Dictionary<string, string> confirmValues = new();   // long values of confirmation toasts (key -> JSON)
 
     // ------------------------------------------------------------ activation (button clicks)
-    void OnActivated(ToastNotificationActivatedEventArgsCompat e)
+    void OnActivated(ToastNotificationActivatedEventArgsCompat e) => Activate(e.Argument, e.UserInput);
+
+    /// <summary>A toast or one of its buttons pressed. Also the tests' way in: Windows' activation can't be driven from a test.</summary>
+    public void Activate(string argument, IDictionary<string, object> userInput)
     {
         try
         {
-            var args = ToastArguments.Parse(e.Argument);
+            var args = ToastArguments.Parse(argument);
             args.TryGetValue("action", out string action);
             args.TryGetValue("task", out string tid);
-            Log.D("toast", $"toast activated: {e.Argument} inputs=[{string.Join(",", e.UserInput.Select(kv => kv.Key))}]");
+            Log.D("toast", $"toast activated: {argument} inputs=[{string.Join(",", userInput.Select(kv => kv.Key))}]");
             if (string.IsNullOrEmpty(tid)) tid = null;
             switch (action)
             {
@@ -601,7 +620,7 @@ sealed class Notifier : INotifier
                         if (kept == null) { DoOpenPanel(tid); break; }   // the hub restarted meanwhile: the panel asks again
                         value = J.Parse(kept);
                     }
-                    else if (ctl?["input"] is JsonObject inp && e.UserInput.TryGetValue("v_" + cid, out var raw))
+                    else if (ctl?["input"] is JsonObject inp && userInput.TryGetValue("v_" + cid, out var raw))
                     {
                         var s = raw?.ToString() ?? "";
                         var typ = J.Str(inp["type"]);
@@ -639,7 +658,7 @@ sealed class Notifier : INotifier
                     var t2 = Hub.GetTask(tid);
                     var l = (t2["links"] as JsonArray)?[i];
                     var url = l is JsonObject lo ? J.Str(lo["url"]) : J.Str(l);
-                    if (!string.IsNullOrEmpty(url)) Hub.OpenTarget(url);
+                    if (!string.IsNullOrEmpty(url)) Hub.OpenLink(url, true);
                     break;
                 case "update":
                     UpdateClicked?.Invoke();

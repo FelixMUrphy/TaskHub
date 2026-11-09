@@ -90,3 +90,4 @@ if __name__ == "__main__":
     all_lat.sort()
     print(f"latency: n={len(all_lat)} median {all_lat[len(all_lat) // 2] * 1000:.1f} ms, p95 {all_lat[int(len(all_lat) * .95)] * 1000:.1f} ms, max {all_lat[-1] * 1000:.1f} ms")
     print("RESULT:", "PASS" if ok and bad == 0 else "FAIL")
+    sys.exit(0 if ok and bad == 0 else 1)

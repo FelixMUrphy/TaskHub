@@ -1,6 +1,6 @@
 # Vast.ai: API-ключ для TaskHub
 
-[English](vastai.md) · [Усі ключі](README.md)
+[English](vastai.md) · **Українська** · [Español](vastai.es.md) · [Deutsch](vastai.de.md) · [Français](vastai.fr.md) · [Italiano](vastai.it.md) · [Português](vastai.pt.md) · [Polski](vastai.pl.md) · [中文](vastai.zh.md) · [日本語](vastai.ja.md) · [Усі сторінки](README.md)
 
 ## Навіщо він TaskHub
 - **Спостереження:** ваші інстанси, їхнє навантаження, ціна, списання за останні 30 днів, баланс і кредит.

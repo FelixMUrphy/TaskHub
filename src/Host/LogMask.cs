@@ -13,6 +13,7 @@ static class LogMask
         (new Regex(@"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b(?::[^\s""']+)?", RegexOptions.Compiled), "***"),                // alone or as id:secret
         (new Regex(@"\b[A-Fa-f0-9]{64,}\b", RegexOptions.Compiled), "***"),                                         // a long hex key; a 40-digit commit stays
         (new Regex(@"\brpa_[A-Za-z0-9]{20,}", RegexOptions.Compiled), "***"),
+        (new Regex(@"\b[A-Za-z0-9_-]{23,30}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,45}\b", RegexOptions.Compiled), "***"),   // a Discord bot token
         (new Regex(@"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}", RegexOptions.Compiled), "$1 ***"),
         (new Regex(@"(?i)\b(token|api_key|apikey|secret|secret_access_key|aws_secret_access_key|password)=[^\s&""']+", RegexOptions.Compiled), "$1=***"),
         (new Regex(@"(?i)""(token|api_key|apikey|secret|secret_access_key|password)""\s*:\s*""[^""]*""", RegexOptions.Compiled), "\"$1\":\"***\""),

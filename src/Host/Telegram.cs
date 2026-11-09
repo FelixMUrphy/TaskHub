@@ -52,8 +52,8 @@ sealed class TelegramBridge
     /// <summary>The last Credential Manager read / write failed: shown as a warning.</summary>
     volatile bool vaultFailed;
 
-    /// <summary>Reads the token: the Credential Manager's, else the one in config.json. Before 2.9 it was always in
-    /// config.json: moved to the Credential Manager and removed from config.json only after a verified write; kept there
+    /// <summary>Reads the token: the Credential Manager's, else the one in config.json. One still in
+    /// config.json is moved to the Credential Manager and removed from config.json only after a verified write; kept there
     /// if the Credential Manager refuses (retried on every start), so nothing is lost and Telegram keeps working.</summary>
     string LoadToken()
     {
@@ -91,6 +91,7 @@ sealed class TelegramBridge
         }
     }
     long Chat => J.Num(S.Get("telegram_chat")) is double d ? (long)d : 0;
+    long relinkFrom;   // the chat a pairing in progress takes over from: told when another one is linked
     string Api(string method) => (J.Str(S.Get("telegram_api")) is { Length: > 0 } b ? b.TrimEnd('/') : "https://api.telegram.org")
                                  + "/bot" + Token + "/" + method;
     public bool Linked => Token.Length > 0 && Chat != 0;
@@ -103,6 +104,7 @@ sealed class TelegramBridge
         if (Token.Length == 0) { Status = "off"; BotName = null; return; }
         cts = new CancellationTokenSource();
         var ct = cts.Token;
+        refused = false;
         Status = "connecting";
         _ = Task.Run(() => Loop(ct));
     }
@@ -113,6 +115,8 @@ sealed class TelegramBridge
         token = (token ?? "").Trim();
         if (!System.Text.RegularExpressions.Regex.IsMatch(token, @"^\d{5,}:[A-Za-z0-9_-]{30,}$"))
             throw new ApiError(400, "this does not look like a bot token from @BotFather (123456789:AA...)");
+        if (token != Token) relinkFrom = 0;   // another bot can't reach the old chat
+        else if (Chat != 0) relinkFrom = Chat;
         SaveToken(token);
         this.token = token;
         PairCode = Convert.ToHexString(RandomNumberGenerator.GetBytes(5)).ToLowerInvariant();
@@ -136,6 +140,7 @@ sealed class TelegramBridge
         catch (Exception e) { Log.W("telegram", "token not deleted: " + e.Message); }
         token = "";
         inConfig = vaultFailed = false;
+        relinkFrom = 0;
         S.Set(("telegram_token", null), ("telegram_chat", null));
         PairCode = null;
         Start();
@@ -156,10 +161,11 @@ sealed class TelegramBridge
 
     // ------------------------------------------------------------ outgoing
     /// <summary>Called for every notification TaskHub shows (already filtered by mute).</summary>
-    public void Notify(string title, string msg, string level, string tid, JsonObject task, bool controls)
+    /// <param name="away">Sent because the user is away (a reminder): the away-only filter is already passed.</param>
+    public void Notify(string title, string msg, string level, string tid, JsonObject task, bool controls, bool away = false)
     {
         if (!Linked) return;
-        if (AwayOnly && IdleSeconds() < 60 * S.Int("telegram_away_minutes", 5)) return;
+        if (AwayOnly && !away && IdleSeconds() < 60 * S.Int("telegram_away_minutes", 5)) return;
         var icon = level == "error" ? "❌ " : level == "warn" ? "⚠️ " : "";
         if (title != null && (title.StartsWith("❌") || title.StartsWith("⚠"))) icon = "";
         // cut the raw text, then escape: cutting escaped HTML could split a tag or an entity (400, message lost)
@@ -301,6 +307,17 @@ sealed class TelegramBridge
         return (code, r);
     }
 
+    /// <summary>Telegram refuses to deliver (the user blocked the bot): that isn't "connected". A message that gets through, or one from the
+    /// user, ends it.</summary>
+    void Refused(bool on)
+    {
+        if (refused == on) return;
+        refused = on;
+        if (on) { Status = "blocked"; Log.W("telegram", "can't deliver: blocked"); }
+        else if (Status == "blocked") Status = Linked ? "connected" : "waiting for /start";
+    }
+    volatile bool refused;
+
     void SendWorker()
     {
         foreach (var (method, m0, png) in outbox.GetConsumingEnumerable())
@@ -313,6 +330,8 @@ sealed class TelegramBridge
                 {
                     Pace();
                     var (code, r) = (png != null ? CallPhoto(m, png) : Call(method, m, 20)).GetAwaiter().GetResult();
+                    if (code == 403) Refused(true);
+                    else if (code == 200) Refused(false);
                     // too many requests: the same message again once Telegram allows (not dropped)
                     if (code == 429) { Throttled(r); if (++limited < 20) continue; Log.W("telegram", $"{method}: still limited, dropped"); break; }
                     if (ParseError(code, r) && m["parse_mode"] != null)
@@ -476,6 +495,7 @@ sealed class TelegramBridge
                 {
                     var (code, me) = await Call("getMe", null, 15);
                     if (code is 401 or 404) { Status = "invalid token"; Log.W("telegram", "token rejected"); return; }
+                    if (code != 200) throw new HttpRequestException("getMe: HTTP " + code);   // asked again; a name left empty would stay so
                     BotName = J.Str(me?["result"]?["username"]);
                     if (first)   // skip messages that arrived while TaskHub was not running
                     {
@@ -485,17 +505,26 @@ sealed class TelegramBridge
                         first = false;
                     }
                 }
-                Status = Linked ? "connected" : "waiting for /start";
+                Status = refused ? "blocked" : Linked ? "connected" : "waiting for /start";
                 var (c2, r) = await Call("getUpdates", new JsonObject
                 {
                     ["offset"] = offset, ["timeout"] = 50, ["allowed_updates"] = new JsonArray("message", "callback_query"),
                 }, 70, ct);
                 if (c2 is 401 or 404) { Status = "invalid token"; return; }
                 if (c2 == 409) { Status = "another program uses this bot (webhook / getUpdates)"; await Task.Delay(30000, ct); continue; }
+                if (c2 == 429 && J.Num(r?["parameters"]?["retry_after"]) is double after && after > 0)
+                {
+                    Status = "offline: getUpdates: HTTP 429";
+                    if (failures++ == 0) Log.W("telegram", $"getUpdates: HTTP 429, waiting {after:0} s");
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(after, 3600)), ct);
+                    continue;
+                }
+                if (c2 != 200) throw new HttpRequestException("getUpdates: HTTP " + c2);   // the wait below; an answer can't be read as "no updates"
                 failures = 0;
                 foreach (var u in (r?["result"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
                 {
                     offset = Math.Max(offset, (long)(J.Num(u["update_id"]) ?? 0) + 1);
+                    if ((long)(J.Num((u["message"] ?? u["callback_query"]?["message"])?["chat"]?["id"]) ?? 0) == Chat) Refused(false);
                     try { Handle(u); } catch (Exception e) { Log.W("telegram", "update: " + e.Message); }
                 }
             }
@@ -503,6 +532,7 @@ sealed class TelegramBridge
             catch (Exception e)
             {
                 Status = "offline: " + e.GetBaseException().Message;
+                if (failures == 0) Log.W("telegram", Status);
                 // a dropped connection is usually gone at once: retry soon, back off only if it keeps failing
                 var wait = TimeSpan.FromSeconds(Math.Min(30, 2 << Math.Min(failures++, 4)));
                 try { await Task.Delay(wait, ct); } catch { return; }
@@ -557,10 +587,13 @@ sealed class TelegramBridge
                 Enqueue(from, "⚠️ " + Esc(L.T("tg_private_only")), null);
                 return;
             }
+            long old = relinkFrom;
+            relinkFrom = 0;
             S.Set(("telegram_chat", from));
             PairCode = null;
             Status = "connected";
             Log.I("telegram", "linked");
+            if (old != 0 && old != from) Enqueue(old, "⚠️ " + Esc(L.T("tg_relinked", Environment.MachineName)), null);
             Enqueue(from, "✅ " + Esc(L.T("tg_linked", Environment.MachineName)), null);
             return;
         }
@@ -706,7 +739,7 @@ sealed class TelegramBridge
     [StructLayout(LayoutKind.Sequential)] struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
     [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
 
-    static double IdleSeconds()
+    internal static double IdleSeconds()
     {
         var li = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
         return GetLastInputInfo(ref li) ? (Environment.TickCount - (int)li.dwTime) / 1000.0 : 0;

@@ -101,6 +101,23 @@ check("task_wait returns when the task finishes, with state and message", not er
       and w.get("state") == "failed" and w.get("message") == "зламалось" and time.time() - t0 < 10, (txt, time.time() - t0))
 txt, err, _ = tool("task_wait", id="nope-404", wait_seconds=1)
 check("task_wait: unknown task -> isError", err, txt)
+# buttons from an agent only send a signal: its words must not decide what the hub runs, opens or kills when the user presses one
+import urllib.request as _u
+text, err, raw = tool("task_start", name="Agent buttons", controls=[
+    {"id": "a", "label": "A", "kind": "shell", "command": "whoami"},
+    {"id": "b", "label": "B", "kind": "open", "target": "https://example.com"},
+    {"id": "c", "label": "C", "kind": "kill"},
+    {"id": "d", "label": "D", "input": {"type": "number", "default": 1}, "toast": True, "confirm": "Sure?", "style": "danger", "panel_only": True, "command": "whoami"}])
+_url = os.environ.get("TASKHUB_URL", "http://127.0.0.1:47800")
+if not _url.endswith(":47800"):
+    with _u.build_opener(_u.ProxyHandler({})).open(_url + "/api/tasks/" + text) as _f:
+        _t = json.loads(_f.read())
+    _c = {x["id"]: x for x in _t.get("controls", [])}
+    check("MCP: every button is a signal", not err and [x.get("kind") for x in _t.get("controls", [])] == ["signal"] * 4, _t.get("controls"))
+    check("MCP: no command or target comes along", not any("command" in x or "target" in x for x in _t.get("controls", [])), _t.get("controls"))
+    check("MCP: what a signal may have stays", _c.get("d", {}).get("input", {}).get("type") == "number" and _c["d"].get("toast") and _c["d"].get("confirm") == "Sure?" and _c["d"].get("style") == "danger", _c.get("d"))
+    tool("task_finish", id=text)
+
 txt, err, _ = tool("task_finish", id=tid, state="done", message="готово")
 check("task_finish", txt == "finished" and not err, txt)
 txt, err, _ = tool("task_update", id="nope-404")

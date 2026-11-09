@@ -96,7 +96,7 @@ static class Log
         foreach (var x in new[]
         {
             "https://api.telegram.org/bot123456789:" + new string('A', 35) + "/getMe failed", "token 123456789:" + new string('B', 35),
-            "ghp_" + new string('C', 36), "github_pat_" + new string('D', 60), "AKIA" + new string('E', 16), "rpa_" + new string('F', 40),
+            "ghp_" + new string('C', 36), "github_pat_" + new string('D', 60), "AKIA" + new string('E', 16), "rpa_" + new string('F', 40), new string('L', 25) + ".GabcDe." + new string('M', 38),
             "Authorization: Bearer abcdefghijklmnop", "url?api_key=GGGGGGGG&x=1", "token=HHHHHHHH",
             "AKIA" + new string('E', 16) + ":" + new string('I', 40), "aws_secret_access_key=JJJJJJJJJJJJ", "{\"token\": \"KKKKKKKKKKKK\"}", string.Concat(Enumerable.Repeat("ab", 32)),
         })
@@ -115,7 +115,7 @@ static class Log
 sealed class Settings
 {
     public const string AppId = "TaskHub";
-    public const string Version = "3.1.0";
+    public const string Version = "4.1.0";
 #if BETA
     public const bool IsBeta = true;
 #else
@@ -176,16 +176,23 @@ sealed class Settings
         {
             foreach (var (k, v) in kv)
                 if (v == null) cfg.Remove(k); else cfg[k] = v;
+            // the user's damaged file with no good copy: defaults must not go over it. In effect until the next start.
+            if (ConfigDamaged == DamagedDefaults) { Log.W("config", "not saved: config.json is damaged"); return false; }
             try
             {
-                var tmp = cfgPath + ".tmp";
-                File.WriteAllText(tmp, cfg.ToJsonString(J.Pretty));
-                File.Move(tmp, cfgPath, true);
+                AtomicFile.Write(cfgPath, cfg.ToJsonString(J.Pretty));
                 return true;
             }
             catch (Exception e) { Log.E("config", "config save failed: " + e.Message); return false; }
         }
     }
+
+    public const string DamagedRestored = "restored", DamagedDefaults = "defaults";
+    /// <summary>config.json could not be read at start: null, DamagedRestored (the last good copy is back) or DamagedDefaults.</summary>
+    public string ConfigDamaged { get; private set; }
+
+    static JsonObject ReadObject(string path) =>
+        J.Parse(File.ReadAllText(path)) as JsonObject ?? throw new InvalidDataException(System.IO.Path.GetFileName(path) + " is not a JSON object");
 
     public static JsonObject ReadExeSettings()
     {
@@ -226,10 +233,26 @@ sealed class Settings
         {
             try
             {
-                if (J.Parse(File.ReadAllText(cfgPath)) is JsonObject user)
-                    foreach (var kv in user) cfg[kv.Key] = J.C(kv.Value);
+                foreach (var kv in ReadObject(cfgPath)) cfg[kv.Key] = J.C(kv.Value);
             }
-            catch (Exception e) { Log.E("config", "config.json unreadable: " + e.Message); }
+            catch (Exception e)
+            {
+                Log.E("config", "config.json unreadable: " + e.Message);
+                AtomicFile.Quarantine(cfgPath);
+                try
+                {
+                    foreach (var kv in ReadObject(AtomicFile.Backup(cfgPath))) cfg[kv.Key] = J.C(kv.Value);
+                    File.Copy(AtomicFile.Backup(cfgPath), cfgPath, true);   // also keeps the damaged file from becoming the next backup
+                    s.ConfigDamaged = DamagedRestored;
+                }
+                catch (Exception e2) when (e2 is not OutOfMemoryException)
+                {
+                    Log.E("config", "no good copy of config.json: " + e2.Message);
+                    s.ConfigDamaged = DamagedDefaults;
+                    // what the file said is unknown, so these are the defaults: the isolated hubs of the tests still show no notifications
+                    if (Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME") is { Length: > 0 }) cfg["toasts"] = false;
+                }
+            }
         }
         else
         {
@@ -241,9 +264,81 @@ sealed class Settings
         return s;
     }
 
-    public string Token => J.Str(Get("token"));
+    /// <summary>What a client must send on /api/. TASKHUB_TOKEN, else "token" in config.json (the user's own), else generated
+    /// on first need and kept in api.token in the data folder, this user only. Never empty.</summary>
+    public string Token
+    {
+        get
+        {
+            var env = Environment.GetEnvironmentVariable("TASKHUB_TOKEN");
+            if (!string.IsNullOrEmpty(env)) return env;
+            var own = J.Str(Get("token"));
+            if (own.Length > 0) return own;
+            lock (secretLock) return generatedToken ??= Convert.ToHexString(LoadSecret("api.token"));
+        }
+    }
+    string generatedToken;
+    readonly object secretLock = new();
     public bool Bool(string k, bool def = false) { lock (cfgLock) return cfg.ContainsKey(k) ? J.Truthy(cfg[k]) : def; }
     public int Int(string k, int def) => J.Num(Get(k)) is double d ? (int)d : def;
     public string Url => $"http://127.0.0.1:{Port}";
     public string File_(string name) => System.IO.Path.Combine(DataDir, name);
+
+    /// <summary>The key taskhub.exe uses to tell this hub from another program on its port (hub.key in the data folder, this user only).
+    /// It is never sent: the hub only signs what the CLI asks with it.</summary>
+    public byte[] HubKey { get { lock (secretLock) return hubKey ??= LoadSecret("hub.key"); } }
+    byte[] hubKey;
+
+    static System.Security.AccessControl.FileSecurity OwnerOnly()
+    {
+        var acl = new System.Security.AccessControl.FileSecurity();
+        acl.SetAccessRuleProtection(true, false);
+        acl.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(System.Security.Principal.WindowsIdentity.GetCurrent().User,
+            System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+        return acl;
+    }
+
+    /// <summary>32 random bytes kept as hex in a file of the data folder that only this user can read. A file that lets anyone else in
+    /// (copied, written by hand, a data folder of the user's choice) is closed; one another account owns is replaced, as that account
+    /// knows its value. Not saved: kept in memory, logged.</summary>
+    byte[] LoadSecret(string name)
+    {
+        var path = File_(name);
+        try
+        {
+            if (HexKey(File.ReadAllText(path)) is { } saved)
+            {
+                var info = new FileInfo(path);
+                var acl = info.GetAccessControl();
+                var me = System.Security.Principal.WindowsIdentity.GetCurrent().User;
+                var owner = acl.GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
+                if (owner != null && (owner == me || owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid) || owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid)))
+                {
+                    bool others = acl.GetAccessRules(true, true, typeof(System.Security.Principal.SecurityIdentifier)).Cast<System.Security.AccessControl.FileSystemAccessRule>()
+                        .Any(r => r.AccessControlType == System.Security.AccessControl.AccessControlType.Allow && !r.IdentityReference.Equals(me));
+                    if (!acl.AreAccessRulesProtected || others) info.SetAccessControl(OwnerOnly());
+                    return saved;
+                }
+                Log.W("secret", name + " belongs to another account: replaced");
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException) { }
+        var key = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        var text = System.Text.Encoding.ASCII.GetBytes(Convert.ToHexString(key));
+        try
+        {
+            File.Delete(path);
+            using var f = new FileInfo(path).Create(FileMode.CreateNew, System.Security.AccessControl.FileSystemRights.Write, FileShare.None, 4096, FileOptions.None, OwnerOnly());
+            f.Write(text);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException) { Log.W("secret", name + " not saved: " + e.GetType().Name); }
+        return key;
+    }
+
+    static byte[] HexKey(string s)
+    {
+        s = s.Trim();
+        if (s.Length != 64 || !s.All(Uri.IsHexDigit)) return null;
+        return Convert.FromHexString(s);
+    }
 }

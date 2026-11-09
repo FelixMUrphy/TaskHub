@@ -1,6 +1,6 @@
 # Runpod: API key for TaskHub
 
-[Українською](runpod.uk.md) · [All keys](README.md)
+**English** · [Українська](runpod.uk.md) · [Español](runpod.es.md) · [Deutsch](runpod.de.md) · [Français](runpod.fr.md) · [Italiano](runpod.it.md) · [Português](runpod.pt.md) · [Polski](runpod.pl.md) · [中文](runpod.zh.md) · [日本語](runpod.ja.md) · [All pages](README.md)
 
 ## What TaskHub uses it for
 - **Watch:** your pods, their load, price, spent so far (Runpod billing), your balance and runway.

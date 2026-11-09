@@ -86,7 +86,7 @@ def activity():
     code, r = call("POST", "/api/tasks", {"name": NAME})
     tid = r.get("id")
     call("POST", "/api/notify", {"title": "log test", "message": TEXT})
-    call("POST", f"/api/tasks/{tid}/finish", {"message": TEXT + "-finish"})
+    call("POST", f"/api/tasks/{tid}/finish", {"state": "done", "message": TEXT + "-finish"})
     call("POST", "/api/tasks", {"name": NAME, "id": NAMED_ID})
     call("POST", f"/api/tasks/{NAMED_ID}/finish", {"state": "failed", "message": TEXT + "-finish"})
     time.sleep(1.5)
@@ -154,8 +154,8 @@ try:
     check("rotated", os.path.exists(old))
     check("main log stays under its limit", os.path.getsize(LOG) < 4_100_000, os.path.getsize(LOG))
     selftest = [l for l in all_text.splitlines() if " selftest " in l and "xxxxxxxx" not in l]
-    check("self test wrote the secrets' lines", len(selftest) == 13, len(selftest))
-    for secret in ("A" * 35, "B" * 35, "C" * 36, "D" * 60, "E" * 16, "F" * 40, "abcdefghijklmnop", "GGGGGGGG", "HHHHHHHH", "I" * 40, "J" * 12, "K" * 12, "ab" * 32):
+    check("self test wrote the secrets' lines", len(selftest) == 14, len(selftest))
+    for secret in ("A" * 35, "B" * 35, "C" * 36, "D" * 60, "E" * 16, "F" * 40, "abcdefghijklmnop", "GGGGGGGG", "HHHHHHHH", "I" * 40, "J" * 12, "K" * 12, "ab" * 32, "L" * 25, "M" * 38):
         check("masked: " + secret[:4] + "...", secret not in all_text)
 
     # the CLI's log: hub down, a hook that can't reach it

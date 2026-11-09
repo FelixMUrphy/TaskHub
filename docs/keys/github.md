@@ -1,11 +1,11 @@
 # GitHub Actions: token for TaskHub
 
-[Українською](github.uk.md) · [All keys](README.md)
+**English** · [Українська](github.uk.md) · [Español](github.es.md) · [Deutsch](github.de.md) · [Français](github.fr.md) · [Italiano](github.it.md) · [Português](github.pt.md) · [Polski](github.pl.md) · [中文](github.zh.md) · [日本語](github.ja.md) · [All pages](README.md)
 
 ## What TaskHub uses it for
 - **Watch:** workflow runs of the repositories you list — progress, the failed step, the result.
 - **Actions** (only with write access): Cancel and Re-run a run.
-- **Pull requests** (optional, from 2.9.4, read-only): the ones waiting for your review and open Dependabot pull requests.
+- **Pull requests** (optional, read-only): the ones waiting for your review and open Dependabot pull requests.
 - TaskHub never changes your workflows, code or repository settings.
 
 ## Create a fine-grained token

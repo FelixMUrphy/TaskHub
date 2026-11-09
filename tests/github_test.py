@@ -9,6 +9,7 @@ URL = os.environ.get("TASKHUB_URL", "http://127.0.0.1:47899")
 DATA = os.environ.get("TASKHUB_DATA", os.path.join(os.environ.get("TEMP", "."), "taskhub-tests"))
 PORT = 47896
 TOKEN = "github_pat_" + "A" * 60
+token_revoked = {"on": False}
 fails = 0
 lock = threading.RLock()
 calls = []                 # (method, path, auth header)
@@ -115,7 +116,7 @@ class Api(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if auth != "Bearer " + TOKEN:
+        if auth != "Bearer " + TOKEN or token_revoked["on"]:
             return self.reply(401, {"message": "Bad credentials"})
         if path == "/user":
             return self.reply(200, {"login": "tester"})
@@ -157,7 +158,10 @@ class Api(BaseHTTPRequestHandler):
                 if m == "GET" and sub == "":
                     return self.reply(200, {k: v for k, v in r.items() if k != "jobs"})
                 if m == "GET" and re.match(r"^attempts/\d+/jobs$", sub):
-                    return self.reply(200, {"total_count": len(r["jobs"]), "jobs": r["jobs"]})
+                    per, pg = min(int(q.get("per_page", 30)), 100), int(q.get("page", 1))
+                    more = len(r["jobs"]) > per * pg
+                    link = {"Link": f'<http://127.0.0.1:{PORT}{p}?per_page={per}&page={pg + 1}>; rel="next"'} if more else None
+                    return self.reply(200, {"total_count": len(r["jobs"]), "jobs": r["jobs"][per * (pg - 1):per * pg]}, link)
                 if m == "GET" and sub == "artifacts":
                     return self.reply(200, {"artifacts": [{"id": 5, "name": "setup-exe", "expired": False}]})
                 if m == "POST" and sub == "cancel":
@@ -189,6 +193,13 @@ def call(method, path, body=None):
 def task(tid):
     s, r = call("GET", f"/api/tasks/{tid}")
     return r if s == 200 else None
+
+
+def key_toasts(text):
+    """Notifications with this text so far (the hub's log has a line per toast, also with toasts off in config)."""
+    time.sleep(0.6)   # they pass a queue
+    with open(os.path.join(DATA, "taskhub.log"), encoding="utf-8", errors="replace") as f:
+        return sum(1 for l in f if "TOAST [" in l and text in l)
 
 
 def wait(pred, timeout=15):
@@ -252,6 +263,46 @@ if t:
 r = wait(lambda: (lambda c: c if c.get("repo_status", {}).get("o/missing") else None)(call("GET", "/api/connectors/github")[1])) or {}
 check("repo without access reported", r.get("repo_status", {}).get("o/missing") == "not found, or the token can't reach it: check the name, then the token's repository list and permissions", r)
 check("token expiry known (warning ahead)", abs((r.get("token_expires") or 0) - EXP) < 2, r.get("token_expires"))
+
+# ---- more than 100 jobs: the failed one on the second page is found
+with lock:
+    big = mkrun(130, "in_progress", started=time.time() - 30, title="Big matrix")
+    big["jobs"] = [{"id": 30000 + i, "name": f"m{i}", "status": "completed", "conclusion": "success", "steps": [step("Run", "completed", "success")]} for i in range(150)]
+check("big run shown", wait(lambda: task("gh-130")))
+time.sleep(1)
+with lock:
+    big["jobs"][140].update(conclusion="failure", steps=[step("Run", "completed", "failure")])
+    big["status"], big["conclusion"] = "completed", "failure"
+t = wait(lambda: (lambda x: x if x and x["state"] == "failed" else None)(task("gh-130")))
+check("a job on the second page counts", t and t["status"] == "jobs 150 / 150", t and t.get("status"))
+check("...and it is named as the one that failed", t and t["message"] == "m140 › Run", t and t.get("message"))
+
+# ---- which run a button acts on can't be changed from outside
+with lock:
+    aimed = mkrun(131, "in_progress", started=time.time() - 30, title="Aimed at")
+    aimed["jobs"] = []
+check("run shown", wait(lambda: task("gh-131")))
+s, r = call("POST", "/api/tasks/gh-131/update", {"meta": {"github": {"repo": "evil/repo", "run_id": 999}, "mine": 1}})
+t = task("gh-131")
+check("meta.github isn't changed over the API, other meta is", t["meta"]["github"]["run_id"] == 131 and t["meta"].get("mine") == 1, t["meta"])
+n = len(calls)
+s, r = call("POST", "/api/tasks/gh-131/controls/cancel", {})
+check("cancel goes to the task's own run", s == 200 and any(c[0] == "POST" and c[1].endswith("/runs/131/cancel") for c in calls[n:]) and not any("evil" in c[1] for c in calls[n:]), (s, calls[n:]))
+s, r = call("POST", "/api/tasks", {"id": "fake-run", "name": "fake", "source": "github", "meta": {"github": {"repo": "evil/repo", "run_id": 999}}, "controls": [{"id": "cancel", "label": "Cancel"}]})
+n = len(calls)
+s2, r2 = call("POST", "/api/tasks/fake-run/controls/cancel", {})
+check("a task made over the API can't aim the token at a repository", not any("evil" in c[1] for c in calls[n:]), (s, s2, calls[n:]))
+call("DELETE", "/api/tasks/fake-run?force=1")
+s, r = call("POST", "/api/tasks", {"id": "fake-pr", "name": "fake", "source": "github", "meta": {"github_pr": {"kind": "pr", "repo": "evil/repo", "number": 7}, "mine": 1}})
+t = call("GET", "/api/tasks/fake-pr")[1]
+check("a task made over the API can't name a pull request to read with the token", "github_pr" not in t["meta"] and t["meta"].get("mine") == 1, t["meta"])
+call("POST", "/api/tasks/fake-pr/update", {"meta": {"github_pr": {"kind": "pr", "repo": "evil/repo", "number": 7}}})
+t = call("GET", "/api/tasks/fake-pr")[1]
+check("...nor through an update", "github_pr" not in t["meta"], t["meta"])
+call("DELETE", "/api/tasks/fake-pr?force=1")
+with lock:
+    aimed["status"], aimed["conclusion"] = "completed", "cancelled"
+    big["status"] = "completed"
 
 # ---- past the usual duration; no usual duration
 with lock:
@@ -442,6 +493,12 @@ n = len(calls)
 s, r = call("POST", "/api/connectors/github", {"enabled": True})
 check("on again: polls with the saved token, no re-entry", s == 200 and wait(lambda: any(c[2] == "Bearer " + TOKEN for c in calls[n:])),
       calls[n:][:3])
+
+# ---- a token that stops working later
+warned0 = key_toasts("no longer accepts")
+token_revoked["on"] = True
+check("token revoked later: a warning", wait(lambda: key_toasts("no longer accepts") == warned0 + 1), key_toasts("no longer accepts") - warned0)
+token_revoked["on"] = False
 
 # ---- off / forget
 s, r = call("POST", "/api/connectors/github", {"enabled": False, "forget_token": True})

@@ -104,10 +104,14 @@ sealed class RunpodConnector : MachineConnector
             if (r.Code == 401) { KeyRejected(); return null; }
             if (r.Code == 403) { status = "no access to pods (pods:read)"; return null; }
             if (r.Code != 200) { if (!r.Limited) status = $"Runpod: HTTP {r.Code}"; return null; }
-            foreach (var p in (r.Body?["pods"] as JsonArray ?? new JsonArray()).OfType<JsonObject>()) res.Add(Map(p));
+            // an answer without the list, or a next page without its address, isn't "no machines": nothing is declared gone
+            if (r.Body?["pods"] is not JsonArray pods) { status = "Runpod: unexpected answer"; Log.W("runpod", "list: no pods in the answer"); return null; }
+            foreach (var p in pods.OfType<JsonObject>()) res.Add(Map(p));
             var pg = r.Body?["pagination"];
-            cursor = J.Truthy(pg?["hasNextPage"]) && J.Str(pg?["nextCursor"]) is { Length: > 0 } nc ? nc : null;
-            if (cursor == null)
+            bool more = J.Truthy(pg?["hasNextPage"]);
+            cursor = J.Str(pg?["nextCursor"]) is { Length: > 0 } nc ? nc : null;
+            if (more && cursor == null) { status = "Runpod: unexpected answer"; Log.W("runpod", "list: a next page without a cursor"); return null; }
+            if (!more)
             {
                 await VolumeSizes(res, key, ct);
                 return res;
@@ -120,6 +124,15 @@ sealed class RunpodConnector : MachineConnector
     {
         var r = await Call(HttpMethod.Get, "/v2/pods/" + Uri.EscapeDataString(m.Id), null, key, ct);
         return r.Code == 200 && r.Body is JsonObject p ? Map(p) : null;
+    }
+
+    static readonly HashSet<string> unknownSaid = new();
+
+    /// <summary>A status the documented list doesn't have: taken as stopped (not billed for compute as far as we know), said once in the log.</summary>
+    static string UnknownStatus(string st)
+    {
+        lock (unknownSaid) if (unknownSaid.Add(st)) Log.W("runpod", "unknown pod status: " + J.Cut(st, 40));
+        return "stopped";
     }
 
     static Machine Map(JsonObject p)
@@ -135,7 +148,8 @@ sealed class RunpodConnector : MachineConnector
                 "PROVISIONING" or "STARTING" => "starting",
                 "ERROR" => "error",
                 "TERMINATED" => "terminated",
-                _ => "stopped",   // EXITED (and anything unknown: not billed for compute as far as we know)
+                "EXITED" => "stopped",
+                _ => UnknownStatus(st),
             },
             Region = string.Join(" ", new[] { J.Str(p["dataCenterId"]), J.Str(p["cloud"]) is { Length: > 0 } cl ? cl.ToLowerInvariant() : "" }.Where(x => x.Length > 0)),
             Image = J.Str(p["image"]),
@@ -190,9 +204,12 @@ sealed class RunpodConnector : MachineConnector
         return d;
     }
 
-    string billingMode;      // myself.billingMode: PREPAID | POSTPAID (null = unknown), read hourly, per key
+    string billingMode;      // myself.billingMode: PREPAID | POSTPAID (null = unknown), read hourly, per key, kept over a restart in state.json
     double billingModeAt;
-    int billingModeKey;
+    string billingModeKey;
+
+    /// <summary>Which key a saved mode belongs to: a few hex digits of its hash, enough to tell a new key from the old one.</summary>
+    static string KeyPrint(string key) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)))[..8];
 
     /// <summary>The balance; on a post-paid account (invoiced afterwards, pods aren't stopped at $0) clientBalance isn't
     /// money left before a stop: the guard only warns (<see cref="Balance.NoStop"/>, see .ai/gotchas.md).</summary>
@@ -202,18 +219,33 @@ sealed class RunpodConnector : MachineConnector
         Task<Resp> Post(JsonNode body, CancellationToken c) => Call(HttpMethod.Post, "/graphql", body, key, c);
         var b = await RunpodGraphQlBalance.Fetch(Post, ct);
         if (b is not { Error: null }) return b;
-        var kh = key.GetHashCode();
-        if (kh != billingModeKey || J.Now() - billingModeAt > (Mock ? 2 : 3600))
+        var print = KeyPrint(key);
+        if (print != billingModeKey)
         {
-            if (kh != billingModeKey) billingMode = null;
-            billingModeKey = kh;
-            billingModeAt = J.Now();
-            try { billingMode = await RunpodGraphQlBalance.BillingMode(Post, ct) ?? billingMode; }
+            // a saved mode stands until the first answer, so a failed question after a restart doesn't lose it
+            var saved = hub.ConnectorState(Id);
+            var mode0 = J.Str(saved?["billing_mode"]);
+            billingMode = J.Str(saved?["billing_mode_key"]) == print && mode0 is "PREPAID" or "POSTPAID" ? mode0 : null;
+            billingModeAt = 0;
+            billingModeKey = print;
+        }
+        if (GuardTiming.AskMode(billingMode, billingModeAt, J.Now(), Mock ? 2 : 3600))
+        {
+            // the last known mode stays while the question fails; a failed one is asked again at the next reading
+            try
+            {
+                if (await RunpodGraphQlBalance.BillingMode(Post, ct) is { } mode)
+                {
+                    if (mode != billingMode) hub.SetConnectorState(Id, new JsonObject { ["billing_mode"] = mode, ["billing_mode_key"] = print });
+                    billingMode = mode;
+                    billingModeAt = J.Now();
+                }
+            }
             catch (Exception e) when (!ct.IsCancellationRequested) { Log.W("runpod", "billingMode: " + e.GetBaseException().Message); }
-            catch (OperationCanceledException) { billingModeAt = 0; throw; }   // cancelled by a restart: ask again next time
         }
         if (billingMode != null) b.Raw["billingMode"] = billingMode;
         if (billingMode == "POSTPAID") b.NoStop = L.T("g_nostop_postpaid");
+        else if (billingMode == null) b.StopNote = L.T("g_mode_unknown");
         return b;
     }
 

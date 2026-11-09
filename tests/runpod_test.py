@@ -170,6 +170,13 @@ def task(tid):
     return r if s == 200 else None
 
 
+def key_toasts(text):
+    """Notifications with this text so far (the hub's log has a line per toast, also with toasts off in config)."""
+    time.sleep(0.6)   # they pass a queue
+    with open(os.path.join(DATA, "taskhub.log"), encoding="utf-8", errors="replace") as f:
+        return sum(1 for l in f if "TOAST [" in l and text in l)
+
+
 def wait(pred, timeout=15):
     end = time.time() + timeout
     while time.time() < end:
@@ -388,7 +395,7 @@ check("how-to page in Ukrainian (exists) + the row in Ukrainian", rw and rw["hel
       and rw["summary"].startswith("Під’єднано, баланс $"), rw)
 call("POST", "/api/settings", {"language": "de"})
 txt, rw = row("runpod")
-check("how-to page: German not there -> English", rw and rw["help_url"].endswith("/docs/keys/runpod.md"), rw)
+check("how-to page in German", rw and rw["help_url"].endswith("/docs/keys/runpod.de.md"), rw)
 call("POST", "/api/settings", {"language": "en"})
 s, r = call("POST", "/api/connectors/runpod", {"enabled": False})
 check("off keeps the key (Credential Manager)", s == 200 and r.get("status") == "off" and r.get("key_set") is True
@@ -400,14 +407,23 @@ with lock:
 s, r = call("POST", "/api/connectors/runpod", {"enabled": True})
 check("on again: polls with the saved key, no re-entry", s == 200 and wait(lambda: any(c[2] == "Bearer " + KEY_RW and c[1].startswith("/v2/pods?")
       for c in calls[n:])) and wait(lambda: state().get("status") == "ok"), state())
+warned0, back0 = key_toasts("no longer accepts"), key_toasts("accepts the key again")
 revoked.add("Bearer " + KEY_RW)
 st = wait(lambda: (lambda x: x if x.get("key_check") == "revoked" else None)(state()))
 check("key revoked at Runpod -> key_check 'revoked', said so", st and "no longer accepts" in (st.get("key_check_text") or ""), st)
 txt, rw = row("runpod")
 check("revoked: the row says so (the how-to link comes back)", rw and rw["key_check"] == "revoked" and rw["key_set"]
       and "no longer accepts" in rw["summary"], rw)
+check("key revoked later, guard off: a warning", wait(lambda: key_toasts("no longer accepts") == warned0 + 1), key_toasts("no longer accepts") - warned0)
+time.sleep(3)
+check("...one, however many polls see it", key_toasts("no longer accepts") == warned0 + 1, key_toasts("no longer accepts") - warned0)
 revoked.clear()
 check("accepted again -> 'ok'", wait(lambda: state().get("key_check") == "ok"), state())
+check("...and said so, once", wait(lambda: key_toasts("accepts the key again") == back0 + 1), key_toasts("accepts the key again") - back0)
+revoked.add("Bearer " + KEY_RW)
+check("revoked a second time: warned again", wait(lambda: key_toasts("no longer accepts") == warned0 + 2), key_toasts("no longer accepts") - warned0)
+revoked.clear()
+wait(lambda: state().get("key_check") == "ok")
 
 # ---- GraphQL balance module off
 call("POST", "/api/connectors/runpod", {"graphql_balance": False})

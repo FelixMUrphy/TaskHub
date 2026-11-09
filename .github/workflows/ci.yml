@@ -15,7 +15,7 @@ permissions:
 jobs:
   build-test:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: 1
@@ -176,9 +176,10 @@ jobs:
 
   # MCP Registry (registry.modelcontextprotocol.io): publishes io.github.FelixMUrphy/taskhub with the release's MCP bundle.
   # GitHub OIDC login (no secret); versions are immutable there, so a re-run skips a version that is already listed.
+  # Only from the public repo: a tag on a private copy must not publish anything to the public registry.
   mcp-registry:
     needs: release
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' && github.repository == 'FelixMUrphy/TaskHub'
     runs-on: ubuntu-latest
     permissions:
       id-token: write

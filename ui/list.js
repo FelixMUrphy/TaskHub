@@ -158,6 +158,7 @@ function renderHookOffer(){
   const box=$("#hookoffer"), rows=NATIVE? data.hooks_offer||[] : [], title=T("hooks_offer_t",rows.map(r=>r.name).join(", "));
   const h=!rows.length? "" : `<div class="ht">${esc(title)}</div><div class="hd">${esc(T("hooks_offer_d"))}</div>`
     +(data.hooks_offer_tg? `<div class="hd">${esc(T("hooks_offer_tg"))}</div>` : "")
+    +(data.hooks_offer_dc? `<div class="hd">${esc(T("hooks_offer_dc"))}</div>` : "")
     +`<div class="ctl"><button class="btn primary" data-connect="1">${esc(T("hooks_offer_yes"))}</button><button class="btn" data-connect="">${esc(T("hooks_offer_no"))}</button></div>`;
   if (box.__h===h) return;
   const had=box.__clicked||box.contains(document.activeElement);
@@ -183,6 +184,7 @@ function render(){
   renderSet();
   renderHookOffer();
   renderLimits();
+  wtFollow();
   place(list, layout());
   requestAnimationFrame(sbUpd);
   // focus request (tray/toast click)
@@ -209,7 +211,7 @@ async function loop(){
   for(;;){
     try{
       const r=await fetch(`/api/tasks?since=${ver}&wait=25`, {headers:TOKEN?{Authorization:H.Authorization}:{}});
-      if (!r.ok) throw new Error(r.status);
+      if (!r.ok) throw new Error(r.status===401?T("no_token"):r.status);
       const j=await r.json(); skew=j.now-Date.now()/1000; ver=j.version; data=j;
       $("#off").style.display="none"; fails=0; render();
     }catch(e){ $("#off").textContent=T("offline")+" ("+(e&&e.message||e)+")"; $("#off").style.display="block"; await new Promise(r=>setTimeout(r, Math.min(5000, 800*++fails))); }

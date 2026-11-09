@@ -28,20 +28,59 @@ CLI (any language / agent):
     python taskhub_client.py register --name X  -> prints id;  update ID --percent 40 --status ..
 """
 import argparse
+import hashlib
+import hmac
 import json
+import math
 import os
 import re
+import secrets
 import subprocess
 import sys
 import threading
 import time
 import traceback
 import urllib.error
+from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
 
 URL = os.environ.get("TASKHUB_URL", "http://127.0.0.1:47800").rstrip("/")
 TOKEN = os.environ.get("TASKHUB_TOKEN", "")
 _opener = build_opener(ProxyHandler({}))  # never route localhost through a proxy
+
+
+_own_tokens = {}
+
+
+def _own_token(url):
+    """The token of this account's hub, for a hub that proves it holds hub.key; "" if it doesn't or none is found."""
+    if url in _own_tokens:
+        return _own_tokens[url]
+    home = os.environ.get("TASKHUB_TEST_HOME")
+    folder = os.path.join(home, "TaskHub") if home else os.path.join(os.environ.get("APPDATA", ""), "TaskHub")
+    try:
+        with open(os.path.join(folder, "hub.key"), encoding="ascii") as f:
+            key = bytes.fromhex(f.read().strip())
+        nonce = secrets.token_hex(16)
+        with _opener.open(Request(f"{url}/api/hub-proof?nonce={nonce}"), timeout=5) as r:
+            proof = json.loads(r.read())["proof"]
+        good = hmac.new(key, f"taskhub-hub-proof|{urlsplit(url).port}|{nonce}".encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(str(proof).lower(), good):
+            return ""
+        token = ""
+        try:
+            with open(os.path.join(folder, "config.json"), encoding="utf-8") as f:
+                token = str(json.load(f).get("token") or "")   # a number too, as the hub reads it
+        except (OSError, ValueError, AttributeError):
+            pass
+        if not token:
+            with open(os.path.join(folder, "api.token"), encoding="ascii") as f:
+                token = f.read().strip().upper()   # the hub's form of the hex
+        if token:
+            _own_tokens[url] = token
+        return token
+    except (OSError, ValueError, KeyError, TypeError):
+        return ""
 
 
 class HubError(Exception):
@@ -50,12 +89,22 @@ class HubError(Exception):
         self.code = code
 
 
+def _finite(v):
+    """NaN and Infinity aren't JSON: they aren't sent, so the rest of the request isn't lost. In a list (a chart row) a null keeps the positions."""
+    if isinstance(v, dict):
+        return {k: _finite(x) for k, x in v.items() if not (isinstance(x, float) and not math.isfinite(x))}
+    if isinstance(v, (list, tuple)):
+        return [None if isinstance(x, float) and not math.isfinite(x) else _finite(x) for x in v]
+    return v
+
+
 def request(method, path, body=None, timeout=5.0, url=None):
-    data = json.dumps(body).encode("utf-8") if body is not None else None
+    data = json.dumps(_finite(body), allow_nan=False).encode("utf-8") if body is not None else None
     req = Request((url or URL) + path, data=data, method=method,
                   headers={"Content-Type": "application/json", "X-TaskHub": "1"})
-    if TOKEN:
-        req.add_header("Authorization", f"Bearer {TOKEN}")
+    token = TOKEN or _own_token(url or URL)
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
     try:
         with _opener.open(req, timeout=timeout) as r:
             raw = r.read()
@@ -503,24 +552,32 @@ def _is_batch(v):
 
 
 # ----------------------------------------------------------------- CLI ---
+def _user_regex(pattern, option):
+    """A regex given by the caller; .NET's named groups, as `taskhub run` takes them, work too."""
+    try:
+        return re.compile(re.sub(r"\(\?<(?![=!])", "(?P<", pattern)) if pattern else None
+    except re.error as e:
+        sys.exit(f"run: bad {option}: {e}")
+
+
 def _cli_run(a):
     """Wrap an arbitrary command: logs, progress parsing, kill / interrupt / stdin controls."""
     cmd = a.cmd[1:] if a.cmd and a.cmd[0] == "--" else a.cmd
     if not cmd:
         sys.exit("run: no command given (use: run --name X -- cmd args)")
+    prog_rx = _user_regex(a.progress_regex, "--progress-regex")
+    stat_rx = _user_regex(a.status_regex, "--status-regex")
     is_win = os.name == "nt"
     flags = 0x00000200 if is_win else 0  # CREATE_NEW_PROCESS_GROUP (for CTRL_BREAK)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE,
                             cwd=a.cwd, creationflags=flags, start_new_session=not is_win)
-    prog_rx = re.compile(a.progress_regex) if a.progress_regex else None
     if a.auto_progress and not prog_rx:
         prog_rx = re.compile(r"(?P<pct>\d{1,3}(?:\.\d+)?)\s?%|(?P<cur>\d+)\s?/\s?(?P<tot>\d+)")
-    stat_rx = re.compile(a.status_regex) if a.status_regex else None
     widgets = [W.text("last", "Last line", mono=True, span=2)]
     t = Task(a.name or " ".join(cmd)[:80], source=a.source, pid=proc.pid if is_win else 0, stoppable=False,
              description=a.description or " ".join(cmd)[:300], heartbeat_timeout=a.heartbeat,
              widgets=widgets, milestones=a.milestones, cwd=a.cwd or os.getcwd(),
-             controls=[C.signal("interrupt", "Ctrl+C", confirm="Надіслати Ctrl+C / SIGINT?"),
+             controls=[C.signal("interrupt", "Ctrl+C", confirm="Send Ctrl+C / SIGINT?"),
                        C.signal("stdin", "Send input", input=C.text("stdin"))])
     t.start()
 

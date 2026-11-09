@@ -68,7 +68,7 @@ static class Program
         {
             var dir = Install.InstallDir;
             bool wasInstalled = Install.IsInstalled;
-            Install.StopOtherHubs();
+            Install.StopOtherHubs(S.Port, dir);
             Install.Unregister(S);
             Integrations.RemoveAll(S);
             try { ToastNotificationManagerCompat.Uninstall(); } catch { }
@@ -205,7 +205,7 @@ static class Program
                 installDir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(installDir));
                 var err = Install.CheckWritable(installDir);
                 if (err != null) { Msg(L.T("setup_no_access", installDir) + "\n\n" + err); return 1; }
-                var exe = Install.InstallFiles(installDir);
+                var exe = Install.InstallFiles(installDir, S.Port);
                 var a2 = "--register --quiet" + (optAuto ? "" : " --no-autostart") + (optPath ? "" : " --no-path") + optAgents;
                 Process.Start(new ProcessStartInfo(exe, a2) { UseShellExecute = true })?.Dispose();
                 return 0;
@@ -232,16 +232,23 @@ static class Program
         if (!first || Running(S))
         {
             if (ToastNotificationManagerCompat.WasCurrentProcessToastActivated()) return 0;
-            try
+            if (ProvesHub(S))
             {
-                Native.AllowSetForegroundWindow(-1);
-                Post(S, "/api/ui/open", new JsonObject { ["task"] = string.IsNullOrEmpty(openTask) ? null : openTask });
+                try
+                {
+                    Native.AllowSetForegroundWindow(-1);
+                    Post(S, "/api/ui/open", new JsonObject { ["task"] = string.IsNullOrEmpty(openTask) ? null : openTask });
+                }
+                catch { }
+                return 0;
             }
-            catch { }
-            return 0;
+            // Whoever answers on the port isn't this hub, so it gets no token. With no hub of ours running, start as usual: if the port
+            // stays taken, the message below says so.
+            if (!first) return 0;
         }
 
         Log.DropStale();
+        _ = S.HubKey;   // before the API opens: the CLI must find it from the first request on
         StartHeader(S, args);
         if (S.Bool("autostart", true)) Install.EnsureAutostart(S);
         Install.EnsurePayload();
@@ -267,12 +274,17 @@ static class Program
         notifier.Init(iconPng);
         var telegram = new TelegramBridge(S, hub);
         notifier.Telegram = telegram;
+        var discord = new DiscordBridge(S, hub);
+        notifier.Discord = discord;
+        hub.ReportDamagedFiles();
         var connectors = new Connectors(S, hub);
         connectors.Add(new GitHubConnector(S, hub));
         connectors.Add(new RunpodConnector(S, hub));
         connectors.Add(new VastAiConnector(S, hub));
         connectors.Add(new AwsConnector(S, hub));
-        var api = new Api(S, hub) { Telegram = telegram, Conns = connectors };
+        connectors.Add(new SshConnector(S, hub));
+        var api = new Api(S, hub) { Telegram = telegram, Discord = discord, Conns = connectors };
+        connectors.Add(new WorktimeReminders(api.Work, hub));   // the work hours reminders' buttons come back through the connectors' route
         try { api.Start().GetAwaiter().GetResult(); }
         catch (Exception e)
         {
@@ -284,6 +296,7 @@ static class Program
         // the installer / uninstaller asks a running hub to quit through this event (Install.StopHubs)
         using var quit = new EventWaitHandle(false, EventResetMode.ManualReset, Install.QuitEventName(Environment.ProcessId));
         telegram.Start();
+        discord.Start();
         connectors.StartAll();
         var updater = new Updater(S, hub, notifier);
         notifier.UpdateClicked = updater.OpenPage;
@@ -365,9 +378,9 @@ static class Program
                     Install.ReplaceStoreEdition(storePkg, S);
                 }
                 f.Step(L.T("step_stop"), 0.03);
-                Install.StopOtherHubs();
+                Install.StopOtherHubs(S.Port, dir);
                 f.Step(L.T("step_copy"), 0.05);
-                var exe = Install.InstallFiles(dir, p => f.Step(L.T("step_copy"), 0.05 + 0.7 * p));
+                var exe = Install.InstallFiles(dir, S.Port, p => f.Step(L.T("step_copy"), 0.05 + 0.7 * p));
                 f.Step(L.T("step_register"), 0.8);
                 var res = Path.Combine(Path.GetTempPath(), $"taskhub-setup-{Environment.ProcessId}.txt");
                 try { File.Delete(res); } catch { }
@@ -402,6 +415,7 @@ static class Program
     {
         try
         {
+            if (!ProvesHub(S)) { Log.W("app", "open panel: whoever answers on the port isn't this hub"); return; }   // it gets no token
             Native.AllowSetForegroundWindow(-1);
             Post(S, "/api/ui/open", new JsonObject { ["task"] = null });
         }
@@ -429,7 +443,7 @@ static class Program
                         return;
                     }
                     f.Step(L.T("step_stop"), 0.1);
-                    Install.StopOtherHubs();
+                    Install.StopOtherHubs(S.Port, Install.InstallDir);
                     f.Step(L.T("step_unregister"), 0.35);
                     Install.Unregister(S);
                     f.Step(L.T("step_agents"), 0.6);
@@ -470,6 +484,7 @@ static class Program
             }
             catch { }
         }
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TASKHUB_TEST_HOME"))) return;   // no box on the screen from a test
         MessageBox.Show(text, "TaskHub");
     }
 
@@ -487,12 +502,25 @@ static class Program
         catch { return false; }
     }
 
+    /// <summary>Whoever answers on the port holds this hub's key (the CLI's check, see Client.ProveHub).</summary>
+    static bool ProvesHub(Settings s)
+    {
+        try
+        {
+            var nonce = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+            var r = http.GetStringAsync($"{s.Url}/api/hub-proof?nonce={nonce}").GetAwaiter().GetResult();
+            var good = System.Security.Cryptography.HMACSHA256.HashData(s.HubKey, Encoding.UTF8.GetBytes($"taskhub-hub-proof|{s.Port}|{nonce}"));
+            return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(Convert.FromHexString(J.Str((J.Parse(r) as JsonObject)?["proof"])), good);
+        }
+        catch { return false; }
+    }
+
     static void Post(Settings s, string path, JsonObject body)
     {
         var req = new HttpRequestMessage(HttpMethod.Post, s.Url + path)
         { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
         req.Headers.Add("X-TaskHub", "1");
-        if (!string.IsNullOrEmpty(s.Token)) req.Headers.Add("Authorization", "Bearer " + s.Token);
+        req.Headers.Add("Authorization", "Bearer " + s.Token);
         http.Send(req).Dispose();
     }
 }

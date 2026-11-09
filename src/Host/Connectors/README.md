@@ -9,6 +9,8 @@ A connector watches an outside service and shows its jobs as TaskHub tasks. Each
 | `GitHub/` | GitHub Actions: runs as tasks, its setup window, `github.i18n.json` |
 | `Machines/` | the shared base of machine connectors (GPU / cloud machines) and the balance guard, `machines.i18n.json` |
 | `Aws/` | AWS, read-only: `Aws.cs` EC2 instances as tasks, `Aws.Jobs.cs` SageMaker and Batch jobs, `Aws.Cost.cs` cost and budgets, `SigV4.cs` the request signer |
+| `Discord/` | the Discord bridge (a mirror of notifications like Telegram, not a task connector): `Discord.cs` linking, messages, presses; `Discord.Rest.cs` calls and pacing; `Discord.Gateway.cs` the WebSocket; `discord.i18n.json` |
+| `Ssh/` | the user's own Linux hosts through Windows' `ssh.exe`, read-only: `Ssh.cs` settings, one thread per host, its task; `Ssh.Read.cs` the connection, the fixed script, what its output means. No `SafeHttp`, no key: see its summary |
 | `Runpod/`, `VastAi/` | the service adapters on top of `Machines/`, each with its own `<id>.i18n.json` |
 
 ## Adding a connector

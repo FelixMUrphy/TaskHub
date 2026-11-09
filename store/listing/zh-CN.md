@@ -22,7 +22,7 @@ Claude Code 和 Codex
 连接器（可选，默认关闭）
 • GitHub Actions：把你列出的仓库中的 workflow 运行显示为任务：按 job 和步骤显示进度，失败的步骤及其日志末尾，取消和重新运行按钮。
 • Runpod 和 Vast.ai：把你的 GPU 机器显示为任务：GPU、每小时价格、已花费金额、运行时长、SSH、负载图表、“GPU 空闲”警告、余额和可用时长（余额不足时警告）、停止 / 启动 / 重启（删除只能在面板中进行，且需输入机器名称）。
-• AWS：把 EC2 实例、SageMaker 训练作业和 AWS Batch 作业显示为任务，还有本月费用和预测以及 AWS Budgets，每项都有单独的开关。只读。Cost Explorer 由 AWS 收费（每次请求 $0.01，每月最多约 $1.80）。
+• AWS：把 EC2 实例、SageMaker 训练作业和 AWS Batch 作业显示为任务，还有本月费用和预测以及 AWS Budgets，每项都有单独的开关。只读。Cost Explorer 由 AWS 收费（每次请求 $0.01，每月最多约 $1.80）。此连接器根据 AWS 文档构建并通过模拟器测试，尚未在真实 AWS 账户上验证。
 每个连接器只有在你开启并输入自己的 API 密钥后才会工作。密钥只保存在 Windows 凭据管理器中，连接器只与其自身服务的 API 通信（api.github.com、api.runpod.io、console.vast.ai、*.amazonaws.com）。
 
 余额保护（可选，在你开启之前处于关闭状态）

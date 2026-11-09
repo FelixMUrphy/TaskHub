@@ -35,66 +35,70 @@ asks "upload to the NAS?" in a notification and in Telegram, and goes on when th
   stats with deltas, LEDs, key-value lists, tables, text.
 - **Controls declared by the task itself**: buttons, number/text/select inputs, confirmations, shell commands,
   open-file/folder, graceful stop, pause/resume, kill. Values go back to the process over long-polling.
-- **Task links** open in the browser; from 2.9 a file / folder link is shown in Explorer (never run), its address is
+- **Task links** open in the browser; a file / folder link is shown in Explorer (never run), its address is
   in the link's tooltip, and a shell command gets a typed value as plain text (no extra commands from `&`, `|`…).
 - **Windows notifications** on finish / failure / stall by default; start, milestone (plain) and log notifications on
   request; the task's buttons and input fields in notifications if it asks; a live progress notification; quiet while the
   panel is open.
 - **Claude Code and Codex in one click**: TaskHub tools for the agent (MCP) and "finished / needs your permission"
   notifications (hooks) — see [below](#claude-code-and-codex-one-click).
-- **Plan limits** *(from 3.1, off until you turn it on)*: how much of the 5-hour and weekly limits Claude Code and Codex have used, in the panel, with warnings from 75% and 90% — see [below](#claude-code-and-codex-one-click).
+- **Plan limits** *(off until you turn it on)*: how much of the 5-hour and weekly limits Claude Code and Codex have used, in the panel, with warnings from 75% and 90% — see [below](#claude-code-and-codex-one-click).
 - **Telegram**: the same notifications on your phone through your own bot, with the task's buttons; a live progress
   bar per task and its charts when it finishes; `/tasks`, `/mute` (optionally only when you are away from the PC) —
   see [Telegram](#telegram).
-- **GitHub Actions** *(from 2.9)*: the workflow runs of your repositories as tasks — progress and ETA from the usual duration of earlier runs (by jobs / steps when there are none),
+- **Discord** *(off until you connect it)*: the same notifications and buttons as direct messages from your own bot — see [Discord](#discord).
+- **GitHub Actions**: the workflow runs of your repositories as tasks — progress and ETA from the usual duration of earlier runs (by jobs / steps when there are none),
   the failed step and the end of its log, cancel / re-run buttons, artifact and release links — see
   [GitHub Actions](#github-actions).
-- **Runpod** *(from 2.9)*: your GPU pods as tasks — GPU, region, image, $/h, spent, uptime, SSH and Jupyter links, load
+- **Runpod**: your GPU pods as tasks — GPU, region, image, $/h, spent, uptime, SSH and Jupyter links, load
   charts, *GPU idle* warning with a Stop button, balance and runway with a low-balance warning, stop / start / restart
   (delete only in the panel, after typing the pod's name) — see [Runpod](#runpod).
-- **Vast.ai** *(from 2.9)*: your instances as tasks — the same as Runpod (GPU, location, image, $/h, spent, uptime, SSH, load
+- **Vast.ai**: your instances as tasks — the same as Runpod (GPU, location, image, $/h, spent, uptime, SSH, load
   charts with disk, *GPU idle*, balance / credit and runway, stop / start / reboot, delete only in the panel) — see
   [Vast.ai](#vastai).
-- **AWS** *(from 3.1; off until you turn it on; built from AWS's documentation, not yet checked on a real account)*: EC2 instances as tasks with a *Forgotten?*
+- **SSH** *(off until you turn it on; tested on a real OpenSSH server in WSL, not yet on a remote one)*: your own Linux hosts as tasks, read-only and with nothing installed on them:
+  load, disks, GPU, tmux sessions; a notification when a job ends, a disk fills up or the connection is lost. TaskHub keeps no key. [SSH](#ssh).
+- **AWS** *(off until you turn it on; built from AWS's documentation, not yet checked on a real account)*: EC2 instances as tasks with a *Forgotten?*
   reminder; SageMaker training jobs, AWS Batch jobs, this month's cost and forecast, and AWS Budgets, each behind its own switch. Read-only. [AWS](#aws).
-- **Balance guard** *(from 2.9, off until you turn it on)*: for Runpod and Vast.ai — a warning at your own balance threshold
+- **Balance guard** *(off until you turn it on)*: for Runpod and Vast.ai — a warning at your own balance threshold
   (balance, $/h, time left), and at the stop threshold the running machines are **stopped** (never deleted) after a
-  notification with *Stop now* / *Snooze* (Windows and Telegram) — see [Balance guard](#balance-guard).
+  notification with *Stop now* / *Snooze* (Windows, and Telegram / Discord when linked) — see [Balance guard](#balance-guard).
+- **Work hours** *(off until you turn it on)*: Start / Pause / Finish above the task list, week and month bars against your norm, overtime and the amount earned; a calendar to correct any day, month closing, public holidays you confirm, amounts in another currency, and reminders for a session left open — see [Work hours](#work-hours).
 - **Stall detection** (heartbeat timeout) and *lost* state when the process dies.
 - **Agent-friendly**: an MCP server (`taskhub mcp`), a native `taskhub` CLI on PATH, a stdlib-only Python client,
   plain HTTP for everything else; `taskhub api` prints the docs an agent needs.
 - **Update check**: a notification when a new version is released (once a day; switch and *Check now* in Settings → *System*; *Check now* answers right
   there, also when you already have the latest version).
 - **Panel like the Windows notification center**: docked to the right edge of the screen at full height, slides in
-  and out (instant if Windows animations are off), width by dragging its left edge, a pin to keep it open (*from 2.9.7* the pinned panel keeps its screen edge: maximized
+  and out (instant if Windows animations are off), width by dragging its left edge, a pin to keep it open (the pinned panel keeps its screen edge: maximized
   windows make room, other windows too if you switch that on in ⚙); blurred
-  see-through background and cards (*Panel transparency*; *Card transparency* from 2.9 — in ⚙), light / dark theme and accent colour follow Windows
-  (or set in ⚙). *From 2.9.4* the settings say when Windows itself draws no blur (energy saver on, or *Transparency
+  see-through background and cards (*Panel transparency*; *Card transparency* — in ⚙), light / dark theme and accent colour follow Windows
+  (or set in ⚙). The settings say when Windows itself draws no blur (energy saver on, or *Transparency
   effects* off in Windows settings), with a link to that setting.
-- **Settings** *(in the panel from 2.9; beside it, with icon tabs, from 3.1)*: ⚙ in the panel (or *Settings* in the tray menu) opens them next to it, one icon tab per section —
-  appearance, notifications, Telegram, connectors, AI agents, system (autostart, updates, data folder, API reference), about; the tray
+- **Settings**: ⚙ in the panel (or *Settings* in the tray menu) opens them next to it, one icon tab per section —
+  appearance, notifications, messengers (Telegram, Discord), work hours, connectors, AI agents, system (autostart, updates, data folder, API reference), about; the tray
   menu keeps only the quick actions (open the panel, mute, settings, support, exit) in the Windows 11 style. While the panel is pinned, only their own button closes them.
-  On battery (from 3.1) the panel and settings appear and go at once, without the slide.
+  On battery the panel and settings appear and go at once, without the slide.
 - 10 UI languages (English, Українська, Español, Deutsch, Français, Italiano, Português, Polski, 中文, 日本語).
 - Per-user install, no admin rights, no .NET runtime needed; self-healing autostart.
 
 ## Quick start
 1. Run `TaskHub-<version>-setup.exe` → **Install** (choose a folder, autostart, PATH and the Claude Code / Codex options).
-   From 2.9 the setup window stays open with the progress and ends with *Open TaskHub*; uninstalling works the same way
+   The setup window stays open with the progress and ends with *Open TaskHub*; uninstalling works the same way
    (with an optional *Also delete my data*).
 2. Report something:
 
 ```powershell
 taskhub notify "Render" "finished in 42 min"
 taskhub run --name "Build" -- cmake --build build -j 16     # wraps any command, parses % from its output
-taskhub run --name "Shot 12" -- blender -b shot12.blend -s 1 -e 240 -a   # 2.9.2: frame, samples, overall %, s/frame
+taskhub run --name "Shot 12" -- blender -b shot12.blend -s 1 -e 240 -a   # frame, samples, overall %, s/frame
 ```
 
-*From version 2.9.2:* `taskhub run` knows Blender's background-render output by itself (no add-on in Blender): the frame
+`taskhub run` knows Blender's background-render output by itself (no add-on in Blender): the frame
 and its samples, overall progress when the frame range is known (`-s`/`-e` or `-f`), a seconds-per-frame chart and the
 last saved file, render memory. Blender exits with 0 even when a render fails, so its `Error:` lines mark the task failed
 (and `taskhub run` exits with 1; not the memory-leak note Blender prints at exit). Video output (FFmpeg) and stereo views
-saved as separate files count by frame (2.9.3). *Stop after this frame* (panel / notification) ends Blender once the
+saved as separate files count by frame. *Stop after this frame* (panel / notification) ends Blender once the
 frame is saved and the next one begins; after such a stop or a crash the task says where to resume and `taskhub run` prints the same command with `-s`
 set to the next frame. `--preset none` turns this off.
 
@@ -112,7 +116,7 @@ with Task("Train", total=100, unit="epochs", source="codex",
 ```
 
 ```bash
-curl -s -X POST localhost:47800/api/notify -H "X-TaskHub: 1" -d '{"title":"Done","message":"backup ok"}'
+curl -s -X POST localhost:47800/api/notify -H "X-TaskHub: 1" -H "Authorization: Bearer $(taskhub token)" -d '{"title":"Done","message":"backup ok"}'
 ```
 
 **With AI agents** — Claude Code and Codex: enable *TaskHub tools (MCP)* (next section), nothing else to do. Other
@@ -122,16 +126,16 @@ agents (ChatGPT, scripts, any tool with a shell) — add one line to `AGENTS.md`
 > `taskhub run --name ... -- <cmd>`).
 
 ### Claude Code and Codex: one click
-The setup dialog (and later Settings → *AI agents*) has independent options per agent. From 3.1, if an agent is used on your PC and you haven't chosen yet, the panel shows a card until you choose, one notification says so, and nothing is written until you press *Connect*:
+The setup dialog (and later Settings → *AI agents*) has independent options per agent. If an agent is used on your PC and you haven't chosen yet, the panel shows a card until you choose, one notification says so, and nothing is written until you press *Connect*:
 
 | Option | What you get | Where TaskHub writes |
 |---|---|---|
 | **Notifications (hooks)** | a toast when the agent finishes a response or needs your permission | Claude Code: `~/.claude/settings.json` · Codex: `~/.codex/hooks.json` |
-| **Plan limits** (from 3.1, off until you turn it on in Settings → AI agents, for each agent) | how much of the 5-hour and weekly limits is used, in the panel, yellow with a warning from 75%, red with a warning from 90% | Claude Code: `~/.claude/settings.json` (`statusLine`) · Codex: nothing, TaskHub asks it directly |
-| **TaskHub tools (MCP)** | the agent gets tools `notify`, `task_start/update/finish`, `task_commands`, `task_wait` (from 2.9.2), `task_list` and shows its long jobs in the panel by itself | Claude Code: `~/.claude.json` · Codex: `~/.codex/config.toml` |
+| **Plan limits** (off until you turn it on in Settings → AI agents, for each agent) | how much of the 5-hour and weekly limits is used, in the panel, yellow with a warning from 75%, red with a warning from 90% | Claude Code: `~/.claude/settings.json` (`statusLine`) · Codex: nothing, TaskHub asks it directly |
+| **TaskHub tools (MCP)** | the agent gets tools `notify`, `task_start/update/finish`, `task_commands`, `task_wait`, `task_list` and shows its long jobs in the panel by itself | Claude Code: `~/.claude.json` · Codex: `~/.codex/config.toml` |
 
 TaskHub adds — and on uninstall removes (Store edition: see below) — only its own entries and keeps everything else (backup of the original:
-`*.taskhub.bak`). What to do in the agent afterwards:
+`*.taskhub.bak`, and the version from just before TaskHub's last write: `*.taskhub.last`). An existing empty settings file is left alone and reported as an error. What to do in the agent afterwards:
 
 - **Claude Code** — start a new *local* session (desktop app → Code tab → environment *Local*, the CLI or VS Code).
   `/mcp` should list `taskhub` as connected. Cloud sessions run on Anthropic's servers and can't reach TaskHub on your PC.
@@ -145,10 +149,10 @@ Scripted: `TaskHubHost.exe --integrations claude=on codex=on claude-mcp=on codex
 [API.md → Claude Code hooks](API.md#claude-code-hooks), [Codex hooks](API.md#codex-hooks), [MCP server](API.md#mcp-server).
 
 ### Telegram
-Settings → *Telegram*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
+Settings → *Messengers* → *Telegram*: create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`), paste its token, press
 *Connect*, scan the QR code with your phone (or open the link on this PC) and press *Start* (in a private chat with the bot:
 groups can't be linked, since every member could press the tasks' buttons). Everything is set up right on the settings
-page *(from 2.9.4; before, in a window of its own)*. To link another account later (e.g. the one on your phone), press
+page. To link another account later (e.g. the one on your phone), press
 *New link*; *Disconnect* removes the bot token from this PC. From then on every notification TaskHub shows also arrives in
 that chat (only that chat can talk to the bot); a task's notification buttons become inline buttons — including
 select options and yes/no; number / text inputs: the bot asks for the value and your reply goes to the task — and presses
@@ -156,23 +160,33 @@ go back to the task. A task with progress gets one silent message with a progres
 buttons that is edited in place (no new message per update); when the task finishes, its charts arrive
 as one picture (option *Progress and charts*, `telegram_progress`). Commands: `/tasks`, `/mute`, `/unmute`. Option: send only
 when you are away from the PC (no keyboard / mouse for 5 min, `telegram_away_minutes` in `config.json`). The bot token
-is kept in the Windows Credential Manager (2.9; before: `config.json`; if the Credential Manager is unavailable it stays in
+is kept in the Windows Credential Manager (if the Credential Manager is unavailable it stays in
 `config.json`, with a warning in Settings); messages go from your PC straight to Telegram's Bot API.
-From 2.9 TaskHub keeps to Telegram's pace (about one message a second, and as long as Telegram asks after *Too many
+TaskHub keeps to Telegram's pace (about one message a second, and as long as Telegram asks after *Too many
 requests*) instead of dropping messages, and long texts are shortened so they always arrive.
 
+### Discord
+*Built from Discord's documentation, tested against a simulator and checked with a real bot.*
+
+Settings → *Messengers* → *Discord*: create an application with a bot in the [Developer Portal](https://discord.com/developers/applications), paste the bot's token, press *Connect*, add the bot to a server of yours (a bot can't write to someone it shares no server with), press *Check again* and then the *Connect* button in the bot's direct message. Only the application's owner can be linked, and only that person's presses in that chat count. *Disconnect* removes the token from this PC.
+
+From then on every notification also arrives there. A task's notification buttons become buttons, a list becomes a list (up to 25 options), number and text inputs open Discord's input window, and what doesn't fit in 5 rows stays in the panel. A task with progress gets one silent message that is edited in place, and its charts arrive as a picture when it finishes (option *Progress and charts*, `discord_progress`). Commands: `/tasks`, `/mute`, `/unmute`. Option: send only when you are away from the PC (`discord_away_only`, `discord_away_minutes`).
+
+The token is kept only in the Windows Credential Manager; without it TaskHub doesn't connect. Your PC talks straight to Discord: no public address, no server of ours.
+*How to get a token:* [docs/keys/discord.md](docs/keys/discord.md) (step by step, revoking; [українською](docs/keys/discord.uk.md)).
+
 ### GitHub Actions
-*From version 2.9; off until you turn it on.* Settings → *Connectors* → *GitHub Actions* (everything on the settings page from 2.9.6): list the repositories (`owner/repo`) and give access — your own
+*Off until you turn it on.* Settings → *Connectors* → *GitHub Actions* (everything on the settings page): list the repositories (`owner/repo`) and give access — your own
 [fine-grained token](https://github.com/settings/personal-access-tokens/new) limited to those repositories (Actions: Read and
 write, Contents: Read-only, Metadata: Read-only; kept in the Windows Credential Manager, never in `config.json`), or the token
 the Git Credential Manager already has (broad rights: all your repositories). Your workflows stay unchanged. Each run becomes a
-task with the repository, workflow, branch / tag, commit and actor; failures always notify (Windows and Telegram), successes
+task with the repository, workflow, branch / tag, commit and actor; failures always notify (Windows, and Telegram / Discord when linked), successes
 if you want. TaskHub talks only to `api.github.com`; the optional log tail is fetched from GitHub's log storage through the
 one-time link GitHub gives, without the token. A notification warns a week before the token expires. A run waiting for
 approval (e.g. from a fork) shows *Waiting for approval on GitHub* and is followed once approved; a renamed repository is
-followed and reported (*repository moved to …*); GitHub's rate limits pause polling (2.9). Details:
+followed and reported (*repository moved to …*); GitHub's rate limits pause polling. Details:
 [API.md → Connectors](API.md#connectors-github-actions).
-*From version 2.9.4:* **pull requests, read-only** (two switches in the same window, both off by default): pull requests
+**Pull requests, read-only** (two switches on the same page, both off by default): pull requests
 waiting for **your review** (any repository the token can see; a fine-grained token sees only its own repositories and
 public ones) and open **Dependabot** pull requests in the listed repositories (the token also needs *Pull requests:
 Read-only*). Each is a task with a link and a
@@ -181,7 +195,7 @@ waiting for your review*). Nothing is merged, approved or commented on.
 *How to get a token:* [docs/keys/github.md](docs/keys/github.md) (step by step, minimum permissions, revoking; [українською](docs/keys/github.uk.md)).
 
 ### Runpod
-*From version 2.9; off until you turn it on.* Settings → *Connectors* → *Runpod*: paste an API key from the
+*Off until you turn it on.* Settings → *Connectors* → *Runpod*: paste an API key from the
 Runpod console (*Settings → API Keys*; kept in the Windows Credential Manager, never in
 `config.json`; turning the connector off keeps it, *Remove* deletes it). A read-only key is enough to watch: TaskHub checks once (and daily) whether the key
 may run actions and shows the Stop / Start / Restart / Delete buttons only if it may. Each pod is a task (`rp-<pod id>`):
@@ -192,13 +206,13 @@ When every GPU of a pod stays under 5 % for 30 minutes (`idle_minutes`, `idle_ut
 in Telegram, with a Stop button. Balance and runway (balance ÷ current spend per hour) are shown in Settings and on the pods;
 below 12 hours (`low_runway_hours`, or under `low_balance` $) TaskHub warns once — at $0 Runpod stops pods and terminates the
 ones without a network volume. Stop, start and restart ask for a confirmation (stop and restart also work from the
-notification and Telegram); delete works only in the panel, after typing the pod's name (never through the HTTP API). TaskHub talks only to
+notification, Telegram and Discord); delete works only in the panel, after typing the pod's name (never through the HTTP API). TaskHub talks only to
 `api.runpod.io`: REST v2 for pods and billing, and GraphQL for the balance (`graphql_balance`, on by default; turn it off to
 skip the balance). Details: [API.md → Connectors](API.md#connectors-runpod).
 *How to get a key:* [docs/keys/runpod.md](docs/keys/runpod.md) (step by step, minimum permissions, revoking; [українською](docs/keys/runpod.uk.md)).
 
 ### Vast.ai
-*From version 2.9; off until you turn it on.* Settings → *Connectors* → *Vast.ai*: paste an API key from the Vast.ai console
+*Off until you turn it on.* Settings → *Connectors* → *Vast.ai*: paste an API key from the Vast.ai console
 (its API keys page; a key with `instance_read`, `user_read` and `billing_read` is enough to watch, actions need
 `instance_write`). It is kept in the Windows Credential Manager, never in `config.json`; turning the connector off keeps it, *Remove* deletes it. Like Runpod,
 TaskHub checks once (and daily) whether the key may run actions and shows the Stop / Start / Reboot / Delete buttons only if it
@@ -214,7 +228,7 @@ to `console.vast.ai`. Details: [API.md → Connectors](API.md#connectors-vastai)
 
 
 ### AWS
-*From version 3.1; off until you turn it on. Built from AWS's documentation and tested against a simulator, not yet on a real account.*
+*Off until you turn it on. Built from AWS's documentation and tested against a simulator, not yet on a real account.*
 Settings → *Connectors* → *AWS*: paste an access key of a dedicated IAM user with a read-only policy
 ([how to get it](docs/keys/aws.md)). TaskHub starts, stops and changes nothing in your account.
 EC2 instances become tasks with their state and how long they have run: in every Region enabled in the account, or only those you list. One running longer than your limit (72 hours by default, 0 = off) gets a *Forgotten?* reminder, with a button for the ones meant to run.
@@ -224,33 +238,46 @@ $0.01 per request; TaskHub makes 2 at most every 8 hours, about $1.80 a month, a
 Details: [API.md → Connectors](API.md#connectors-aws).
 *How to get a key:* [docs/keys/aws.md](docs/keys/aws.md) (step by step, minimum permissions, revoking; [українською](docs/keys/aws.uk.md)).
 
+### SSH
+*Off until you turn it on. Built from the OpenSSH documentation and tested on a real OpenSSH server in WSL, not yet on a remote one.*
+Settings → *Connectors* → *SSH*: add a host you already reach with `ssh` from a terminal. TaskHub runs Windows' own `ssh.exe` with your config, agent and `known_hosts`: it keeps no key,
+trusts no new host key by itself and installs nothing on the host. Linux hosts for now.
+Each host becomes a task with its CPU, memory, disks, GPU and tmux sessions. You get a notification when a disk fills up, the connection is lost, the host restarts, a tmux session or a command in it
+ends, or a process you named (*Watch a process*, by its number) ends. TaskHub says "ended", not "succeeded": it can't see an exit code. It reads, and changes nothing on the host.
+Details: [API.md → Connectors](API.md#connectors-ssh). *Setting up a host:* [docs/keys/ssh.md](docs/keys/ssh.md) ([українською](docs/keys/ssh.uk.md)).
+
 ### Balance guard
-*From version 2.9; off until you turn it on.* Settings → *Connectors* → *Runpod* / *Vast.ai* → *Auto-stop at low balance*.
+*Off until you turn it on.* Settings → *Connectors* → *Runpod* / *Vast.ai* → *Auto-stop at low balance*.
 Each provider has its own two thresholds in $: **warn** (default $10) and **stop** (default $2; warn must be above stop).
-- At the warning threshold TaskHub warns once (Windows notification, and Telegram if it is connected): the balance, the
+- At the warning threshold TaskHub warns once (Windows notification, and Telegram / Discord if linked): the balance, the
   current spend per hour and how long until the stop threshold. It warns again only after the balance has gone back up.
 - At the stop threshold TaskHub announces a stop of the running machines with *Stop now* and *Snooze N min* buttons (in
   the notification, in Telegram and on the *balance guard* card in the panel). Without an answer the machines are stopped
   when the time to answer runs out (default 10 min; never later than the moment the balance would reach $0 at the current
   spend — a snooze is capped the same way and says until when). A top-up above the stop threshold cancels it.
+- TaskHub reads the balance sooner as the stop threshold gets near, down to once a minute. A service can book charges in steps (Runpod: about every 10 minutes), so while its figure stands still TaskHub
+  carries it down at the current spend, for at most 15 minutes, and says so when that estimate is what reached the threshold. The estimate only brings the warning and the deadline forward: machines are stopped when a fresh reading shows the threshold reached. A charge booked in one step bigger than your stop threshold can take the balance to $0 before the figure confirms it, so keep the threshold above one step of your spend (Runpod: about a sixth of your hourly spend). A machine whose stop failed is tried again about a minute later.
+- If the service refuses an action for your key, auto-stop and the *Stop* button go off and TaskHub says so out loud. It asks again within minutes, then ever less often, up to once an hour, and turns them back on by itself; a page from something in between (a challenge, a proxy) changes nothing.
 - **Stop only — TaskHub never deletes, terminates or destroys a machine.** Machines marked *Never auto-stop* in the same
   settings are left alone. Each stop is confirmed (Runpod: *EXITED*, Vast.ai: no longer running); a machine that could not
   be stopped is reported as failed, never as stopped.
+- If a saved key stops working later (Runpod, Vast.ai, AWS, GitHub), TaskHub warns once, with the guard on or off, and says when it works again.
 - If the balance can't be read (no network, the service is down, the key was revoked) TaskHub warns once and, at the
-  deadline, stops **nothing** ("auto-stop held, check manually") until it can read the balance again. A read-only key can
+  deadline, stops **nothing** ("auto-stop held, check manually") until it can read the balance again. About 15 minutes before
+  the estimated $0 it warns once more, as at $0 the service acts on its own. A read-only key can
   only warn — the settings say so. So does an account the provider doesn't stop at $0 (Runpod post-paid; Vast.ai with a
-  card on file charged automatically): the guard only warns there.
+  card on file charged automatically): the guard only warns there. While Runpod's billing mode can't be read it is asked again at each reading; if it is still unknown at a stop, the account is treated as prepaid and the announcement says so.
 - *Stop now* asks for confirmation first. A machine that failed to stop is tried again at the next balance reading. A
-  pending stop survives a TaskHub restart. The old *low balance* warning keeps working with the guard on (no double
+  pending stop survives a TaskHub restart. The *low balance* warning keeps working with the guard on (no double
   warning at the guard's threshold).
-- *From version 2.9.3:* **auto-stop on GPU idle** — *Stop when the GPU is idle for, min* (0 = off, the default) in the
+- **Auto-stop on GPU idle** — *Stop when the GPU is idle for, min* (0 = off, the default) in the
   same settings, also with the balance guard off. A running machine whose GPUs all stay idle that long gets the same
   announcement with *Stop now* / *Snooze*; the GPU busy again cancels it, and at the deadline it is stopped only if it is
-  still idle (a recent reading, idle for at least the current setting; unknown load: not stopped). *Never auto-stop*
+  still idle (a recent reading, idle for at least the current setting; unknown load: not stopped). On Vast.ai it waits until the machine's GPU has been seen busy, and its task says so: the unit of Vast's load figure isn't settled. *Never auto-stop*
   machines are left alone; a balance stop takes its place when both come at once.
 - After a stop TaskHub says what was stopped and what its storage costs while stopped — **≈, per the provider's price
   list**: Runpod — the container disk is wiped and not billed, the volume disk costs $0.20 / GB / month while stopped, a
-  network volume $0.07 / GB / month as before (its size read from Runpod from 2.9.1; [Runpod pricing](https://docs.runpod.io/pods/pricing),
+  network volume $0.07 / GB / month as before (its size read from Runpod; [Runpod pricing](https://docs.runpod.io/pods/pricing),
   [storage types](https://docs.runpod.io/pods/storage/types)); Vast.ai — the instance's storage price × its disk size
   (host-specific; [Vast.ai pricing](https://docs.vast.ai/guides/instances/pricing)). The settings show the forecast ("at the
   current spend the balance reaches the stop threshold at …") and the last stops; every stop (when, which machine, why,
@@ -260,9 +287,20 @@ Each provider has its own two thresholds in $: **warn** (default $10) and **stop
   say so).
 Details: [API.md → Balance guard](API.md#balance-guard).
 
+### Work hours
+*Off until you turn it on.* Settings → *Work hours*: turn it on, then give the start date, your weekly norm, the working days, the salary and its currency, and the hours carried over from before. The carried hours are set once; the start date can later be moved earlier (open a day before it in the calendar) to fill in past hours; the rest can be changed later.
+- **The panel** gets *Start*, *Pause* and *Finish* above the task list, a week bar and a month bar coloured against the norm (under it, on it, above it), the overtime and the amount earned so far this month. A second session on the same day adds to that day.
+- **The calendar** in Settings shows each day's hours. A day opens with its periods: add, change or delete one, set a total for the whole day, mark it as a holiday or vacation (or clear the mark: the day is then as in the calendar), or undo the last change. Several days can be set at once. Every change first shows what it does to the overtime, the shortfall and the amount earned, and is saved only when you confirm it.
+- **Overtime and the month.** Hours above the norm are paid at your multipliers (weekday, weekend, holiday). After a month ends, Settings offers to close it: cover a shortfall with weekend or holiday hours, carry the rest over or not. The latest closed month can be reopened.
+- **Holidays.** With a country (and optionally a region) set, the month's public holidays are fetched from [nagerholidays.com](https://nagerholidays.com) and count only after you confirm them; you can drop any and add your own. Ukrainian holidays have their Ukrainian names.
+- **Another currency.** The amounts can be shown in a currency of your choice at the daily rate of the European Central Bank, the National Bank of Poland or the National Bank of Ukraine, refreshed each morning. When the chosen bank doesn't answer (some refuse VPNs) or hasn't got the pair, another one stands in and the panel says which; your own rate is used only when none has the pair, and an old rate shows its date.
+- **Reminders** (in the same settings): a session paused longer than 2 hours or still open after 23:00, repeated every 30 minutes until you answer — *Finish now*, *Finish at* your last activity, *Still working*; and, if you set a time, work not started on a working day — *Start now*, *Start from*, *Not working today*. A month to close or holidays to confirm are said once a day while you haven't opened Settings. At the PC they are notifications; away from it they go where you choose — Telegram, Discord, every linked messenger, or nowhere but this PC — never with amounts (one that isn't linked can't be chosen; until it is, a notification comes instead). **TaskHub never finishes a session by itself.**
+- *Export*: the hours of a period — any dates, or this week, this month, last month — to an Excel file you save on this PC (day by day and a summary; the amounts of each month only if you turn them on), or a short summary to Telegram or Discord without amounts.
+- Everything stays in `worktime.db` in the data folder on your PC (see [PRIVACY.md](PRIVACY.md)). Details: [API.md → Work hours](API.md#work-hours).
+
 ## Install details
 The setup dialog installs to `%LOCALAPPDATA%\Programs\TaskHub` by default (or any folder you choose), unpacks the
-`taskhub` CLI, `taskhub_client.py` and `API.md`, registers `taskhub://` and an *Apps & features* entry, and (from 2.9)
+`taskhub` CLI, `taskhub_client.py` and `API.md`, registers `taskhub://` and an *Apps & features* entry, and
 adds TaskHub to the Start menu. Over an existing
 install the setup shows the installed version and folder (the version is read from the installed exe) and offers
 **Update**, **Reinstall** (same version) or installing the older version, keeping the folder, autostart and PATH choice. *Run without installing* is also available.
@@ -270,28 +308,27 @@ install the setup shows the installed version and folder (the version is read fr
 - Silent: `TaskHub-<version>-setup.exe --install [--dir PATH] [--no-autostart] [--no-path] [--claude|--no-claude]
   [--codex|--no-codex] [--claude-mcp|--no-claude-mcp] [--codex-mcp|--no-codex-mcp] --quiet` (agent options not given stay unchanged)
 - Uninstall: *Apps & features* → TaskHub, or `TaskHubHost.exe --uninstall [--quiet] [--purge]`
-  (`--purge` also deletes the data in `%APPDATA%\TaskHub` and, from 2.9, the Telegram token and the GitHub, Runpod, Vast.ai and AWS keys TaskHub saved in the
+  (`--purge` also deletes the data in `%APPDATA%\TaskHub`, the Telegram and Discord bot tokens and the GitHub, Runpod, Vast.ai and AWS keys TaskHub saved in the
   Windows Credential Manager; a plain uninstall keeps them for a reinstall). Also removes TaskHub's entries from the Claude Code / Codex settings.
 - Autostart restores itself if its entry is removed or changed, unless you turn it off in Settings → *System*.
-  From 2.9 turning it off in Task Manager / Settings → *Apps* → *Startup* is respected too (TaskHub's switch then shows it off);
-  before 2.9 it was turned back on.
+  Turning it off in Task Manager / Settings → *Apps* → *Startup* is respected too (TaskHub's switch then shows it off);
 - Installing and uninstalling first ask a running TaskHub to quit (it saves its tasks) and end it only if it doesn't within
-  a few seconds (2.9; before: ended at once, with everything it had opened).
-- Requirements: Windows 10 1809+ / 11 x64 (Microsoft Store edition: Windows 10 2004+ from 2.9), WebView2 runtime (preinstalled on current Windows).
-  From 2.9 TaskHub says so (with Microsoft's download link) when the runtime is missing, and the panel recovers by itself
+  a few seconds.
+- Requirements: Windows 10 1809+ / 11 x64 (Microsoft Store edition: Windows 10 2004+), WebView2 runtime (preinstalled on current Windows).
+  TaskHub says so (with Microsoft's download link) when the runtime is missing, and the panel recovers by itself
   if WebView2 crashes. If Windows has TaskHub's notifications turned off, Settings → *Notifications* shows a warning with a
   button to the Windows setting.
-- Port 47800, `127.0.0.1` only, CSRF header + Host/Origin checks; optional bearer token (`"token"` in `config.json`).
+- Port 47800, `127.0.0.1` only, CSRF header + Host/Origin checks; a generated bearer token is required on the API (`api.token` in the data folder, readable only by your Windows account). The `taskhub` command, MCP server, hooks and Python client find it themselves; your own scripts get it from `taskhub token`, and `taskhub ui` opens the panel's page in a browser. See [API.md](API.md#token).
 
 Updates: once a day the installed hub looks up the latest release on GitHub (one request to `api.github.com`, nothing is
-downloaded or installed; *from 2.9.5* also when the settings page opens and the last check is older than 15 minutes) and shows a notification when a newer version is out; Settings → *System* has *Check now* and the
+downloaded or installed; also when the settings page opens and the last check is older than 15 minutes) and shows a notification when a newer version is out; Settings → *System* has *Check now* and the
 *Check daily* switch (`"update_check": false` in `config.json`). Run the new setup.exe to update.
 
-If something goes wrong, `taskhub.log` in the data folder says what happened. From 3.1, `"log_level": "debug"` in `config.json` adds more, including notification
+If something goes wrong, `taskhub.log` in the data folder says what happened. `"log_level": "debug"` in `config.json` adds more, including notification
 text and task names; nothing is sent anywhere, so look through the log before you share it.
 
 Toast timing: `toast_seconds` / `toast_seconds_interactive` (4 s / 8 s) in `config.json`; afterwards notifications stay
-in the notification center. Bursts (2.9): at most `toast_rate` notifications a minute (10; 0 = no limit) and one per task
+in the notification center. Bursts: at most `toast_rate` notifications a minute (10; 0 = no limit) and one per task
 every `toast_task_gap` seconds (2); the rest fold into the latest one ("+N more notifications"), toasts and Telegram alike.
 
 ## Build from source
@@ -311,13 +348,17 @@ Windows runs nothing on a package uninstall, so the Store edition points the age
 `%LOCALAPPDATA%\TaskHub\bin` (with `store.json` naming the package): when an agent starts it after the package is gone,
 it removes TaskHub's entries from the agents' settings (the copy stays; the setup-exe edition removes it on start).
 
-Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no tray, no notifications) and runs
-`api_test.py` (API contract, agent hooks, CLI), `validation_test.py` (input validation: non-finite numbers, widget attributes, control values, shell controls), `parallel_test.py` (8 concurrent workers + notification burst),
-`integration_test.py` (Claude Code / Codex settings edits, in a temporary home folder), `install_test.py` (setup /
-uninstall in a temporary folder), `mcp_test.py` (`taskhub mcp`), `telegram_test.py` (Telegram bridge against a mock Bot API),
-`github_test.py`, `runpod_test.py`, `vastai_test.py` and `guard_test.py` (connectors and the balance guard against mock APIs),
-`aws_sigv4_test.py` and `aws_test.py` (the AWS signer against AWS's test suite, the connector against a simulator), `limits_test.py` and `codex_limits_test.py` (plan limits), `payload_bounds_test.py` (what a local process can post),
-`hooks_offer_test.py` and `hook_form_test.py` (agent hooks), `log_test.py` (log levels, masking, rotation).
+Tests: `tests\run_tests.cmd` starts an isolated hub (port 47899, temp data, no tray, no notifications) and runs, each with temporary data and,
+where needed, its own hub or mock APIs: the API and its contract (`api_test.py`, `api_contract_test.py`, `validation_test.py`, `payload_bounds_test.py`,
+`bounds_test.py`, `parallel_test.py`, `durable_test.py`, `token_test.py`, `hub_proof_test.py`, `link_pid_test.py`, `backoff_test.py`), the CLI and the MCP
+server (`cli_console_test.py`, `mcp_test.py`), setup, packaging and updates (`install_test.py`, `package_test.py`, `update_test.py`), agent settings and hooks
+(`integration_test.py`, `hooks_offer_test.py`, `hook_form_test.py`), plan limits (`limits_test.py`, `codex_limits_test.py`), Telegram and Discord against
+mocks of their APIs (`telegram_test.py`, `telegram_gate_test.py`, `discord_test.py`), the connectors and the balance guard against mock APIs (`github_test.py`,
+`github_prs_test.py`, `github_askpass_test.py`, `runpod_test.py`, `vastai_test.py`, `guard_test.py`, `guard_timing_test.py`, `guard_403_test.py`,
+`guard_unknown_test.py`, `connector_trust_test.py`, `ssh_test.py`, `blender_test.py`), AWS (`aws_sigv4_test.py`: the signer against AWS's own test suite;
+`aws_test.py`, `aws_http_test.py`: the connector against a simulator), work hours (`worktime_test.py`, `worktime_month_test.py`, `worktime_rates_test.py`,
+`worktime_remind_test.py`, `worktime_remind_to_test.py`, `worktime_export_test.py`), the log (`log_test.py`), the translations (`i18n_test.py`), unit tests
+(`unit_test.py`) and a check of the suite itself (`suite_honesty_test.py`).
 Every push runs the build and these tests on GitHub Actions (`.github/workflows/ci.yml`, Windows runner); pushing a tag
 `v<version>` (matching `Settings.Version`, `build.cmd` and both `.csproj`) also publishes the release with the setup exe
 and its SHA-256.

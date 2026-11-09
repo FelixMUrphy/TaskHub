@@ -23,6 +23,16 @@ sealed partial class Hub
         return new JsonObject { ["ok"] = true };
     }
 
+    /// <summary>A built-in reminder (work hours): <paramref name="only"/> "toast", "messengers" (Telegram, Discord), "telegram" or "discord" (a toast when none of them is
+    /// linked). Muted: nothing, it comes again.</summary>
+    public void Remind(string title, string msg, string tid, string only)
+    {
+        JsonObject snap = null;
+        lock (Lock)
+            if (tid != null && tasks.TryGetValue(tid, out var t)) snap = ToastSnap(t);
+        if (!Muted) Notifier?.Toast(title, msg, "warn", tid, snap, only: only);
+    }
+
     public void SetFocus(string tid)
     {
         lock (Lock)
@@ -55,14 +65,19 @@ sealed partial class Hub
                 ["limits"] = LimitsView(),
                 ["limits_problem"] = LimitsProblem(),
                 ["limits_warn"] = new JsonArray(LimitThresholds().Select(x => (JsonNode)JsonValue.Create(x)).ToArray()),
+                ["worktime"] = WorktimeMark?.Invoke(),
                 ["hooks_offer"] = hookOffer.DeepClone(),
                 ["hooks_offer_tg"] = hookOfferTg,
+                ["hooks_offer_dc"] = hookOfferDc,
                 ["focus"] = focus.DeepClone(),
                 ["server"] = new JsonObject { ["version"] = Settings.Version, ["pid"] = Environment.ProcessId, ["impl"] = "dotnet" },
                 ["tasks"] = new JsonArray(list),
             };
         }
     }
+
+    /// <summary>The work hours module's mark for the snapshot: null while it's off.</summary>
+    public Func<long?> WorktimeMark;
 
     /// <summary>Light view of all tasks (no log / widgets) - for the Telegram progress messages.</summary>
     public List<JsonObject> Brief()

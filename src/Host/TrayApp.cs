@@ -19,6 +19,7 @@ sealed class TrayApp : ApplicationContext
     IntPtr lastHicon;
     readonly CancellationTokenSource cts = new();
     public TelegramBridge Telegram;
+    public DiscordBridge Discord;
     public Updater Updater;
     public ISettingsConnector[] Connectors = Array.Empty<ISettingsConnector>();   // rows of the settings page, in order
 
@@ -26,6 +27,7 @@ sealed class TrayApp : ApplicationContext
     {
         S = s; hub = h; api = a;
         Telegram = n.Telegram;
+        Discord = n.Discord;
         ui = new Control();
         ui.CreateControl();
         _ = ui.Handle;
@@ -59,7 +61,7 @@ sealed class TrayApp : ApplicationContext
         Ui(async () =>
         {
             // here, not above: Connectors / Updater are set by the caller after the constructor
-            Panel.SettingsPage = new SettingsBridge(S, hub, Telegram, Connectors, () => Updater, Ui);
+            Panel.SettingsPage = new SettingsBridge(S, hub, Telegram, Connectors, () => Updater, Ui) { Dc = Discord, Work = api.Work, SaveAs = SaveAs };
             try
             {
                 // no WebView2 Runtime: say so once (a click on the balloon / the next open offers the download)
@@ -73,6 +75,30 @@ sealed class TrayApp : ApplicationContext
             }
             if (openTask != null && !Panel.RuntimeMissing) Panel.ShowPanel(openTask == "" ? null : openTask);
         });
+    }
+
+    /// <summary>A Save dialog for an .xlsx over the panel (on the UI thread); the chosen path, or null when cancelled.</summary>
+    string saveDir;   // the folder chosen last time (this run)
+    Task<string> SaveAs(string name)
+    {
+        var done = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Ui(() =>
+        {
+            try
+            {
+                using var d = new SaveFileDialog
+                {
+                    FileName = name, Filter = "Excel (*.xlsx)|*.xlsx", DefaultExt = "xlsx", AddExtension = true, OverwritePrompt = true, RestoreDirectory = true,
+                    InitialDirectory = saveDir ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                };
+                Panel.ModalOpen = true;
+                try { done.SetResult(d.ShowDialog(Panel) == DialogResult.OK ? d.FileName : null); }
+                finally { Panel.ModalOpen = false; }
+                if (done.Task.Result is { } chosen) saveDir = Path.GetDirectoryName(chosen);
+            }
+            catch (Exception e) { done.TrySetException(e); }
+        });
+        return done.Task;
     }
 
     void Ui(Action a)

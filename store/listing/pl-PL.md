@@ -22,7 +22,7 @@ W Ustawienia → Agenci AI możesz połączyć TaskHub z Claude Code i Codex. Ag
 Konektory (opcjonalne, domyślnie wyłączone)
 • GitHub Actions: przebiegi workflow we wskazanych repozytoriach jako zadania: postęp według jobów i kroków, krok, który się nie powiódł, i koniec jego dziennika, przyciski anulowania i ponownego uruchomienia.
 • Runpod i Vast.ai: Twoje maszyny GPU jako zadania: GPU, cena za godzinę, dotychczasowy koszt, czas działania, SSH, wykresy obciążenia, ostrzeżenie „GPU bezczynne”, saldo i na jak długo wystarczy, z ostrzeżeniem o niskim saldzie, zatrzymanie / uruchomienie / restart (usuwanie tylko w panelu, po wpisaniu nazwy maszyny).
-• AWS: instancje EC2, zadania treningowe SageMaker i zadania AWS Batch jako zadania, koszt i prognoza na ten miesiąc oraz AWS Budgets, każde z własnym przełącznikiem. Tylko odczyt. Cost Explorer jest płatny w AWS (0,01 USD za żądanie, najwyżej około 1,80 USD miesięcznie).
+• AWS: instancje EC2, zadania treningowe SageMaker i zadania AWS Batch jako zadania, koszt i prognoza na ten miesiąc oraz AWS Budgets, każde z własnym przełącznikiem. Tylko odczyt. Cost Explorer jest płatny w AWS (0,01 USD za żądanie, najwyżej około 1,80 USD miesięcznie). Ten konektor powstał na podstawie dokumentacji AWS i został przetestowany na symulatorze, jeszcze nie na prawdziwym koncie AWS.
 Każdy konektor działa dopiero, gdy go włączysz i podasz własny klucz API. Klucz jest przechowywany wyłącznie w Menedżerze poświadczeń Windows, a konektor łączy się tylko z API własnej usługi (api.github.com, api.runpod.io, console.vast.ai, *.amazonaws.com).
 
 Ochrona salda (opcjonalna, wyłączona, dopóki jej nie włączysz)

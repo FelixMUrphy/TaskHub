@@ -1,10 +1,11 @@
 # GitHub Actions: токен для TaskHub
 
-[English](github.md) · [Усі ключі](README.md)
+[English](github.md) · **Українська** · [Español](github.es.md) · [Deutsch](github.de.md) · [Français](github.fr.md) · [Italiano](github.it.md) · [Português](github.pt.md) · [Polski](github.pl.md) · [中文](github.zh.md) · [日本語](github.ja.md) · [Усі сторінки](README.md)
 
 ## Навіщо він TaskHub
 - **Спостереження:** запуски workflow вибраних репозиторіїв — прогрес, крок, що впав, результат.
 - **Дії** (лише з правом на запис): Cancel і Re-run запуску.
+- **Pull requests** (необов'язково, лише читання): ті, що чекають вашого рев'ю, і відкриті PR від Dependabot.
 - TaskHub ніколи не змінює ваші workflow, код чи налаштування репозиторіїв.
 
 ## Створити fine-grained токен
@@ -24,7 +25,7 @@
 | (a) Лише спостерігати | **Actions:** Read-only · **Contents:** Read-only · **Metadata:** Read-only |
 | (b) Cancel / Re-run | **Actions:** Read and write · **Contents:** Read-only · **Metadata:** Read-only |
 
-Pull requests (необов'язково, з 2.9.4, лише читання): для PR від Dependabot додайте ще **Pull requests: Read-only** (GitHub
+Pull requests (необов'язково, лише читання): для PR від Dependabot додайте ще **Pull requests: Read-only** (GitHub
 дає список відкритих PR лише з цим дозволом); пошук запитів на рев'ю дозволів не потребує. Fine-grained токен бачить
 запити на рев'ю лише в наданих йому репозиторіях і публічних.
 
@@ -57,5 +58,7 @@ Pull requests (необов'язково, з 2.9.4, лише читання): д
 ## Офіційна документація
 - Створення fine-grained токена:
   <https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token>
+- Пошук pull request'ів (`review-requested:`):
+  <https://docs.github.com/en/search-github/searching-on-github/searching-issues-and-pull-requests>
 - Дозволи для кожного endpoint:
   <https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens>

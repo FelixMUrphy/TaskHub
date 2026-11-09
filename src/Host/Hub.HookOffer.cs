@@ -8,7 +8,7 @@ sealed partial class Hub
 {
     readonly object hookOfferGate = new();
     JsonArray hookOffer = new();   // under Lock
-    bool hookOfferTg;              // under Lock: the panel says that these notifications are mirrored to Telegram
+    bool hookOfferTg, hookOfferDc; // under Lock: the panel says that these notifications are mirrored to Telegram / Discord
 
     /// <summary>Never from dev / test hubs, like Integrations.Ensure (tests ask for it).</summary>
     static bool HookOfferHere => Install.IsInstalledCopy || Install.IsPackaged || Environment.GetEnvironmentVariable("TASKHUB_TEST_HOOK_OFFER") == "1";
@@ -27,10 +27,11 @@ sealed partial class Hub
                     ["agent"] = Integrations.ArgName(a, Integrations.Kind.Hooks), ["name"] = Integrations.Name(a),
                 }).ToArray());
                 bool tg = (Notifier as Notifier)?.Telegram?.Linked == true;
+                bool dc = (Notifier as Notifier)?.Discord?.Linked == true;
                 lock (Lock)
-                    if (hookOfferTg != tg || hookOffer.ToJsonString() != rows.ToJsonString())
+                    if (hookOfferTg != tg || hookOfferDc != dc || hookOffer.ToJsonString() != rows.ToJsonString())
                     {
-                        hookOffer = rows; hookOfferTg = tg;
+                        hookOffer = rows; hookOfferTg = tg; hookOfferDc = dc;
                         Bump();
                     }
                 TellHookOffer(offer);

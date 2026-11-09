@@ -275,6 +275,8 @@ static class Install
             k.SetValue("URL Protocol", "");
             using var c = Hkcu.CreateSubKey(ProtoKey + @"\shell\open\command");
             c.SetValue("", $"\"{Exe}\" --open-url \"%1\"");
+            using var icon = Hkcu.CreateSubKey(ProtoKey + @"\DefaultIcon");
+            icon.SetValue("", $"\"{Exe}\",0");
         }
         else
         {
@@ -373,6 +375,8 @@ static class Install
         k.SetValue("QuietUninstallString", $"\"{Exe}\" --uninstall --quiet");
         k.SetValue("NoModify", 1, RegistryValueKind.DWord);
         k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+        k.SetValue("URLInfoAbout", "https://github.com/FelixMUrphy/TaskHub");
+        if (k.GetValue("InstallDate") == null) k.SetValue("InstallDate", DateTime.Now.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture));
         try
         {
             long bytes = Payload.Select(f => new FileInfo(Path.Combine(dir, f))).Where(f => f.Exists).Sum(f => f.Length);
@@ -382,8 +386,25 @@ static class Install
     }
 
     // ------------------------------------------------------------ install / uninstall
-    /// <summary>Stop other hub processes (they would lock the files / the port).</summary>
-    public static void StopOtherHubs() => StopHubs(_ => true);
+    /// <summary>Stop the hubs in the way: those running from the install folder or the current install (they lock the files) and the one
+    /// answering on this port. Other copies, on other ports and in other folders, are left alone.</summary>
+    public static void StopOtherHubs(int port, string dir)
+    {
+        var (current, onPort) = (IsInstalled ? InstallDir : null, HubOnPort(port));
+        StopHubs(p => p.Id == onPort || SameDir(Path.GetDirectoryName(p.MainModule!.FileName), dir)
+                      || (current != null && SameDir(Path.GetDirectoryName(p.MainModule!.FileName), current)));
+    }
+
+    /// <summary>The process id the hub on this port gives, or 0.</summary>
+    static int HubOnPort(int port)
+    {
+        try
+        {
+            using var http = new System.Net.Http.HttpClient(new System.Net.Http.HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(2) };
+            return (int)(J.Num((J.Parse(http.GetStringAsync($"http://127.0.0.1:{port}/api/health").GetAwaiter().GetResult()) as System.Text.Json.Nodes.JsonObject)?["pid"]) ?? 0);
+        }
+        catch { return 0; }
+    }
 
     /// <summary>The event a running hub waits on to quit (Program.Main); Local\ = this logon session only.</summary>
     public static string QuitEventName(int pid) => $@"Local\TaskHub_Quit_{pid}";
@@ -446,9 +467,9 @@ static class Install
 
     /// <summary>Copy this single-file exe into dir and unpack the CLI / client / docs next to it. Returns the installed exe.
     /// progress (0..1) follows the copy of the exe, which is nearly all of the work.</summary>
-    public static string InstallFiles(string dir, Action<double> progress = null)
+    public static string InstallFiles(string dir, int port, Action<double> progress = null)
     {
-        StopOtherHubs();
+        StopOtherHubs(port, dir);
         Directory.CreateDirectory(dir);
         // a previous installation in another folder: remove its files
         if (IsInstalled && !SameDir(InstallDir, dir)) { RemoveFiles(InstallDir); SetPath(InstallDir, false); }
@@ -473,7 +494,7 @@ static class Install
 
     static void CopyFile(string from, string to, Action<double> progress)
     {
-        if (progress == null) { File.Copy(from, to, true); return; }
+        // by stream, always: File.Copy would bring the downloaded setup's Mark of the Web along
         using (var src = new FileStream(from, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 20))
         using (var dst = new FileStream(to, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20))
         {
@@ -484,7 +505,7 @@ static class Install
             {
                 dst.Write(buf, 0, n);
                 done += n;
-                progress(done / (double)total);
+                progress?.Invoke(done / (double)total);
             }
         }
         File.SetLastWriteTimeUtc(to, File.GetLastWriteTimeUtc(from));
@@ -528,6 +549,21 @@ static class Install
         SetPath(dir, false);
         SetShortcut(false);
         SetUninstallEntry(false, dir);
+        RemoveOtherPortEntries(dir);
+    }
+
+    /// <summary>This copy's autostart entries for other ports ("TaskHub-PORT"), left from a hub once started with --port.</summary>
+    static void RemoveOtherPortEntries(string dir)
+    {
+        if (IsPackaged) return;
+        using var k = Hkcu.CreateSubKey(RunKey);
+        using var a = Hkcu.CreateSubKey(ApprovedKey);
+        foreach (var name in k.GetValueNames().Where(n => System.Text.RegularExpressions.Regex.IsMatch(n, @"^TaskHub-\d+$")))
+            if (k.GetValue(name) is string v && v.Contains(Path.Combine(dir, HostExe), StringComparison.OrdinalIgnoreCase))
+            {
+                k.DeleteValue(name, false);
+                a.DeleteValue(name, false);
+            }
     }
 
     /// <summary>Uninstall with "also delete my data": the data folder and the tokens TaskHub saved in the Windows Credential
@@ -601,7 +637,7 @@ static class Install
     }
 
     /// <summary>Setup exe replacing the Store edition: take over the data the package wrote into its private copy of
-    /// %APPDATA% (only where write virtualization was still on: Windows before 1903 / package versions before 2.9),
+    /// %APPDATA% (only where write virtualization was still on: Windows before 1903 / older package versions),
     /// then remove the package.</summary>
     public static void ReplaceStoreEdition(StorePackage pkg, Settings s)
     {
@@ -654,7 +690,10 @@ static class Install
                 case "unregister": Unregister(s); return 0;
                 case "ensure-autostart": EnsureAutostart(s); return 0;
                 case "stop" when a.Length > 1 && int.TryParse(a[1], out var pid): StopHubs(p => p.Id == pid); return 0;
+                case "stop-others" when a.Length > 1: StopOtherHubs(s.Port, a[1]); return 0;
                 case "copy-missing" when a.Length > 2: CopyMissing(a[1], a[2]); return 0;
+                case "copy" when a.Length > 2: CopyFile(a[1], a[2], null); return 0;
+                case "tg-text" when a.Length > 2: File.WriteAllText(a[2], SettingsBridge.TgStateText(true, true, "", "test_bot", a[1])); return 0;
                 case "purge": PurgeData(s); return 0;
                 default: return 2;
             }

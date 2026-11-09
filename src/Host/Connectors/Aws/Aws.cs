@@ -66,6 +66,7 @@ sealed partial class AwsConnector : ISettingsConnector
     string[] allowed = { HomeRegion };                             // Regions whose host may be called (validated names)
     string status = "off";
     string keyCheck;                                               // ok | revoked | denied | clock | network | unavailable; null: none
+    readonly KeyWatch keyWatch = new();
     int keyCheckCode;
     double nextRegions, lastReminder;
     int regionFails;
@@ -158,6 +159,7 @@ sealed partial class AwsConnector : ISettingsConnector
         {
             Secrets.Delete(S, Id);
             keyCheck = null;
+            keyWatch.Reset();
             Release(_ => true);
         }
         if (wasOn && !J.Truthy(c["enabled"]))
@@ -220,7 +222,7 @@ sealed partial class AwsConnector : ISettingsConnector
         Verdict.Ok => "ok", Verdict.BadKey => "revoked", Verdict.Denied => "denied", Verdict.Clock => "clock", _ => "unavailable",
     };
 
-    void SetCheck(string verdict, int code = 0) { keyCheck = verdict; keyCheckCode = code; }
+    void SetCheck(string verdict, int code = 0) { keyCheck = verdict; keyCheckCode = code; keyWatch.Note(hub, Title, verdict, L.T("k_stopped_money")); }
 
     string CheckText() => keyCheck switch
     {
@@ -277,7 +279,7 @@ sealed partial class AwsConnector : ISettingsConnector
                 new JsonObject { ["ph"] = L.T("aws_key_id") },
                 new JsonObject { ["ph"] = L.T("aws_key_secret") }),
             ["summary"] = !on ? "" : SettingsRows.Line(Summary(), SettingsRows.Normal(st) ? "" : st),
-            ["help_url"] = SettingsRows.KeyHelpUrl(Id, "uk"),
+            ["help_url"] = SettingsRows.KeyHelpUrl(Id),
             ["help_needed"] = denied.Count > 0 || moneyDenied,   // the key works but lacks what a switch needs: the page lists it
             ["list"] = new JsonObject
             {
@@ -727,7 +729,8 @@ sealed partial class AwsConnector : ISettingsConnector
         var i = t.I;
         var tid = Tid(i.Id);
         var task = TryTask(tid);
-        bool taskActive = task != null && Hub.IsActive(J.Str(task["state"]));
+        // a task under this id that some client made isn't this machine's: it is registered over
+        bool taskActive = task != null && J.Str(task["source"]) == Id && Hub.IsActive(J.Str(task["state"]));
         if (i.Active)
         {
             if (!taskActive) Register(t, quiet: false);

@@ -1,5 +1,6 @@
 "use strict";
-const TOKEN = __TOKEN__;
+// the page itself carries no token: it comes in the address's fragment (the panel, `taskhub ui`) and stays for reloads of this tab
+const TOKEN = (()=>{ let t=""; try{ const m=location.hash.match(/^#token=(.+)$/); if (m){ t=decodeURIComponent(m[1]); sessionStorage.th_token=t; history.replaceState(null,"",location.pathname+location.search); } else t=sessionStorage.th_token||""; }catch(e){} return t; })();
 const AUTOHIDE = __AUTOHIDE__;
 const NATIVE = !!(window.chrome && window.chrome.webview);   // TaskHub .NET host (WebView2)
 const host = m => { try{ window.chrome.webview.postMessage(m); }catch(e){} };

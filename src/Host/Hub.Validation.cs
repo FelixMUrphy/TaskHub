@@ -37,10 +37,10 @@ sealed partial class Hub
     {
         if (cn is not JsonObject c) throw new ApiError(400, "control must be an object");
         var cid = J.Str(c["id"]).Trim();
-        if (!CidRx.IsMatch(cid)) throw new ApiError(400, $"bad control id '{cid}'");
+        if (!CidRx.IsMatch(cid)) throw new ApiError(400, $"bad control id '{J.Cut(cid, 64)}'");
         var kind = J.Str(c["kind"], "signal");
         if (kind is not ("signal" or "shell" or "open" or "kill") && !(trusted && kind == "connector"))
-            throw new ApiError(400, $"bad control kind '{kind}'");
+            throw new ApiError(400, $"bad control kind '{J.Cut(kind, 64)}'");
         var statesN = c["states"];
         List<string> states;
         if (J.IsStr(statesN)) states = new() { J.Str(statesN) };
@@ -109,9 +109,9 @@ sealed partial class Hub
     {
         if (wn is not JsonObject w) throw new ApiError(400, "widget must be an object");
         var wid = J.Str(w["id"]).Trim();
-        if (!CidRx.IsMatch(wid)) throw new ApiError(400, $"bad widget id '{wid}'");
+        if (!CidRx.IsMatch(wid)) throw new ApiError(400, $"bad widget id '{J.Cut(wid, 64)}'");
         var typ = J.Str(w["type"], "text");
-        if (!WidgetTypes.Contains(typ)) throw new ApiError(400, $"bad widget type '{typ}'; one of {string.Join(", ", WidgetTypes)}");
+        if (!WidgetTypes.Contains(typ)) throw new ApiError(400, $"bad widget type '{J.Cut(typ, 64)}'; one of {string.Join(", ", WidgetTypes)}");
         JsonNode span = null;
         if (w.ContainsKey("span") || w.ContainsKey("wide"))
             span = (J.Num(w["span"]) == 2 || J.Truthy(w["wide"])) ? 2 : 1;
@@ -179,6 +179,9 @@ sealed partial class Hub
         else w[k] = J.C(v);
     }
 
+    /// <summary>A finite number as it came, a numeric text as a number, anything else null.</summary>
+    static JsonNode NumNode(JsonNode x) => J.IsNum(x) && J.Num(x) != null ? J.C(x) : J.Num(x) is double d ? JsonValue.Create(d) : null;
+
     static JsonNode NumOrNull(JsonNode x) => J.IsNum(x) ? JsonValue.Create(J.Num(x).Value) : null;
 
     /// <summary>v: number | {series: number} | [number,...] (one per series) | list of such (batch).</summary>
@@ -188,8 +191,10 @@ sealed partial class Hub
         var series = (w["series"] as JsonArray).Select(x => J.Str(x)).ToList();
         var pts = w["points"] as JsonArray;
         if (pts == null) w["points"] = pts = new JsonArray();
+        int max = J.Num(w["max_points"]) is double m ? (int)m : 120;
+        // of a batch only what the chart can keep; this runs under Hub.Lock
         List<JsonNode> batch = v is JsonArray va && va.Count > 0 && (va[0] is JsonArray || va[0] is JsonObject)
-            ? va.ToList() : new List<JsonNode> { v };
+            ? va.Skip(Math.Max(0, va.Count - max)).ToList() : new List<JsonNode> { v };
         foreach (var item in batch)
         {
             var row = new JsonArray();
@@ -211,9 +216,7 @@ sealed partial class Hub
             }
             pts.Add(row);
         }
-        int max = J.Num(w["max_points"]) is double m ? (int)m : 120;
-        int over = pts.Count - max;
-        for (int i = 0; i < over; i++) pts.RemoveAt(0);
+        if (pts.Count > max) pts.RemoveRange(0, pts.Count - max);
     }
 
     static void ApplyWidgetValues(JsonObject t, JsonObject vals)
@@ -225,16 +228,19 @@ sealed partial class Hub
         {
             if (!idx.TryGetValue(wid, out var w)) continue;
             var typ = J.Str(w["type"]);
+            bool numeric = typ is "progress" or "gauge" or "stat";
+            if (numeric && J.NonFinite(v)) continue;
             if (typ == "chart")
             {
                 if (v == null) w["points"] = new JsonArray();
                 else ChartAdd(w, v);
             }
             else if (v is JsonObject vo && typ is "progress" or "gauge" or "stat" or "led" or "text"
-                     && (vo.ContainsKey("value") || vo.ContainsKey("label") || vo.ContainsKey("text") || vo.ContainsKey("total")))
+                     && (vo.ContainsKey("value") || vo.ContainsKey("label") || vo.ContainsKey("text") || vo.ContainsKey("total") || typ == "led" && vo.ContainsKey("state")))
             {
+                if (typ == "led" && vo.ContainsKey("state")) w["value"] = J.C(vo["state"]);
                 foreach (var k in new[] { "value", "label", "text", "total", "unit", "max", "color" })
-                    if (vo.ContainsKey(k)) SetWidgetAttr(w, k, vo[k]);
+                    if (vo.ContainsKey(k) && !(numeric && J.NonFinite(vo[k]))) SetWidgetAttr(w, k, vo[k]);
             }
             else if (typ == "stat" && J.IsNum(v) && J.IsNum(w["value"]))
             {

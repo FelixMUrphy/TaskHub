@@ -8,9 +8,12 @@ namespace TaskHub;
 /// the burn rate and the time left until guard_stop; at guard_stop a pending stop of the running machines (except the
 /// ones in guard_exempt) with "Stop now" / "Snooze N min" (toast, Telegram, panel); no answer -> stopped when the grace
 /// time runs out (never later than the projected $0, minus a margin). Stop only - never delete / terminate / destroy.
-/// At the deadline the balance is read again: unreadable -> nothing is stopped ("held"), the user is told. A top-up
+/// At the deadline the balance is read again and <see cref="GuardTiming.AtDeadline"/> decides: at or below the threshold
+/// stopped; above it the stop waits for the figure (the estimate alone stops nothing while the service answers); unreadable
+/// -> "held", the user is warned and decides, and warned again when the estimated $0 is near. A top-up
 /// above the stop threshold cancels it. Every stop goes to guard_log.json (<see cref="GuardLog"/>). A machine whose stop
-/// failed is tried again at the next reading (no new grace). The pending stop survives a restart (guard_&lt;id&gt;.json).
+/// failed is tried again at the next reading, about a minute later (no new grace). The pending stop survives a restart (guard_&lt;id&gt;.json).
+/// How often the balance is read and what it is taken to be between a service's booked steps: <see cref="GuardTiming"/>.
 /// When the balance isn't money left before a stop (<see cref="Balance.NoStop"/>: Runpod post-paid, Vast.ai card on file),
 /// the guard only warns. State lives under the connector's <c>gate</c>; the pending stop is shown as the task
 /// "&lt;prefix&gt;--guard".
@@ -37,6 +40,9 @@ abstract partial class MachineConnector
     /// <summary>Where the balance comes from is on (Runpod: the GraphQL module).</summary>
     protected virtual bool BalanceSource => true;
 
+    /// <summary>Idle stop only on a machine whose GPU was seen above 1: the service's load figure isn't settled.</summary>
+    protected virtual bool IdleStopNeedsBusySeen => false;
+
     /// <summary>What a stopped machine still costs for its storage, $/day (≈, from the service's price list), and a note
     /// (e.g. a network volume billed as before); null = unknown.</summary>
     protected virtual (double? PerDay, string Note) StoppedStorage(Machine m) => (null, "");
@@ -52,19 +58,24 @@ abstract partial class MachineConnector
         public double Created, Deadline;
         public double Balance, Burn;
         public bool Held, HeldWarned, Capped;
+        public bool Waiting;               // the deadline passed, a fresh figure hasn't confirmed the estimate yet
+        public bool ZeroWarned;            // held, and the warning that $0 is near was sent
         public List<string> Ids = new();
         public Dictionary<string, string> Names = new();   // id -> name when the stop was announced (kept over a restart)
     }
 
     PendingStop pending;
+    GuardTiming.Reading reading;
     int guardSeq;
     bool gWarned, gBelowWarned, gProbeWarned;   // warning / "below stop, can't or nothing to stop" / "not probed yet" sent
+    double gWarnedFigure;                 // the service's figure at the warning: only a rise above it warns again
     readonly HashSet<string> gTried = new();    // machines confirmed stopped in this crossing (not stopped again if restarted)
     readonly HashSet<string> gFailed = new();   // machines whose stop failed in this crossing: retried at each reading
     bool gStopping;                       // a stop is running (no new pending stop meanwhile)
     bool gLoaded;                         // guard_<id>.json read
     int gMisses;                          // balance readings missed in a row (guard on)
-    bool gOutage;                         // the "balance unreadable" warning was sent
+    bool gOutage;                         // the balance is unreadable, and that was told
+    bool gOutageByKey;                    // ...by the warning about the key
     string gMissWhy = "";
     double gLastMiss;
     readonly SemaphoreSlim stopRun = new(1, 1);
@@ -72,6 +83,15 @@ abstract partial class MachineConnector
     string GuardTid => Prefix + "--guard";
 
     double Margin => Mock ? 0 : 300;   // the stop never lands later than this before the projected $0
+
+    double ZeroAhead => Mock ? 8 : GuardTiming.ZeroWarnAhead;
+
+    /// <summary>A held stop's way to $0: from the last figure read, or after a restart from the one the stop was announced with.</summary>
+    double? HeldSecondsToZero(PendingStop p)
+    {
+        double burn = SpendRate() ?? p.Burn;
+        return reading is { } r ? GuardTiming.SecondsToZero(r.Effective, r.ReadAt, burn, J.Now()) : GuardTiming.SecondsToZero(p.Balance, p.Created, burn, J.Now());
+    }
 
     // ------------------------------------------------------------ settings
     static readonly (string Key, double Lo, double Hi, double LoMock)[] GuardNums =
@@ -130,7 +150,13 @@ abstract partial class MachineConnector
         balance?.Amount is double a && SpendRate() is double r && r > 0 ? Math.Max(0, a - level) / r : null;
 
     /// <summary>When the balance is at $0 at the current burn (unix s), or null.</summary>
-    double? ZeroAt() => HoursTo(0) is double h ? J.Now() + h * 3600 : null;
+    double? ZeroAt() => EffectiveBalance is double e && SpendRate() is double r && r > 0 ? J.Now() + Math.Max(0, e) / r * 3600 : null;
+
+    /// <summary>The balance to decide by: the service's figure, carried down at the burn while the figure hasn't moved.</summary>
+    double? EffectiveBalance => balance?.Amount is double a ? (reading is { } r && r.Amount == a ? r.Effective : a) : null;
+
+    /// <summary>Called with each balance read: what the figure is since when.</summary>
+    void NoteReading() { if (balance?.Amount is double a) reading = GuardTiming.Next(reading, a, SpendRate() ?? 0, J.Now()); }
 
     static string When(double t)
     {
@@ -183,35 +209,37 @@ abstract partial class MachineConnector
         if (!g.On || !BalanceSource) { lock (gate) { gMisses = 0; gOutage = false; } return; }
         if (!ok) { GuardMiss(why); return; }
         bool recovered;
-        lock (gate) { recovered = gOutage; gOutage = false; gMisses = 0; }
+        lock (gate) { recovered = gOutage && !gOutageByKey; gOutage = false; gMisses = 0; }
         if (recovered) GuardNotify(L.T("g_readable", BalanceText()), "info");
         if (balance?.Amount is not double a) return;
         double burn = SpendRate() ?? 0;
+        double e = EffectiveBalance ?? a;
         double hw = Math.Max(Mock ? 0.01 : 0.5, g.Warn * 0.05), hs = Math.Max(Mock ? 0.01 : 0.25, g.Stop * 0.05);
-        if (a > g.Warn + hw) lock (gate) gWarned = false;   // topped up: warn again next time
-        if (a > g.Stop)
+        if (e > g.Warn + hw && a > gWarnedFigure) lock (gate) gWarned = false;   // topped up: warn again next time (a booked step resets the estimate, it isn't one)
+        if (e > g.Stop)
         {
-            if (a > g.Stop + hs) lock (gate) { gBelowWarned = false; gProbeWarned = false; gTried.Clear(); gFailed.Clear(); }
-            if (pending is { Idle: false }) CancelPending(_ => L.T("g_topup", Money(a), Money(g.Stop)), p => !p.Idle);
+            if (e > g.Stop + hs) lock (gate) { gBelowWarned = false; gProbeWarned = false; gTried.Clear(); gFailed.Clear(); }
+            if (pending is { Idle: false } pn && GuardTiming.Cancels(e, a, pn.Balance, g.Stop, burn)) CancelPending(_ => L.T("g_topup", Money(a), Money(g.Stop)), p => !p.Idle);
         }
-        if (a <= g.Warn && a > g.Stop)
+        if (e <= g.Warn && e > g.Stop)
         {
             bool send;
-            lock (gate) { send = !gWarned; gWarned = true; }
+            lock (gate) { send = !gWarned; gWarned = true; if (send) gWarnedFigure = a; }
             if (send)
             {
-                var msg = burn > 0 && HoursTo(g.Stop) is double h
-                    ? L.T("g_warn", Money(a), Money(g.Warn), Usd.Rate(burn), Hours(h), Money(g.Stop))
-                    : L.T("g_warn_flat", Money(a), Money(g.Warn));
+                var msg = burn > 0
+                    ? L.T("g_warn", Money(e), Money(g.Warn), Usd.Rate(burn), Hours((e - g.Stop) / burn), Money(g.Stop))
+                    : L.T("g_warn_flat", Money(e), Money(g.Warn));
+                if (Money(e) != Money(a)) msg += " " + L.T("g_projected", Money(a));
                 if (canAct == false) msg += " " + L.T("g_readonly");
                 else if (balance.NoStop is { Length: > 0 } ns) msg += " " + ns;
                 GuardNotify(msg);
                 Log.I(Id, $"guard warning"); Log.D(Id, $"guard warning: balance {a}, burn {burn}");
             }
         }
-        if (a <= g.Stop)
+        if (e <= g.Stop)
         {
-            lock (gate) { gWarned = true; if (pending is { Idle: false } || gStopping) return; }   // no separate warning any more in this crossing
+            lock (gate) { if (!gWarned) gWarnedFigure = a; gWarned = true; if (pending is { Idle: false } || gStopping) return; }   // no separate warning any more in this crossing
             var targets = GuardTargets(g);
             var noStop = balance.NoStop;
             if (canAct == false || noStop != null || targets.Count == 0)
@@ -221,9 +249,9 @@ abstract partial class MachineConnector
                 bool send;
                 lock (gate) { send = !gBelowWarned; gBelowWarned = true; }
                 if (!send) return;
-                GuardNotify(canAct == false ? L.T("g_below_ro", Money(a), Money(g.Stop)) + " " + L.T("g_readonly")
-                    : noStop != null ? L.T("g_below_ro", Money(a), Money(g.Stop)) + " " + noStop
-                    : L.T("g_nothing", Money(a), Money(g.Stop)));
+                GuardNotify(canAct == false ? L.T("g_below_ro", Money(e), Money(g.Stop)) + " " + L.T("g_readonly")
+                    : noStop != null ? L.T("g_below_ro", Money(e), Money(g.Stop)) + " " + noStop
+                    : L.T("g_nothing", Money(e), Money(g.Stop)));
                 return;
             }
             if (canAct == null)
@@ -231,7 +259,7 @@ abstract partial class MachineConnector
                 // the probe hasn't answered yet: nothing stopped, but said once (it is tried again at each reading)
                 bool send;
                 lock (gate) { send = !gProbeWarned; gProbeWarned = true; }
-                if (send) { GuardNotify(L.T("g_probe_wait", Money(a), Money(g.Stop))); Log.W(Id, $"guard: below stop, actions not probed yet"); }
+                if (send) { GuardNotify(L.T("g_probe_wait", Money(e), Money(g.Stop))); Log.W(Id, $"guard: below stop, actions not probed yet"); }
                 return;
             }
             // only machines whose stop already failed (they had their grace): tried again now, quietly unless it works
@@ -251,7 +279,7 @@ abstract partial class MachineConnector
             }
             // a pending idle stop of one machine gives way to the balance stop of all of them
             CancelPending(_ => L.T("g_idle_replaced"), p => p.Idle);
-            StartPending(g, a, burn, targets);
+            StartPending(g, a, e, burn, targets);
         }
     }
 
@@ -264,11 +292,11 @@ abstract partial class MachineConnector
             gMisses++;
             gMissWhy = why ?? "";
             send = gMisses >= 2 && !gOutage;
-            if (send) gOutage = true;
+            if (send) { gOutage = true; gOutageByKey = keyCheck == "revoked"; }
         }
         if (!send) return;
-        GuardNotify(L.T("g_unreadable", gMissWhy.Length > 0 ? J.Cut(gMissWhy, 100) : "?"));
         Log.W(Id, $"guard: balance unreadable ({gMissWhy})");
+        if (keyCheck != "revoked") GuardNotify(L.T("g_unreadable", gMissWhy.Length > 0 ? J.Cut(gMissWhy, 100) : "?"));
     }
 
     /// <summary>A poll failed altogether (exception in the loop): counts as a missed balance reading once per reading slot.</summary>
@@ -278,11 +306,22 @@ abstract partial class MachineConnector
         GuardOnBalance(false, why);
     }
 
-    /// <summary>The balance is read every billing_interval; while a stop is pending, every minute (a top-up cancels it).</summary>
-    double BalanceEvery(Conf c) => pending is { Idle: false } ? Math.Min(c.BillingEvery, Mock ? 1 : 60) : c.BillingEvery;
+    double FastRead => Mock ? 1 : GuardTiming.FastRead;
+
+    /// <summary>The balance is read every billing_interval; sooner when the stop threshold is near; every minute while a stop
+    /// is pending (a top-up cancels it) or one failed (it is tried again). Not sooner when the guard couldn't stop anything.</summary>
+    double BalanceEvery(Conf c)
+    {
+        var g = GCfg;
+        bool inProgress;
+        lock (gate) inProgress = pending is { Idle: false } || (g.On && gFailed.Count > 0);
+        if (!inProgress && (!g.On || !BalanceSource)) return c.BillingEvery;
+        return GuardTiming.NextReading(c.BillingEvery, FastRead, EffectiveBalance, g.Stop, SpendRate() ?? 0, inProgress,
+            canAct != false && balance?.NoStop == null && AnyStoppable(g));
+    }
 
     // ------------------------------------------------------------ pending stop
-    void StartPending(GuardConf g, double a, double burn, List<Machine> targets)
+    void StartPending(GuardConf g, double a, double effective, double burn, List<Machine> targets)
     {
         var now = J.Now();
         var dl = now + g.GraceMin * 60;
@@ -297,11 +336,13 @@ abstract partial class MachineConnector
                 Seq = ++guardSeq, Created = now, Deadline = dl, Balance = a, Burn = burn, Capped = capped,
                 Ids = targets.Select(m => m.Id).ToList(), Names = targets.ToDictionary(m => m.Id, m => m.Name ?? m.Id),
             };
-            nextBilling = Math.Min(nextBilling, now + (Mock ? 1 : 60));   // a top-up during the grace is seen
+            nextBilling = Math.Min(nextBilling, now + FastRead);   // a top-up during the grace is seen
         }
         SaveGuard();
         var names = string.Join(", ", targets.Select(m => m.Name ?? m.Id));
-        var text = L.T("g_pending", Money(a), Money(g.Stop), Usd.Rate(burn), J.Cut(names, 600), When(dl));
+        var text = L.T("g_pending", Money(effective), Money(g.Stop), Usd.Rate(burn), J.Cut(names, 600), When(dl));
+        if (Money(effective) != Money(a)) text += " " + L.T("g_projected", Money(a));
+        if (balance?.StopNote is { Length: > 0 } sn) text += " " + sn;
         if (capped && ZeroAt() is double z2) text += " " + L.T("g_capped", When(z2));
         ShowPending(p, g, text, register: true);
         GuardNotify(text, "warn", withButtons: true);
@@ -329,7 +370,7 @@ abstract partial class MachineConnector
         });
 
     string PendingShort(PendingStop p) =>
-        p.Held ? L.T("g_held_short") : L.N("g_pending_short", p.Ids.Count, When(p.Deadline));
+        p.Held ? L.T("g_held_short") : p.Waiting ? L.T("g_wait_short") : L.N("g_pending_short", p.Ids.Count, When(p.Deadline));
 
     /// <summary>The pending stop as a task: running while it waits, with Stop now / Snooze (panel, toasts, Telegram).</summary>
     void ShowPending(PendingStop p, GuardConf g, string log, bool register)
@@ -376,8 +417,8 @@ abstract partial class MachineConnector
         Log.I(Id, $"guard: pending stop #{p.Seq} cancelled"); Log.D(Id, $"guard: cancelled: {why}");   // the text names the balance or a machine
     }
 
-    /// <summary>Each loop round: a pending stop whose time has come. The balance is read again first - unreadable (any
-    /// error): held. A Snooze / top-up during that read wins (checked again under the lock).</summary>
+    /// <summary>Each loop round: a pending stop whose time has come. The balance is read again first and
+    /// <see cref="GuardTiming.AtDeadline"/> decides. A Snooze / top-up during that read wins (checked again under the lock).</summary>
     async Task GuardTick(string key, CancellationToken ct)
     {
         PendingStop p;
@@ -390,23 +431,57 @@ abstract partial class MachineConnector
         var (b, why, _, _) = await ReadBalance(key, ct);
         if (b?.Amount is not double a)
         {
-            bool warn;
+            bool warn, wasHeld, nearZero;
+            var left = HeldSecondsToZero(p);
             lock (gate)
             {
                 if (pending != p || p.Ver != ver) return;   // snoozed / cancelled meanwhile
+                wasHeld = p.Held;
                 warn = !p.HeldWarned; p.HeldWarned = true; p.Held = true; p.Deadline = J.Now() + (Mock ? 1 : 60);
+                nearZero = !p.ZeroWarned && left is double s && s <= ZeroAhead;
+                if (nearZero) p.ZeroWarned = true;
             }
+            var zeroText = nearZero ? L.T("g_held_zero", When(J.Now() + Math.Max(0, left.Value))) : "";
+            if (!warn && !wasHeld) ShowPending(p, g, L.T("g_held"), register: false);   // told once, the card follows
             if (warn)
             {
-                ShowPending(p, g, L.T("g_held"), register: false);
-                GuardNotify(L.T("g_held"), "warn", withButtons: true);
+                var text = L.T("g_held") + (nearZero ? " " + zeroText : "");
+                ShowPending(p, g, text, register: false);
+                GuardNotify(text, "warn", withButtons: true);
                 Log.W(Id, $"guard: balance unreadable at the deadline ({why}) - auto-stop held");
             }
+            else if (nearZero)
+            {
+                ShowPending(p, g, zeroText, register: false);
+                GuardNotify(zeroText, "warn", withButtons: true);
+            }
+            if (nearZero) Log.W(Id, "guard: auto-stop held and the estimated $0 is near");
             return;
         }
         balance = b; balanceAt = J.Now();
-        if (a > g.Stop) { CancelPending(L.T("g_topup", Money(a), Money(g.Stop))); return; }
+        NoteReading();
+        var call = GuardTiming.AtDeadline(a, EffectiveBalance ?? a, p.Balance, g.Stop, SpendRate() ?? 0);
+        if (call == GuardTiming.DeadlineCall.Cancel) { CancelPending(L.T("g_topup", Money(a), Money(g.Stop))); return; }
         if (b.NoStop is { Length: > 0 } ns) { CancelPending(ns); return; }
+        if (call == GuardTiming.DeadlineCall.Wait)
+        {
+            bool say, wasHeld;
+            lock (gate)
+            {
+                if (pending != p || p.Ver != ver) return;
+                wasHeld = p.Held;
+                say = !p.Waiting; p.Waiting = true; p.Held = false; p.Deadline = J.Now() + FastRead;
+            }
+            if (!say && wasHeld) ShowPending(p, g, L.T("g_wait_confirm", Money(a), Money(g.Stop)), register: false);   // told once, the card follows
+            if (say)
+            {
+                var text = L.T("g_wait_confirm", Money(a), Money(g.Stop));
+                ShowPending(p, g, text, register: false);
+                GuardNotify(text, "warn", withButtons: true);
+                Log.I(Id, $"guard: stop #{p.Seq} waits for a figure at the threshold");
+            }
+            return;
+        }
         await RunStop(p, "auto", key, ct, ver);
     }
 
@@ -447,6 +522,7 @@ abstract partial class MachineConnector
             if (ZeroAt() is double z && z - Margin < dl) { dl = Math.Max(now, z - Margin); p.Capped = true; }
             p.Deadline = dl;
             p.Ver++;
+            p.Waiting = false;
             text = L.T("g_snoozed", When(dl)) + (p.Capped && ZeroAt() is double z2 ? " " + L.T("g_capped", When(z2)) : "");
         }
         SaveGuard();
@@ -492,7 +568,7 @@ abstract partial class MachineConnector
                     var r = await Act(m, "stop", key, CancellationToken.None);
                     if (r.Code is not (200 or 201 or 202 or 204))
                     {
-                        if (r.Code == 403 && !r.Limited) canAct = false;
+                        if (r.Code == 403 && !r.Limited) ActionForbidden(r);
                         err = ActionError(r, "stop") ?? r.Code switch
                         {
                             403 => L.T("m_err_403"), 409 => L.T("m_err_409"), 404 => L.T("m_err_404"), 429 => L.T("m_err_429"),
@@ -532,7 +608,7 @@ abstract partial class MachineConnector
                 foreach (var (m, err) in results)
                     if (p.Idle) continue;   // an idle stop is no part of the balance crossing
                     else if (err == null) { gTried.Add(m.Id); gFailed.Remove(m.Id); }
-                    else gFailed.Add(m.Id);
+                    else { gFailed.Add(m.Id); nextBilling = Math.Min(nextBilling, J.Now() + FastRead); }
             if (retry && results.All(x => x.Error != null))
             {
                 Log.E(Id, $"guard: retry #{p.Seq}: still failing ({string.Join(", ", results.Select(x => x.M.Id))})");
@@ -604,7 +680,7 @@ abstract partial class MachineConnector
             ["retry"] = J.StrArray(FailedIds()),
             ["pending"] = p == null ? null : new JsonObject
             {
-                ["seq"] = p.Seq, ["deadline"] = Math.Round(p.Deadline, 2), ["held"] = p.Held, ["capped"] = p.Capped,
+                ["seq"] = p.Seq, ["deadline"] = Math.Round(p.Deadline, 2), ["held"] = p.Held, ["waiting"] = p.Waiting, ["capped"] = p.Capped,
                 ["machines"] = J.StrArray(p.Ids), ["task"] = GuardTid, ["kind"] = p.Idle ? "idle" : "balance",
             },
         };

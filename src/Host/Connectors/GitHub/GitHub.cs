@@ -39,7 +39,13 @@ sealed partial class GitHubConnector : ISettingsConnector
         public double NextPoll; public int AwaitAttempt; public double AwaitUntil;
         public double? Usual;   // usual duration of the workflow, s
     }
-    sealed class RepoState { public string Etag; public double NextPoll; public bool Baseline = true; public string Status = ""; }
+    sealed class RepoState
+    {
+        public string Etag; public double NextPoll; public bool Baseline = true; public string Status = "";
+        public readonly HashSet<long> Seen = new();   // this repository's ids in `known`
+        public long Forgotten;                        // the highest id dropped from `known`: older ids aren't new runs
+    }
+    const int KnownPerRepo = 1000;
     readonly Dictionary<long, Run> active = new();                 // runs being followed
     readonly Dictionary<long, int> known = new();                  // run id -> attempt already shown (or skipped)
     readonly Dictionary<string, RepoState> repos = new();
@@ -48,6 +54,7 @@ sealed partial class GitHubConnector : ISettingsConnector
     string login, status = "off", gcmToken;
     // the last verdict on the saved token: "ok" | "revoked" | "network" | "unavailable"; null = none / not checked
     string tokenCheck;
+    readonly KeyWatch keyWatch = new();
     int tokenCheckCode;
     double gcmAt, pausedUntil, lastExpiryWarn;
     DateTimeOffset? expires;
@@ -134,7 +141,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             if (b.ContainsKey(k)) c[k] = J.Truthy(b[k]);
         if (J.IsStr(b["token"])) SetToken(J.Str(b["token"]));   // a rejected token: nothing is changed
         Connectors.SetConfig(S, Id, c);
-        if (J.Truthy(b["forget_token"])) { Secrets.Delete(S, Id); login = null; expires = null; tokenCheck = null; }
+        if (J.Truthy(b["forget_token"])) { Secrets.Delete(S, Id); login = null; expires = null; tokenCheck = null; keyWatch.Reset(); }
         Start();
         return State();
     }
@@ -164,6 +171,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         if (login == "") login = null;
         tokenCheck = r == null ? "network" : r.Code == 200 ? "ok" : "unavailable";
         tokenCheckCode = r?.Code ?? 0;
+        keyWatch.Note(hub, Title, tokenCheck, force: false);
     }
 
     /// <summary>The verdict on the saved token in words ("Connected as @login" / revoked / no network / unavailable).</summary>
@@ -221,7 +229,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             ["key_check"] = check.Length > 0 ? check : null,
             ["summary"] = !on ? "" : SettingsRows.Line(tokenAuth ? J.Str(g["token_check_text"]) : (login.Length > 0 ? "@" + login : ""),
                 (tokenAuth ? SettingsRows.Normal(st) : st is "ok" or "starting" or "off" or "") ? "" : st, n > 0 ? L.N("gh_repos_n", n) : ""),
-            ["help_url"] = SettingsRows.KeyHelpUrl(Id, "uk"),
+            ["help_url"] = SettingsRows.KeyHelpUrl(Id),
         };
         if (!on) return row;
         // access: own token (fine-grained, read-only is enough) or the login Git already has
@@ -359,7 +367,7 @@ sealed partial class GitHubConnector : ISettingsConnector
             login = J.Str(me.Body?["login"]);
         }
         status = "ok";
-        if (c.Auth == "token") tokenCheck = "ok";
+        if (c.Auth == "token") { tokenCheck = "ok"; keyWatch.Note(hub, Title, "ok", force: false); }
         WarnExpiry();
         bool slow = rateLeft >= 0 && rateLeft < 500;   // close to the hourly limit: everything at a quarter of the pace
         foreach (var repo in c.Repos)
@@ -387,7 +395,7 @@ sealed partial class GitHubConnector : ISettingsConnector
     void Rejected(Conf c)
     {
         status = "token rejected";
-        if (c.Auth == "token") tokenCheck = "revoked";
+        if (c.Auth == "token") { tokenCheck = "revoked"; keyWatch.Note(hub, Title, "revoked", force: false); }
         login = null;
         gcmToken = null;
         pausedUntil = J.Now() + 300;
@@ -441,6 +449,7 @@ sealed partial class GitHubConnector : ISettingsConnector
                 RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
             };
             psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
+            psi.Environment["GIT_ASKPASS"] = "";   // git asks a program before core.askPass and SSH_ASKPASS; empty means no window (GIT_TERMINAL_PROMPT doesn't cover this)
             psi.Environment["GCM_INTERACTIVE"] = "never";
             using var p = Process.Start(psi);
             if (input != null) p.StandardInput.Write(input);
@@ -502,7 +511,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         // more new runs than one page (a burst of pushes): the next pages too, while everything on a page is new
         var all = new List<JsonObject>(page);
         var next = r.Next;
-        for (int pages = 1; !rs.Baseline && next != null && pages < 5 && page.Count > 0 && AllNew(page); pages++)
+        for (int pages = 1; !rs.Baseline && next != null && pages < 5 && page.Count > 0 && AllNew(page, rs); pages++)
         {
             var rn = await Send(HttpMethod.Get, next, null, token, ct);
             if (rn.Code != 200) break;
@@ -521,10 +530,24 @@ sealed partial class GitHubConnector : ISettingsConnector
             {
                 if (active.ContainsKey(id)) continue;
                 bool seen = known.TryGetValue(id, out var ka);
-                // first look after start: only what is still going; later: every new run / new attempt (re-run)
-                follow = rs.Baseline ? !done : !seen || attempt > ka;
+                // first look after start: only what is still going; later: every new run / new attempt (re-run).
+                // A run older than what this repository remembers isn't new: only a re-run still going is followed.
+                follow = rs.Baseline ? !done
+                    : !seen && id <= rs.Forgotten ? attempt > 1 && !done
+                    : !seen || attempt > ka;
                 known[id] = Math.Max(attempt, seen ? ka : 0);
-                if (known.Count > 3000) foreach (var k in known.Keys.OrderBy(x => x).Take(1000).ToList()) known.Remove(k);
+                rs.Seen.Add(id);
+                if (rs.Seen.Count > KnownPerRepo)
+                {
+                    // each repository has its own bound, and what its current page shows stays
+                    var onPage = runs.Select(x => (long)(J.Num(x["id"]) ?? 0)).ToHashSet();
+                    foreach (var k in rs.Seen.Where(x => !onPage.Contains(x)).OrderBy(x => x).Take(KnownPerRepo / 3).ToList())
+                    {
+                        rs.Seen.Remove(k);
+                        known.Remove(k);
+                        rs.Forgotten = Math.Max(rs.Forgotten, k);
+                    }
+                }
             }
             if (!follow) continue;
             var run = new Run { Id = id, Repo = repo, Attempt = attempt, WorkflowId = (long)(J.Num(j["workflow_id"]) ?? 0), Json = j };
@@ -535,10 +558,10 @@ sealed partial class GitHubConnector : ISettingsConnector
         rs.Baseline = false;
     }
 
-    bool AllNew(List<JsonObject> page)
+    bool AllNew(List<JsonObject> page, RepoState rs)
     {
         lock (gate)
-            return page.All(x => (long)(J.Num(x["id"]) ?? 0) is var id && !known.ContainsKey(id) && !active.ContainsKey(id));
+            return page.All(x => (long)(J.Num(x["id"]) ?? 0) is var id && id > rs.Forgotten && !known.ContainsKey(id) && !active.ContainsKey(id));
     }
 
     /// <summary>Finished for good. "action_required" (a run that needs someone's approval, e.g. from a fork) is not:
@@ -573,10 +596,30 @@ sealed partial class GitHubConnector : ISettingsConnector
             run.AwaitAttempt = 0;
         }
         if (attempt > run.Attempt) { run.Attempt = attempt; run.JobsEtag = null; run.Jobs = null; lock (gate) known[run.Id] = attempt; await Show(run, token, c, ct); }
-        var j = await Call(HttpMethod.Get, $"/repos/{run.Repo}/actions/runs/{run.Id}/attempts/{run.Attempt}/jobs?per_page=100", run.JobsEtag, token, ct);
+        var j = await Jobs(run, run.JobsEtag, token, ct);
         if (j.Code == 200) { run.JobsEtag = j.ETag; run.Jobs = j.Body?["jobs"] as JsonArray; }
         if (done) { await Finished(run, token, c, ct); return; }
         Try(() => hub.Update(Tid(run.Id), Progress(run)));
+    }
+
+    /// <summary>A run's jobs, every page (a big matrix has more than 100). With more than one page there is no tag to keep: a job on a
+    /// later page can change while the first page stays the same.</summary>
+    async Task<Resp> Jobs(Run run, string etag, string token, CancellationToken ct)
+    {
+        var first = await Call(HttpMethod.Get, $"/repos/{run.Repo}/actions/runs/{run.Id}/attempts/{run.Attempt}/jobs?per_page=100", etag, token, ct);
+        if (first.Code != 200 || first.Next == null) return first;
+        var all = (first.Body?["jobs"] as JsonArray ?? new JsonArray()).Select(x => J.C(x)).ToList();
+        var next = first.Next;
+        for (int pages = 1; next != null && pages < 10; pages++)
+        {
+            var r = await Send(HttpMethod.Get, next, null, token, ct);
+            if (r.Code != 200) break;
+            all.AddRange((r.Body?["jobs"] as JsonArray ?? new JsonArray()).Select(x => J.C(x)));
+            next = r.Next;
+        }
+        first.Body = new JsonObject { ["jobs"] = new JsonArray(all.ToArray()) };
+        first.ETag = null;
+        return first;
     }
 
     static string Tid(long runId) => "gh-" + runId;
@@ -686,7 +729,7 @@ sealed partial class GitHubConnector : ISettingsConnector
         };
         if (run.Jobs == null)
         {
-            var jr = await Call(HttpMethod.Get, $"/repos/{run.Repo}/actions/runs/{run.Id}/attempts/{run.Attempt}/jobs?per_page=100", null, token, ct);
+            var jr = await Jobs(run, null, token, ct);
             if (jr.Code == 200) run.Jobs = jr.Body?["jobs"] as JsonArray;
         }
         var jobs = (run.Jobs ?? new JsonArray()).OfType<JsonObject>().ToList();

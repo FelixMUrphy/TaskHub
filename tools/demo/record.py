@@ -194,10 +194,14 @@ class Cdp:
         return (r.get("result") or {}).get("value")
 
 
+TOKEN = "demo-recording-token"
+os.environ["TASKHUB_TOKEN"] = TOKEN   # the demo hub started below reads it
+
+
 # ------------------------------------------------------------------------------------------------------------ helpers
 def http(method, path, body=None):
     req = urllib.request.Request(HUB + path, json.dumps(body).encode() if body is not None else None, method=method,
-                                 headers={"Content-Type": "application/json", "X-TaskHub": "1"})
+                                 headers={"Content-Type": "application/json", "X-TaskHub": "1", "Authorization": "Bearer " + TOKEN})
     with op.open(req, timeout=10) as r:
         return json.loads(r.read() or b"{}")
 
@@ -407,7 +411,7 @@ def main():
         cdp = Cdp(page["webSocketDebuggerUrl"])
         cdp.call("Emulation.setDeviceMetricsOverride", width=W_, height=H_, deviceScaleFactor=1, mobile=False)
         cdp.call("Emulation.setEmulatedMedia", features=[{"name": "prefers-color-scheme", "value": "dark"}])
-        scene = "file:///" + os.path.join(HERE, "scene.html").replace("\\", "/") + "?hub=" + HUB
+        scene = "file:///" + os.path.join(HERE, "scene.html").replace("\\", "/") + "?hub=" + HUB + "&token=" + TOKEN
         cdp.call("Page.enable")
         cdp.call("Page.navigate", url=scene)
         for _ in range(50):

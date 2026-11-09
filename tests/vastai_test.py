@@ -14,6 +14,7 @@ DATA = os.environ.get("TASKHUB_DATA", os.path.join(os.environ.get("TEMP", "."), 
 PORT = 47890
 KEY_RO = "va_READONLY" + "r" * 52
 KEY_RW = "va_READWRITE" + "w" * 52
+key_revoked = {"on": False}
 USER_KEY = "THE_USERS_OWN_API_KEY_" + "k" * 30   # /users/current also returns the key: must never show up anywhere
 PAGE = 2
 fails = 0
@@ -101,7 +102,7 @@ class Api(BaseHTTPRequestHandler):
         path = self.path
         with lock:
             calls.append((m, path, auth, body))
-        if auth not in ("Bearer " + KEY_RO, "Bearer " + KEY_RW):
+        if auth not in ("Bearer " + KEY_RO, "Bearer " + KEY_RW) or key_revoked["on"]:
             return self.reply(401, {"success": False, "error": "auth_error", "msg": "Invalid user key"})
         rw = auth == "Bearer " + KEY_RW
         p = path.split("?")[0]
@@ -187,6 +188,13 @@ def call(method, path, body=None):
 def task(tid):
     s, r = call("GET", f"/api/tasks/{tid}")
     return r if s == 200 else None
+
+
+def key_toasts(text):
+    """Notifications with this text so far (the hub's log has a line per toast, also with toasts off in config)."""
+    time.sleep(0.6)   # they pass a queue
+    with open(os.path.join(DATA, "taskhub.log"), encoding="utf-8", errors="replace") as f:
+        return sum(1 for l in f if "TOAST [" in l and text in l)
 
 
 def wait(pred, timeout=15):
@@ -445,6 +453,11 @@ check("settings rows: no key, no account details", rw is not None and KEY_RO not
       and "someone@example.com" not in txt, txt[:300])
 check("settings row: connected, both balances labelled", rw and rw["key_check"] == "ok" and rw["summary"].startswith("Connected")
       and "Credit $50.00" in rw["summary"] and rw["help_url"].endswith("/docs/keys/vastai.md"), rw)
+warned0, back0 = key_toasts("no longer accepts"), key_toasts("accepts the key again")
+key_revoked["on"] = True
+check("key revoked later: a warning", wait(lambda: key_toasts("no longer accepts") == warned0 + 1), key_toasts("no longer accepts") - warned0)
+key_revoked["on"] = False
+check("accepted again: said so", wait(lambda: key_toasts("accepts the key again") == back0 + 1), key_toasts("accepts the key again") - back0)
 s, r = call("POST", "/api/connectors/vastai", {"enabled": False})
 check("off keeps the key", s == 200 and r.get("key_set") is True and vault.exists(TARGET), r)
 # Vast.ai unavailable (503) when a key is saved: kept, said so

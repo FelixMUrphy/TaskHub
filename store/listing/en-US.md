@@ -22,7 +22,7 @@ In Settings → AI agents you can connect TaskHub to Claude Code and Codex. The 
 Connectors (optional, off by default)
 • GitHub Actions: the workflow runs of the repositories you list, as tasks: progress by jobs and steps, the failed step and the end of its log, cancel and re-run buttons.
 • Runpod and Vast.ai: your GPU machines as tasks: GPU, price per hour, spent so far, uptime, SSH, load charts, a "GPU idle" warning, balance and runway with a low-balance warning, stop / start / restart (delete only in the panel, after typing the machine's name).
-• AWS: EC2 instances, SageMaker training jobs and AWS Batch jobs as tasks, this month's cost and forecast, and AWS Budgets, each behind its own switch. Read-only. Cost Explorer is billed by AWS ($0.01 per request, about $1.80 a month at most).
+• AWS: EC2 instances, SageMaker training jobs and AWS Batch jobs as tasks, this month's cost and forecast, and AWS Budgets, each behind its own switch. Read-only. Cost Explorer is billed by AWS ($0.01 per request, about $1.80 a month at most). This connector was built from the AWS documentation and tested against a simulator, not yet on a real AWS account.
 Each connector works only after you turn it on and enter your own API key. The key is kept only in Windows Credential Manager, and the connector talks only to its own service's API (api.github.com, api.runpod.io, console.vast.ai, *.amazonaws.com).
 
 Balance guard (optional, off until you turn it on)

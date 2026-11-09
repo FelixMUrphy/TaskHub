@@ -1,6 +1,6 @@
 # AWS: access key for TaskHub
 
-[Українською](aws.uk.md) · [All keys](README.md)
+**English** · [Українська](aws.uk.md) · [Español](aws.es.md) · [Deutsch](aws.de.md) · [Français](aws.fr.md) · [Italiano](aws.it.md) · [Português](aws.pt.md) · [Polski](aws.pl.md) · [中文](aws.zh.md) · [日本語](aws.ja.md) · [All pages](README.md)
 
 ## What TaskHub uses it for
 - **Watch:** your EC2 instances in the Regions you use: name, type, Region, state and how long they have been running.
