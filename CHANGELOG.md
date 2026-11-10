@@ -19,6 +19,7 @@ from here), followed by the list of commits.
 - **Work hours: exchange rates that keep working.** The National Bank of Poland is a third rate source (it has the hryvnia). When the chosen source doesn't answer — the National Bank of Ukraine refuses some networks and VPNs — or hasn't got the pair, the other two are asked, and the panel says whose rate is shown and why.
 - **Work hours: lists to pick from.** The country, the region and both currencies are picked from lists, named in the panel's language; the regions are those with their own holidays in the country's list, and the currencies the rate source has come first.
 - **Work hours: a session on a vacation day** asks first: remove the vacation mark, or keep it and count the hours as overtime.
+- **GitHub Actions:** after TaskHub restarts or a connector setting changes, a run in progress keeps its bar as time against the usual duration; it fell back to the count of steps.
 
 ## 4.1.0 — 2026-11-05
 

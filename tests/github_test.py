@@ -259,6 +259,14 @@ if t:
     check("started = run start on GitHub", t and abs(t["started"] - (now0 - 30)) < 2, t and t["started"])
     ids = [c["id"] for c in t["controls"]] if t else []
     check("buttons: open, cancel, re-run failed, re-run", ids == ["open", "cancel", "rerun_failed", "rerun"], ids)
+    # a settings change restarts the connector, which adopts the running run from the hub: the bar stays time against the usual
+    # duration (it fell back to the steps, 3 of 5, until the next attempt)
+    s, r = call("POST", "/api/connectors/github", {"notify_success": True})
+    check("(a settings change: the connector restarts)", s == 200, (s, r))
+    time.sleep(5)   # the adopted run is polled again (active interval 2 s)
+    p = (task("gh-101") or {}).get("progress")
+    check("...the run adopted after the restart: the bar still time against the usual duration, not steps",
+          p is not None and p != 0.6 and abs(p - (time.time() - (now0 - 30)) / 120) < 0.2, p)
 # repos are polled one after another: wait until o/missing has been checked, not just o/r
 r = wait(lambda: (lambda c: c if c.get("repo_status", {}).get("o/missing") else None)(call("GET", "/api/connectors/github")[1])) or {}
 check("repo without access reported", r.get("repo_status", {}).get("o/missing") == "not found, or the token can't reach it: check the name, then the token's repository list and permissions", r)

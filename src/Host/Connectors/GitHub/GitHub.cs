@@ -599,6 +599,9 @@ sealed partial class GitHubConnector : ISettingsConnector
         var j = await Jobs(run, run.JobsEtag, token, ct);
         if (j.Code == 200) { run.JobsEtag = j.ETag; run.Jobs = j.Body?["jobs"] as JsonArray; }
         if (done) { await Finished(run, token, c, ct); return; }
+        // a run adopted after a restart (TaskHub's or the connector's, on a settings change) has no usual duration yet: without it
+        // the bar fell back to the steps (cached per workflow, so no request per poll)
+        if (run.Usual == null) run.Usual = await Expected(run, token, ct);
         Try(() => hub.Update(Tid(run.Id), Progress(run)));
     }
 
